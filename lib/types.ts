@@ -53,12 +53,75 @@ export interface Strategy {
   updatedAt: string;
 }
 
+export type ChartKind =
+  | "equity"
+  | "rByDay"
+  | "winLoss"
+  | "bySymbol"
+  | "bySetup"
+  | "bar"
+  | "scatter"
+  | "line";
+
+export type TradeMetricField =
+  | "entry"
+  | "stop"
+  | "target"
+  | "exit"
+  | "slPips"
+  | "tpPips"
+  | "stopDistance"
+  | "targetDistance"
+  | "timeInTradeMinutes"
+  | "pnlUsd"
+  | "riskUsd"
+  | "feesUsd"
+  | "rMultiple";
+
+export type TradeLabelField = "symbol" | "date" | "setup" | "session" | "side" | "result";
+
+export interface ChartPoint {
+  label: string;
+  value: number;
+  secondary?: number;
+  x?: number;
+  y?: number;
+}
+
 export interface ChartSpec {
   id: string;
   title: string;
-  type: "equity" | "rByDay" | "winLoss" | "bySymbol" | "bySetup" | "custom";
+  type: ChartKind;
   description?: string;
-  data?: { label: string; value: number; secondary?: number }[];
+  xLabel?: string;
+  yLabel?: string;
+  data?: ChartPoint[];
+}
+
+export interface ChartRequest {
+  type: ChartKind;
+  title?: string;
+  description?: string;
+  xLabel?: string;
+  yLabel?: string;
+  /** For scatter: x-axis metric */
+  xField?: TradeMetricField;
+  /** For scatter: y-axis metric */
+  yField?: TradeMetricField;
+  /** For bar/line: y values */
+  valueField?: TradeMetricField;
+  /** Point labels / group-by for bar/line */
+  labelField?: TradeLabelField;
+  /** How to reduce trades in a group (default sum; winRate for hit-rate charts) */
+  aggregate?: "sum" | "avg" | "count" | "winRate";
+  /** Numeric field to bucket for distribution charts (e.g. slPips) */
+  bucketField?: TradeMetricField;
+  /** Bucket width when bucketField is set (e.g. 10 pips) */
+  bucketSize?: number;
+  /** Default true — only closed trades */
+  closedOnly?: boolean;
+  /** Optional explicit points (overrides field mapping) */
+  data?: ChartPoint[];
 }
 
 export interface ChatMessage {

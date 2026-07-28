@@ -7,26 +7,181 @@ import {
   BarChart,
   CartesianGrid,
   Cell,
+  Line,
+  LineChart,
   Pie,
   PieChart,
   ResponsiveContainer,
+  Scatter,
+  ScatterChart,
   Tooltip,
   XAxis,
   YAxis,
+  ZAxis,
 } from "recharts";
-import type { ChartSpec } from "@/lib/types";
+import type { ChartPoint, ChartSpec } from "@/lib/types";
 
 const TEAL = "#0d9488";
 const CORAL = "#e11d48";
 const MUTED = "#78716c";
+const GRID = "rgba(28,25,23,0.08)";
 
 function tooltipStyle() {
   return {
-    background: "#fffdf8",
+    background: "#f8faf9",
     border: "1px solid rgba(28,25,23,0.12)",
     borderRadius: 12,
     fontSize: 12,
+    color: "#1c1917",
   };
+}
+
+function axisTick() {
+  return { fill: MUTED, fontSize: 11 };
+}
+
+function pointColor(value: number) {
+  return value >= 0 ? TEAL : CORAL;
+}
+
+function ScatterBody({ chart, data }: { chart: ChartSpec; data: ChartPoint[] }) {
+  const rows = data.map((d, i) => ({
+    ...d,
+    x: d.x ?? d.value,
+    y: d.y ?? d.secondary ?? 0,
+    i,
+  }));
+
+  return (
+    <ResponsiveContainer width="100%" height={220}>
+      <ScatterChart margin={{ top: 8, right: 8, bottom: 4, left: 0 }}>
+        <CartesianGrid stroke={GRID} vertical={false} />
+        <XAxis
+          type="number"
+          dataKey="x"
+          name={chart.xLabel ?? "X"}
+          tick={axisTick()}
+          axisLine={false}
+          tickLine={false}
+          label={
+            chart.xLabel
+              ? {
+                  value: chart.xLabel,
+                  position: "insideBottom",
+                  offset: -2,
+                  fill: MUTED,
+                  fontSize: 11,
+                }
+              : undefined
+          }
+        />
+        <YAxis
+          type="number"
+          dataKey="y"
+          name={chart.yLabel ?? "Y"}
+          tick={axisTick()}
+          axisLine={false}
+          tickLine={false}
+          width={44}
+          label={
+            chart.yLabel
+              ? {
+                  value: chart.yLabel,
+                  angle: -90,
+                  position: "insideLeft",
+                  fill: MUTED,
+                  fontSize: 11,
+                }
+              : undefined
+          }
+        />
+        <ZAxis range={[60, 60]} />
+        <Tooltip
+          cursor={{ strokeDasharray: "3 3", stroke: MUTED }}
+          contentStyle={tooltipStyle()}
+          formatter={(value, name) => {
+            const n = typeof value === "number" ? value : Number(value);
+            const label =
+              name === "x"
+                ? (chart.xLabel ?? "X")
+                : name === "y"
+                  ? (chart.yLabel ?? "Y")
+                  : String(name);
+            return [Number.isFinite(n) ? n : value, label];
+          }}
+          labelFormatter={(_, payload) => {
+            const row = payload?.[0]?.payload as ChartPoint | undefined;
+            return row?.label ?? "";
+          }}
+        />
+        <Scatter data={rows} fill={TEAL}>
+          {rows.map((entry) => (
+            <Cell key={`${entry.label}-${entry.i}`} fill={pointColor(entry.y)} />
+          ))}
+        </Scatter>
+      </ScatterChart>
+    </ResponsiveContainer>
+  );
+}
+
+function LineBody({ chart, data }: { chart: ChartSpec; data: ChartPoint[] }) {
+  return (
+    <ResponsiveContainer width="100%" height={220}>
+      <LineChart data={data}>
+        <CartesianGrid stroke={GRID} vertical={false} />
+        <XAxis
+          dataKey="label"
+          tick={axisTick()}
+          axisLine={false}
+          tickLine={false}
+        />
+        <YAxis
+          tick={axisTick()}
+          axisLine={false}
+          tickLine={false}
+          width={40}
+          label={
+            chart.yLabel
+              ? {
+                  value: chart.yLabel,
+                  angle: -90,
+                  position: "insideLeft",
+                  fill: MUTED,
+                  fontSize: 11,
+                }
+              : undefined
+          }
+        />
+        <Tooltip contentStyle={tooltipStyle()} />
+        <Line
+          type="monotone"
+          dataKey="value"
+          stroke={TEAL}
+          strokeWidth={2.2}
+          dot={{ r: 3.5, fill: TEAL, strokeWidth: 0 }}
+          activeDot={{ r: 5 }}
+        />
+      </LineChart>
+    </ResponsiveContainer>
+  );
+}
+
+function BarBody({ data }: { data: ChartPoint[] }) {
+  return (
+    <ResponsiveContainer width="100%" height={220}>
+      <BarChart data={data}>
+        <CartesianGrid stroke={GRID} vertical={false} />
+        <XAxis dataKey="label" tick={axisTick()} axisLine={false} tickLine={false} />
+        <YAxis tick={axisTick()} axisLine={false} tickLine={false} width={36} />
+        <Tooltip contentStyle={tooltipStyle()} />
+        <Bar dataKey="value" radius={[8, 8, 0, 0]}>
+          {data.map((entry) => (
+            <Cell key={entry.label} fill={pointColor(entry.value)} />
+          ))}
+        </Bar>
+      </BarChart>
+    </ResponsiveContainer>
+  );
 }
 
 export function ChartRenderer({ chart }: { chart: ChartSpec }) {
@@ -68,45 +223,46 @@ export function ChartRenderer({ chart }: { chart: ChartSpec }) {
               <Tooltip contentStyle={tooltipStyle()} />
             </PieChart>
           </ResponsiveContainer>
-        ) : chart.type === "equity" ? (
-          <ResponsiveContainer width="100%" height={220}>
-            <AreaChart data={data}>
-              <defs>
-                <linearGradient id={`eq-${chart.id}`} x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor={TEAL} stopOpacity={0.35} />
-                  <stop offset="100%" stopColor={TEAL} stopOpacity={0.02} />
-                </linearGradient>
-              </defs>
-              <CartesianGrid stroke="rgba(28,25,23,0.08)" vertical={false} />
-              <XAxis dataKey="label" tick={{ fill: MUTED, fontSize: 11 }} axisLine={false} tickLine={false} />
-              <YAxis tick={{ fill: MUTED, fontSize: 11 }} axisLine={false} tickLine={false} width={36} />
-              <Tooltip contentStyle={tooltipStyle()} />
-              <Area
-                type="monotone"
-                dataKey="value"
-                stroke={TEAL}
-                strokeWidth={2.2}
-                fill={`url(#eq-${chart.id})`}
-              />
-            </AreaChart>
-          </ResponsiveContainer>
+        ) : chart.type === "equity" || chart.type === "line" ? (
+          chart.type === "line" ? (
+            <LineBody chart={chart} data={data} />
+          ) : (
+            <ResponsiveContainer width="100%" height={220}>
+              <AreaChart data={data}>
+                <defs>
+                  <linearGradient id={`eq-${chart.id}`} x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor={TEAL} stopOpacity={0.35} />
+                    <stop offset="100%" stopColor={TEAL} stopOpacity={0.02} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid stroke={GRID} vertical={false} />
+                <XAxis
+                  dataKey="label"
+                  tick={axisTick()}
+                  axisLine={false}
+                  tickLine={false}
+                />
+                <YAxis
+                  tick={axisTick()}
+                  axisLine={false}
+                  tickLine={false}
+                  width={36}
+                />
+                <Tooltip contentStyle={tooltipStyle()} />
+                <Area
+                  type="monotone"
+                  dataKey="value"
+                  stroke={TEAL}
+                  strokeWidth={2.2}
+                  fill={`url(#eq-${chart.id})`}
+                />
+              </AreaChart>
+            </ResponsiveContainer>
+          )
+        ) : chart.type === "scatter" ? (
+          <ScatterBody chart={chart} data={data} />
         ) : (
-          <ResponsiveContainer width="100%" height={220}>
-            <BarChart data={data}>
-              <CartesianGrid stroke="rgba(28,25,23,0.08)" vertical={false} />
-              <XAxis dataKey="label" tick={{ fill: MUTED, fontSize: 11 }} axisLine={false} tickLine={false} />
-              <YAxis tick={{ fill: MUTED, fontSize: 11 }} axisLine={false} tickLine={false} width={36} />
-              <Tooltip contentStyle={tooltipStyle()} />
-              <Bar dataKey="value" radius={[8, 8, 0, 0]}>
-                {data.map((entry) => (
-                  <Cell
-                    key={entry.label}
-                    fill={entry.value >= 0 ? TEAL : CORAL}
-                  />
-                ))}
-              </Bar>
-            </BarChart>
-          </ResponsiveContainer>
+          <BarBody data={data} />
         )}
       </div>
     </div>

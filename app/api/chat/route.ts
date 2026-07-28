@@ -1,13 +1,8 @@
 import OpenAI from "openai";
 import { NextRequest, NextResponse } from "next/server";
-import type { Strategy, Trade } from "@/lib/types";
+import type { ChartRequest, Strategy, Trade } from "@/lib/types";
 
 export const runtime = "nodejs";
-
-type ChartRequest = {
-  type: "equity" | "rByDay" | "winLoss" | "bySymbol" | "bySetup";
-  title?: string;
-};
 
 type Actions = {
   addTrade?: Omit<Trade, "id">;
@@ -16,6 +11,31 @@ type Actions = {
   updateStrategy?: Partial<Strategy>;
   chartRequests?: ChartRequest[];
 };
+
+const METRIC_FIELDS = [
+  "entry",
+  "stop",
+  "target",
+  "exit",
+  "slPips",
+  "tpPips",
+  "stopDistance",
+  "targetDistance",
+  "timeInTradeMinutes",
+  "pnlUsd",
+  "riskUsd",
+  "feesUsd",
+  "rMultiple",
+] as const;
+
+const LABEL_FIELDS = [
+  "symbol",
+  "date",
+  "setup",
+  "session",
+  "side",
+  "result",
+] as const;
 
 const tradeFields = {
   date: { type: "string", description: "YYYY-MM-DD" },
@@ -174,7 +194,8 @@ const tools: OpenAI.Chat.Completions.ChatCompletionTool[] = [
     type: "function",
     function: {
       name: "generate_charts",
-      description: "Generate one or more charts from the trade log",
+      description:
+        "Generate one or more charts from the live trade log. Use presets for common views, or bar/scatter/line with field mappings for true on-the-fly analysis (e.g. SL size vs R, win rate by SL buckets). Prefer field mappings over inventing data points — the client builds the series from trades.",
       parameters: {
         type: "object",
         properties: {
@@ -185,9 +206,79 @@ const tools: OpenAI.Chat.Completions.ChatCompletionTool[] = [
               properties: {
                 type: {
                   type: "string",
-                  enum: ["equity", "rByDay", "winLoss", "bySymbol", "bySetup"],
+                  enum: [
+                    "equity",
+                    "rByDay",
+                    "winLoss",
+                    "bySymbol",
+                    "bySetup",
+                    "bar",
+                    "scatter",
+                    "line",
+                  ],
+                  description:
+                    "Presets: equity, rByDay, winLoss, bySymbol, bySetup. Custom: scatter (trade points), bar (grouped/bucketed), line (series).",
                 },
                 title: { type: "string" },
+                description: { type: "string" },
+                xLabel: { type: "string" },
+                yLabel: { type: "string" },
+                xField: {
+                  type: "string",
+                  enum: [...METRIC_FIELDS],
+                  description: "Scatter X metric",
+                },
+                yField: {
+                  type: "string",
+                  enum: [...METRIC_FIELDS],
+                  description: "Scatter Y metric",
+                },
+                valueField: {
+                  type: "string",
+                  enum: [...METRIC_FIELDS],
+                  description: "Bar/line value metric (default rMultiple)",
+                },
+                labelField: {
+                  type: "string",
+                  enum: [...LABEL_FIELDS],
+                  description: "Bar/line group-by or scatter point label",
+                },
+                aggregate: {
+                  type: "string",
+                  enum: ["sum", "avg", "count", "winRate"],
+                  description:
+                    "How to reduce trades in a bar/line group. Use winRate for hit-rate charts.",
+                },
+                bucketField: {
+                  type: "string",
+                  enum: [...METRIC_FIELDS],
+                  description:
+                    "Numeric field to bin for distribution charts (e.g. slPips for SL size vs win rate)",
+                },
+                bucketSize: {
+                  type: "number",
+                  description: "Bin width when bucketField is set (e.g. 10)",
+                },
+                closedOnly: {
+                  type: "boolean",
+                  description: "Default true — only closed trades",
+                },
+                data: {
+                  type: "array",
+                  description:
+                    "Optional explicit points only when field mapping cannot express the chart. Prefer xField/yField/valueField/bucketField instead.",
+                  items: {
+                    type: "object",
+                    properties: {
+                      label: { type: "string" },
+                      value: { type: "number" },
+                      secondary: { type: "number" },
+                      x: { type: "number" },
+                      y: { type: "number" },
+                    },
+                    required: ["label", "value"],
+                  },
+                },
               },
               required: ["type"],
             },
@@ -256,6 +347,16 @@ ${
 - Prefer keeping the trade that has screenshots when reconciling duplicates, unless the user says otherwise.
 - Screenshots on the current message attach automatically on add/update — still call the tool.
 - When a screenshot is present and the user wants it recorded, extract the trade fields from the image and call add_trade/update_trade with those values in the same turn (confirm only if something critical is unclear).
+
+Charts:
+- When the user asks for a chart, comparison, or visual analysis, call generate_charts — do not only describe a plot in text.
+- Presets: equity, rByDay, winLoss, bySymbol, bySetup.
+- On-the-fly: use type scatter/bar/line with field mappings so the app builds real data from the trade log.
+  Examples:
+  - SL size vs profit/R → scatter with xField=slPips (or stopDistance), yField=rMultiple or pnlUsd
+  - Win rate by SL size → bar with bucketField=slPips, bucketSize=10, aggregate=winRate
+  - Avg R by session → bar with labelField=session, valueField=rMultiple, aggregate=avg
+- Prefer field mappings over inventing data[]. Keep the reply short; the chart is the answer.
 
 Coaching (keep it tiny):
 - ALWAYS write a real reply. Never answer with only "Trade logged." / "Updated." / "On it."

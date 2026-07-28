@@ -5,8 +5,8 @@ import { Eraser, ImagePlus, Send, X } from "lucide-react";
 import { ChartRenderer } from "@/components/ChartRenderer";
 import { fileToChatImage } from "@/lib/images";
 import { applyChatActions, useTradingStore } from "@/lib/store";
-import { buildChart, computeStats } from "@/lib/stats";
-import type { ChartSpec } from "@/lib/types";
+import { buildChartFromRequest, computeStats } from "@/lib/stats";
+import type { ChartRequest, ChartSpec } from "@/lib/types";
 
 const MAX_IMAGES = 4;
 
@@ -118,9 +118,9 @@ export function ChatWidget() {
         });
 
         if (data.actions.chartRequests?.length) {
-          charts = data.actions.chartRequests.map(
-            (req: { type: ChartSpec["type"]; title?: string }) =>
-              buildChart(req.type, useTradingStore.getState().trades, req.title),
+          const tradesNow = useTradingStore.getState().trades;
+          charts = data.actions.chartRequests.map((req: ChartRequest) =>
+            buildChartFromRequest(req, tradesNow),
           );
         }
 
