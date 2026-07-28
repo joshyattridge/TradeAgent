@@ -60,6 +60,16 @@ export function ChatWidget() {
 
       const data = await res.json();
 
+      if (!res.ok || data.mode === "error") {
+        addChatMessage({
+          role: "assistant",
+          content:
+            data.reply ??
+            "No OpenAI API key found. Add your key in Settings to use TradeAgent chat.",
+        });
+        return;
+      }
+
       let charts: ChartSpec[] = [];
       if (data.actions) {
         const applied = applyChatActions({
@@ -86,10 +96,7 @@ export function ChatWidget() {
 
       addChatMessage({
         role: "assistant",
-        content:
-          data.mode === "local" && data.notice
-            ? `${data.reply ?? "Done."}\n\n_${data.notice}_`
-            : (data.reply ?? "Done."),
+        content: data.reply ?? "Done.",
         charts: charts.length ? charts : undefined,
       });
     } catch {

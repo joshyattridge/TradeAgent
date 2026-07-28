@@ -14,10 +14,10 @@ Open [http://localhost:3000](http://localhost:3000).
 ## AI chat
 
 1. Open **Settings** and paste your OpenAI API key
-2. Pick a model (default: GPT-4.1 Mini)
+2. Pick a model (default: GPT-5.6 Luna)
 3. Chat from any page
 
-Without a key, a local intent parser still handles basic chart / trade / strategy commands.
+Without a key, chat returns an error asking you to add one in Settings.
 
 You can also set `OPENAI_API_KEY` in `.env.local` as a server fallback.
 

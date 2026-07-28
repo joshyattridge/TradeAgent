@@ -15,116 +15,6 @@ type Actions = {
   chartRequests?: ChartRequest[];
 };
 
-function localFallback(
-  message: string,
-  trades: Trade[],
-  strategy: Strategy,
-  stats: Record<string, number>,
-) {
-  const lower = message.toLowerCase();
-  const actions: Actions = {};
-  const bits: string[] = [];
-
-  if (
-    /equity|progress|pnl|p&l|curve|performance|how.*(doing|am i)/i.test(message)
-  ) {
-    actions.chartRequests = [
-      { type: "equity", title: "Equity curve (R)" },
-      { type: "winLoss", title: "Win / loss mix" },
-    ];
-    bits.push(
-      `You're at ${stats.totalR?.toFixed?.(1) ?? stats.totalR}R across ${stats.closedCount} closed trades. Win rate ${Number(stats.winRate).toFixed(0)}%, expectancy ${Number(stats.expectancy).toFixed(2)}R.`,
-    );
-  }
-
-  if (/by symbol|per pair|symbols?/i.test(message)) {
-    actions.chartRequests = [
-      ...(actions.chartRequests ?? []),
-      { type: "bySymbol", title: "R by symbol" },
-    ];
-    bits.push("Here's R broken down by symbol.");
-  }
-
-  if (/by setup|setups?/i.test(message)) {
-    actions.chartRequests = [
-      ...(actions.chartRequests ?? []),
-      { type: "bySetup", title: "R by setup" },
-    ];
-    bits.push("Setup performance locked in.");
-  }
-
-  if (/daily r|r by day|day by day/i.test(message)) {
-    actions.chartRequests = [
-      ...(actions.chartRequests ?? []),
-      { type: "rByDay", title: "Daily R" },
-    ];
-    bits.push("Daily R chart coming up.");
-  }
-
-  const tradeMatch = message.match(
-    /log(?:ged)?(?: a)? trade[:\s]+(\w+)\s+(long|short)\s+([-\d.]+)R(?:\s+(.+))?/i,
-  );
-  if (tradeMatch || /add(?:ed)?(?: a)? trade|record(?:ed)?(?: a)? trade/i.test(lower)) {
-    if (tradeMatch) {
-      const [, symbol, side, r, notes] = tradeMatch;
-      const rMultiple = Number(r);
-      actions.addTrade = {
-        date: new Date().toISOString().slice(0, 10),
-        symbol: symbol.toUpperCase(),
-        side: side.toLowerCase() as "long" | "short",
-        setup: strategy.name,
-        entry: 0,
-        stop: 0,
-        target: 0,
-        rMultiple,
-        result: rMultiple > 0 ? "win" : rMultiple < 0 ? "loss" : "breakeven",
-        notes: notes?.trim() || "Logged via chat",
-        session: "London",
-      };
-      bits.push(
-        `Logged ${side.toUpperCase()} ${symbol.toUpperCase()} at ${rMultiple}R.`,
-      );
-    } else {
-      bits.push(
-        'To log fast, say: `log trade EURUSD long 2R London CE fill` — or include entry/stop details and I\'ll parse once the API key is set.',
-      );
-    }
-  }
-
-  if (/update strategy|change strategy|tweak (the )?plan|add rule/i.test(lower)) {
-    const rule = message.replace(/.*(?:update strategy|add rule|tweak the plan)[:\s-]*/i, "").trim();
-    if (rule && rule.length > 8) {
-      actions.updateStrategy = {
-        rules: [
-          ...strategy.rules,
-          {
-            title: "Chat update",
-            body: rule,
-          },
-        ],
-        approach: `${strategy.approach}\n\nLatest note: ${rule}`,
-      };
-      bits.push("Strategy updated with your new note.");
-    } else {
-      bits.push(
-        "Tell me the exact rule to add, e.g. `update strategy: no trades during red folder news`.",
-      );
-    }
-  }
-
-  if (!bits.length) {
-    bits.push(
-      `I've got ${trades.length} trades and your ${strategy.name} playbook loaded. Ask for an equity curve, R by symbol, log a trade, or update a rule.`,
-    );
-  }
-
-  return {
-    reply: bits.join(" "),
-    actions,
-    mode: "local" as const,
-  };
-}
-
 const tools: OpenAI.Chat.Completions.ChatCompletionTool[] = [
   {
     type: "function",
@@ -258,12 +148,15 @@ export async function POST(req: NextRequest) {
     "gpt-5.6-luna";
 
   if (!apiKey) {
-    return NextResponse.json({
-      ...localFallback(message, trades, strategy, stats),
-      mode: "local",
-      notice:
-        "Local mode — add your OpenAI API key in Settings to use a real model.",
-    });
+    return NextResponse.json(
+      {
+        reply:
+          "No OpenAI API key found. Add your key in Settings to use TradeAgent chat.",
+        actions: {},
+        mode: "error",
+      },
+      { status: 401 },
+    );
   }
 
   try {
