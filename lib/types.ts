@@ -42,6 +42,7 @@ export interface ChatMessage {
   id: string;
   role: "user" | "assistant" | "system";
   content: string;
+  images?: string[];
   charts?: ChartSpec[];
   createdAt: string;
 }

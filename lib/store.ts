@@ -84,6 +84,7 @@ export const useTradingStore = create<Store>()(
               id: message.id ?? uid(),
               role: message.role,
               content: message.content,
+              images: message.images,
               charts: message.charts,
               createdAt: new Date().toISOString(),
             },
@@ -101,7 +102,8 @@ export const useTradingStore = create<Store>()(
       partialize: (state) => ({
         trades: state.trades,
         strategy: state.strategy,
-        chat: state.chat,
+        // Keep chat text, drop image payloads so localStorage doesn't blow up
+        chat: state.chat.map(({ images: _images, ...rest }) => rest),
         openaiApiKey: state.openaiApiKey,
         openaiModel: state.openaiModel,
       }),

@@ -118,6 +118,7 @@ export async function POST(req: NextRequest) {
   const body = await req.json();
   const {
     message,
+    images = [],
     trades = [],
     strategy,
     stats = {},
@@ -126,6 +127,7 @@ export async function POST(req: NextRequest) {
     model: clientModel,
   }: {
     message: string;
+    images?: string[];
     trades: Trade[];
     strategy: Strategy;
     stats: Record<string, number>;
@@ -134,7 +136,14 @@ export async function POST(req: NextRequest) {
     model?: string;
   } = body;
 
-  if (!message?.trim()) {
+  const imageList = Array.isArray(images)
+    ? images.filter(
+        (img): img is string =>
+          typeof img === "string" && img.startsWith("data:image/"),
+      ).slice(0, 4)
+    : [];
+
+  if (!message?.trim() && !imageList.length) {
     return NextResponse.json({ error: "Empty message" }, { status: 400 });
   }
 
@@ -178,6 +187,7 @@ Formatting rules (important — this UI is plain text, not a markdown doc):
 Job:
 - Analyze performance, generate charts, log trades, and refine strategy via tools when needed
 - Prefer R-multiples and process adherence over vibes
+- When the user attaches chart screenshots or images, read them carefully (setup, structure, levels, invalidation) and tie advice back to their rules
 - When mutating data, call tools
 
 STRATEGY JSON:
@@ -189,6 +199,20 @@ ${JSON.stringify(stats, null, 2)}
 RECENT TRADES (newest first, capped):
 ${JSON.stringify(trades.slice(0, 40), null, 2)}`;
 
+    const userText =
+      message?.trim() ||
+      "Analyze this chart / image in the context of my strategy and trade log.";
+
+    const userContent: OpenAI.Chat.Completions.ChatCompletionContentPart[] = [
+      { type: "text", text: userText },
+      ...imageList.map(
+        (url): OpenAI.Chat.Completions.ChatCompletionContentPart => ({
+          type: "image_url",
+          image_url: { url, detail: "high" },
+        }),
+      ),
+    ];
+
     const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
       { role: "system", content: system },
       ...history
@@ -197,7 +221,10 @@ ${JSON.stringify(trades.slice(0, 40), null, 2)}`;
           role: m.role as "user" | "assistant",
           content: m.content,
         })),
-      { role: "user", content: message },
+      {
+        role: "user",
+        content: imageList.length ? userContent : userText,
+      },
     ];
 
     const completion = await openai.chat.completions.create({
