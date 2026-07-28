@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useRef, useState } from "react";
-import { Minimize2, Send } from "lucide-react";
+import { Send, X } from "lucide-react";
 import { ChartRenderer } from "@/components/ChartRenderer";
 import { applyChatActions, useTradingStore } from "@/lib/store";
 import { buildChart, computeStats } from "@/lib/stats";
@@ -116,9 +116,9 @@ export function ChatWidget() {
                 type="button"
                 className="icon-btn"
                 onClick={() => setExpanded(false)}
-                aria-label="Collapse chat"
+                aria-label="Close chat"
               >
-                <Minimize2 size={16} />
+                <X size={16} />
               </button>
             </header>
 
