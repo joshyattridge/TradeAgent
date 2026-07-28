@@ -433,6 +433,41 @@ textarea {
   line-height: 1.45;
 }
 
+.trade-detail__actions {
+  margin-top: 1.5rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--line);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.55rem;
+}
+
+.trade-detail__confirm {
+  margin: 0;
+  width: 100%;
+  color: var(--coral);
+  font-size: 0.88rem;
+}
+
+.danger-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  border: 1px solid rgba(225, 29, 72, 0.28);
+  background: rgba(225, 29, 72, 0.1);
+  color: var(--coral);
+  border-radius: 999px;
+  padding: 0.7rem 1rem;
+  cursor: pointer;
+  font-family: var(--font-display);
+  letter-spacing: -0.02em;
+}
+
+.danger-btn:hover {
+  background: rgba(225, 29, 72, 0.16);
+}
+
 .trade-detail__shots {
   margin-top: 1.15rem;
 }
