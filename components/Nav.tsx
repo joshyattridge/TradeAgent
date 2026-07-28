@@ -7,6 +7,7 @@ const links = [
   { href: "/", label: "Dashboard" },
   { href: "/logs", label: "Trading Logs" },
   { href: "/strategy", label: "Strategy" },
+  { href: "/settings", label: "Settings" },
 ];
 
 export function Nav() {

@@ -659,6 +659,144 @@ textarea {
   }
 }
 
+.settings-form {
+  max-width: 640px;
+  padding: 1.35rem 1.4rem 1.2rem;
+}
+
+.settings-status {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  margin-bottom: 1.25rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.settings-status p {
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: 0.95rem;
+}
+
+.status-dot {
+  width: 0.65rem;
+  height: 0.65rem;
+  border-radius: 999px;
+  background: var(--muted);
+  flex: 0 0 auto;
+}
+
+.status-dot.is-on {
+  background: var(--teal);
+  box-shadow: 0 0 0 5px var(--glow);
+}
+
+.field {
+  display: grid;
+  gap: 0.45rem;
+  margin-bottom: 1.15rem;
+}
+
+.field__label {
+  font-family: var(--font-display);
+  font-size: 0.95rem;
+  letter-spacing: -0.02em;
+}
+
+.field__hint {
+  color: var(--muted);
+  font-size: 0.82rem;
+  line-height: 1.4;
+}
+
+.field__hint a {
+  color: var(--teal-deep);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.field__row {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.field input,
+.field select {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 0.8rem 0.95rem;
+  background: var(--paper-2);
+  color: var(--ink);
+  outline: none;
+}
+
+.field input:focus,
+.field select:focus {
+  border-color: rgba(13, 148, 136, 0.45);
+  box-shadow: 0 0 0 3px var(--glow);
+}
+
+.field__row input {
+  flex: 1;
+}
+
+.settings-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  flex-wrap: wrap;
+  margin-top: 0.35rem;
+}
+
+.primary-btn {
+  border: none;
+  background: var(--ink);
+  color: var(--paper-2);
+  border-radius: 999px;
+  padding: 0.75rem 1.2rem;
+  cursor: pointer;
+  font-family: var(--font-display);
+  letter-spacing: -0.02em;
+  transition: transform 0.2s ease, background 0.2s ease;
+}
+
+.primary-btn:hover {
+  transform: translateY(-1px);
+  background: #292524;
+}
+
+.ghost-btn {
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--ink-soft);
+  border-radius: 999px;
+  padding: 0.7rem 0.95rem;
+  cursor: pointer;
+}
+
+.ghost-btn:hover {
+  background: rgba(28, 25, 23, 0.04);
+  color: var(--ink);
+}
+
+.save-flash {
+  color: var(--teal-deep);
+  font-size: 0.9rem;
+  animation: rise 0.25s ease both;
+}
+
+.settings-foot {
+  margin: 1.15rem 0 0;
+  color: var(--muted);
+  font-size: 0.88rem;
+}
+
+.settings-foot a {
+  color: var(--teal-deep);
+}
+
 @media (max-width: 900px) {
   .stat-row,
   .grid-2,

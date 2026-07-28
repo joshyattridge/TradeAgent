@@ -232,19 +232,31 @@ export async function POST(req: NextRequest) {
     strategy,
     stats = {},
     history = [],
+    apiKey: clientApiKey,
+    model: clientModel,
   }: {
     message: string;
     trades: Trade[];
     strategy: Strategy;
     stats: Record<string, number>;
     history: { role: string; content: string }[];
+    apiKey?: string;
+    model?: string;
   } = body;
 
   if (!message?.trim()) {
     return NextResponse.json({ error: "Empty message" }, { status: 400 });
   }
 
-  const apiKey = process.env.OPENAI_API_KEY;
+  const apiKey =
+    (typeof clientApiKey === "string" && clientApiKey.trim()) ||
+    process.env.OPENAI_API_KEY ||
+    "";
+  const model =
+    (typeof clientModel === "string" && clientModel.trim()) ||
+    process.env.OPENAI_MODEL ||
+    "gpt-4.1-mini";
+
   if (!apiKey) {
     return NextResponse.json(localFallback(message, trades, strategy, stats));
   }
@@ -278,7 +290,7 @@ ${JSON.stringify(trades.slice(0, 40), null, 2)}`;
     ];
 
     const completion = await openai.chat.completions.create({
-      model: process.env.OPENAI_MODEL ?? "gpt-4o-mini",
+      model,
       messages,
       tools,
       tool_choice: "auto",

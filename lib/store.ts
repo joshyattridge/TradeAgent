@@ -2,6 +2,7 @@
 
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import { DEFAULT_OPENAI_MODEL, type OpenAIModelId } from "./models";
 import { seedStrategy, seedTrades } from "./seed-data";
 import type { ChatMessage, ChartSpec, Strategy, Trade } from "./types";
 
@@ -13,8 +14,12 @@ interface Store {
   trades: Trade[];
   strategy: Strategy;
   chat: ChatMessage[];
+  openaiApiKey: string;
+  openaiModel: OpenAIModelId;
   hydrated: boolean;
   setHydrated: (v: boolean) => void;
+  setOpenAIApiKey: (key: string) => void;
+  setOpenAIModel: (model: OpenAIModelId) => void;
   addTrade: (trade: Omit<Trade, "id"> | Trade) => Trade;
   updateTrade: (id: string, patch: Partial<Trade>) => void;
   deleteTrade: (id: string) => void;
@@ -39,8 +44,12 @@ export const useTradingStore = create<Store>()(
           createdAt: new Date().toISOString(),
         },
       ],
+      openaiApiKey: "",
+      openaiModel: DEFAULT_OPENAI_MODEL,
       hydrated: false,
       setHydrated: (v) => set({ hydrated: v }),
+      setOpenAIApiKey: (key) => set({ openaiApiKey: key.trim() }),
+      setOpenAIModel: (model) => set({ openaiModel: model }),
       addTrade: (trade) => {
         const next: Trade = {
           ...trade,
@@ -103,6 +112,8 @@ export const useTradingStore = create<Store>()(
         trades: state.trades,
         strategy: state.strategy,
         chat: state.chat,
+        openaiApiKey: state.openaiApiKey,
+        openaiModel: state.openaiModel,
       }),
       onRehydrateStorage: () => (state) => {
         state?.setHydrated(true);
