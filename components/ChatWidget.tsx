@@ -108,19 +108,14 @@ export function ChatWidget() {
       <section className="chat-shell" aria-label="TradeAgent chat">
         {expanded ? (
           <div className="chat-panel__messages" ref={scroller}>
-            <header className="chat-panel__header chat-panel__header--inline">
-              <div>
-                <p className="chat-panel__eyebrow">TradeAgent</p>
-              </div>
-              <button
-                type="button"
-                className="icon-btn"
-                onClick={() => setExpanded(false)}
-                aria-label="Close chat"
-              >
-                <X size={16} />
-              </button>
-            </header>
+            <button
+              type="button"
+              className="chat-close-btn"
+              onClick={() => setExpanded(false)}
+              aria-label="Close chat"
+            >
+              <X size={16} />
+            </button>
 
             {chat.map((message) => (
               <div
