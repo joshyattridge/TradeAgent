@@ -192,8 +192,10 @@ ${JSON.stringify(trades.slice(0, 40), null, 2)}`;
       messages,
       tools,
       tool_choice: "auto",
-      temperature: 0.4,
-    });
+      // GPT-5.6+ defaults to reasoning on chat completions, which rejects
+      // function tools unless effort is none (or you switch to /v1/responses).
+      reasoning_effort: "none",
+    } as OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming);
 
     const choice = completion.choices[0]?.message;
     const actions: Actions = {};
