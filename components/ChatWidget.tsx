@@ -123,7 +123,10 @@ export function ChatWidget() {
               <button
                 type="button"
                 className="chat-float-btn"
-                onClick={() => clearChat()}
+                onClick={() => {
+                  clearChat();
+                  setExpanded(false);
+                }}
                 aria-label="Clear chat"
                 title="Clear chat"
               >

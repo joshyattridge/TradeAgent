@@ -89,17 +89,7 @@ export const useTradingStore = create<Store>()(
             },
           ],
         }),
-      clearChat: () =>
-        set({
-          chat: [
-            {
-              id: uid(),
-              role: "assistant",
-              content: "Chat cleared. Still locked onto your strategy + trades.",
-              createdAt: new Date().toISOString(),
-            },
-          ],
-        }),
+      clearChat: () => set({ chat: [] }),
       resetDemoData: () =>
         set({
           trades: seedTrades,
