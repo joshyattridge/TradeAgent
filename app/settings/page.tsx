@@ -3,6 +3,7 @@
 import { FormEvent, useEffect, useState } from "react";
 import Link from "next/link";
 import {
+  CUSTOM_MODEL_OPTION,
   DEFAULT_OPENAI_MODEL,
   OPENAI_MODELS,
   isPresetModel,
@@ -19,9 +20,8 @@ export default function SettingsPage() {
   const setOpenAIModel = useTradingStore((s) => s.setOpenAIModel);
 
   const [apiKey, setApiKey] = useState("");
-  const [preset, setPreset] = useState<PresetOpenAIModelId>(DEFAULT_OPENAI_MODEL);
+  const [selection, setSelection] = useState<string>(DEFAULT_OPENAI_MODEL);
   const [customModel, setCustomModel] = useState("");
-  const [useCustom, setUseCustom] = useState(false);
   const [showKey, setShowKey] = useState(false);
   const [saved, setSaved] = useState(false);
 
@@ -29,28 +29,27 @@ export default function SettingsPage() {
     if (!hydrated) return;
     setApiKey(savedKey);
     if (isPresetModel(savedModel)) {
-      setPreset(savedModel);
+      setSelection(savedModel);
       setCustomModel("");
-      setUseCustom(false);
     } else if (savedModel) {
-      setPreset(DEFAULT_OPENAI_MODEL);
+      setSelection(CUSTOM_MODEL_OPTION);
       setCustomModel(savedModel);
-      setUseCustom(true);
     } else {
-      setPreset(DEFAULT_OPENAI_MODEL);
+      setSelection(DEFAULT_OPENAI_MODEL);
       setCustomModel("");
-      setUseCustom(false);
     }
   }, [hydrated, savedKey, savedModel]);
 
+  const isCustom = selection === CUSTOM_MODEL_OPTION;
+
   function onSave(e: FormEvent) {
     e.preventDefault();
-    if (useCustom) {
+    if (isCustom) {
       const id = customModel.trim();
       if (!id) return;
       setOpenAIModel(id);
     } else {
-      setOpenAIModel(preset);
+      setOpenAIModel(selection as PresetOpenAIModelId);
     }
     setOpenAIApiKey(apiKey);
     setSaved(true);
@@ -127,65 +126,42 @@ export default function SettingsPage() {
           </span>
         </label>
 
-        <label className={`field${useCustom ? " is-dimmed" : ""}`}>
+        <label className="field">
           <span className="field__label">Model</span>
           <select
-            value={preset}
-            onChange={(e) => {
-              setPreset(e.target.value as PresetOpenAIModelId);
-              setUseCustom(false);
-            }}
-            disabled={useCustom}
+            value={selection}
+            onChange={(e) => setSelection(e.target.value)}
           >
             {OPENAI_MODELS.map((option) => (
               <option key={option.id} value={option.id}>
                 {option.label} — {option.hint}
               </option>
             ))}
+            <option value={CUSTOM_MODEL_OPTION}>Custom</option>
           </select>
           <span className="field__hint">
             Latest GPT-5.6 family. Luna is the everyday pick; Sol for deeper trade
-            reviews.
+            reviews. Choose Custom to type any OpenAI model ID.
           </span>
         </label>
 
-        <details className="settings-advanced" open={useCustom || undefined}>
-          <summary>Advanced</summary>
-          {!useCustom ? (
-            <button
-              type="button"
-              className="advanced-link"
-              onClick={() => setUseCustom(true)}
-            >
-              Use a custom OpenAI model ID
-            </button>
-          ) : (
-            <label className="field field--custom">
-              <span className="field__label">Custom model ID</span>
-              <input
-                type="text"
-                value={customModel}
-                onChange={(e) => setCustomModel(e.target.value)}
-                placeholder="e.g. gpt-5.6-sol or ft:…"
-                autoComplete="off"
-                spellCheck={false}
-              />
-              <span className="field__hint">
-                Exact API model string. Overrides the preset dropdown.{" "}
-                <button
-                  type="button"
-                  className="advanced-link"
-                  onClick={() => {
-                    setUseCustom(false);
-                    setCustomModel("");
-                  }}
-                >
-                  Back to presets
-                </button>
-              </span>
-            </label>
-          )}
-        </details>
+        {isCustom ? (
+          <label className="field field--custom">
+            <span className="field__label">Custom model ID</span>
+            <input
+              type="text"
+              value={customModel}
+              onChange={(e) => setCustomModel(e.target.value)}
+              placeholder="e.g. gpt-5.6-sol or ft:…"
+              autoComplete="off"
+              spellCheck={false}
+              required
+            />
+            <span className="field__hint">
+              Exact API model string from OpenAI (or a fine-tuned model).
+            </span>
+          </label>
+        ) : null}
 
         <div className="settings-actions">
           <button type="submit" className="primary-btn">
