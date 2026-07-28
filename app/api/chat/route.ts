@@ -12,6 +12,7 @@ type ChartRequest = {
 type Actions = {
   addTrade?: Omit<Trade, "id">;
   updateTrade?: { id: string } & Partial<Omit<Trade, "id">>;
+  deleteTradeIds?: string[];
   updateStrategy?: Partial<Strategy>;
   chartRequests?: ChartRequest[];
 };
@@ -102,7 +103,7 @@ const tools: OpenAI.Chat.Completions.ChatCompletionTool[] = [
     function: {
       name: "update_trade",
       description:
-        "Modify an existing logged trade by id. Use when the user wants to fix fields, close a trade, change P&L/R, add notes, or correct SL/TP/times. Prefer updating the most recent matching trade if they don't give an id.",
+        "Modify an existing logged trade by id. Use for follow-ups about the SAME trade (result, P&L, exit, times, notes, close the trade, etc.). Prefer this over add_trade whenever an active/recent trade exists.",
       parameters: {
         type: "object",
         properties: {
@@ -113,6 +114,28 @@ const tools: OpenAI.Chat.Completions.ChatCompletionTool[] = [
           ...tradeFields,
         },
         required: ["id"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "delete_trade",
+      description:
+        "Permanently delete one or more trades by id. Use to remove duplicates after reconciling, or when the user asks to delete a trade.",
+      parameters: {
+        type: "object",
+        properties: {
+          id: {
+            type: "string",
+            description: "Single trade id to delete",
+          },
+          ids: {
+            type: "array",
+            items: { type: "string" },
+            description: "Multiple trade ids to delete in one call",
+          },
+        },
       },
     },
   },
@@ -180,25 +203,54 @@ function buildSystemPrompt(
   strategy: Strategy,
   stats: Record<string, number>,
   trades: Trade[],
+  activeTradeId?: string | null,
 ) {
-  return `You are TradeAgent — a day-trading coach with the user's strategy, trade log, and stats in context.
+  const active = activeTradeId
+    ? trades.find((t) => t.id === activeTradeId)
+    : null;
+
+  return `You are TradeAgent — a fully chat-controlled trading journal + coach.
+
+This product is conversational. The user runs their whole journal through chat: log, update, delete, review, and coach. Be decisive and actually mutate the log with tools when they ask.
 
 Voice:
 - Direct coach energy. Plain chat text only.
 - Short paragraphs. Light dash bullets (-) when listing 3+ items.
 - No markdown: no **bold**, no ## headings, no tables, no code fences.
 
-Core behavior (important):
-- ALWAYS write a real reply to the user. Never answer with only a tool call and silence.
-- Never reply with empty fluff like "Trade logged." or "On it." — that is a failure.
-- When the user shares a trade or chart (especially screenshots), review it against THEIR strategy rules before anything else.
-- Say what fits the model and what does not (bias, PD zone, POI, sweep, displacement, session, risk).
-- Ask for missing details instead of inventing them. Priority asks: entry/SL/TP, session, R or $ risk/P&L, entry/exit times, result.
-- Give coaching input: grade the setup briefly (A/B/C or pass), one thing done well, one leak, one next question.
-- Only call add_trade when they clearly want it saved/logged (or confirm after you offer). Analyzing a screenshot alone is NOT enough to auto-log.
-- Use update_trade to change existing trades (fix SL, close trade, patch P&L, notes, etc.). Use the trade id from the log. If unclear which trade, ask or update the newest matching symbol.
-- Screenshots on the current message are auto-attached when you add/update a trade — still call the tool when saving.
-- Prefer process adherence and R-multiples over vibes.
+Hard rules for mutations:
+- If you say you logged/updated/deleted something, you MUST call the matching tool in that same turn. Never claim a change without a tool call.
+- One live conversation = one trade thread whenever possible.
+- ACTIVE TRADE ID: ${activeTradeId ?? "none"}
+${
+  active
+    ? `- Active trade snapshot: ${JSON.stringify({
+        id: active.id,
+        symbol: active.symbol,
+        side: active.side,
+        result: active.result,
+        rMultiple: active.rMultiple,
+        pnlUsd: active.pnlUsd,
+        entry: active.entry,
+        stop: active.stop,
+        target: active.target,
+        exit: active.exit,
+        hasScreenshots: Boolean(active.screenshots?.length),
+      })}`
+    : "- No active trade yet."
+}
+- After add_trade, further details about THAT trade (I lost $500, closed at X, fix SL, add session, etc.) MUST use update_trade on the active/same id — NEVER add_trade again.
+- Only use add_trade for a brand new position the user wants recorded.
+- Use delete_trade to remove duplicates or unwanted rows. If user says remove the duplicate and keep one, delete the extra id and update the keeper if needed — do both in the same turn when possible.
+- Prefer keeping the trade that has screenshots when reconciling duplicates, unless the user says otherwise.
+- Screenshots on the current message attach automatically on add/update — still call the tool.
+
+Coaching:
+- ALWAYS write a real reply. Never answer with only "Trade logged." / "Updated." / "On it."
+- Review against THEIR strategy: bias, PD zone, POI, sweep, displacement, MSS, session, risk.
+- Ask for missing fields instead of inventing them.
+- Grade briefly, one win, one leak, one next question.
+- Be concise. Don't dump a wall of uncertainty if you can act (update/delete) and then confirm what you did.
 
 STRATEGY JSON:
 ${JSON.stringify(strategy, null, 2)}
@@ -206,7 +258,7 @@ ${JSON.stringify(strategy, null, 2)}
 STATS:
 ${JSON.stringify(stats, null, 2)}
 
-RECENT TRADES (newest first, capped — use these ids for update_trade):
+RECENT TRADES (newest first — use these ids):
 ${JSON.stringify(
   trades.slice(0, 40).map((t) => ({
     id: t.id,
@@ -237,6 +289,38 @@ ${JSON.stringify(
 )}`;
 }
 
+function looksLikeFollowUpUpdate(message: string) {
+  return /(update|lost|loss|won|win|closed|close it|fix|change|correct|actually|reflect|make it|set (it|the)|pnl|p&l|-\s*\$?\d|result|duplicate|remove|delete|keep the)/i.test(
+    message,
+  );
+}
+
+function coerceActions(
+  actions: Actions,
+  message: string,
+  activeTradeId?: string | null,
+): Actions {
+  const next = { ...actions };
+
+  // Follow-up details about the active trade should update, not create a duplicate
+  if (
+    next.addTrade &&
+    !next.updateTrade &&
+    activeTradeId &&
+    looksLikeFollowUpUpdate(message)
+  ) {
+    next.updateTrade = { id: activeTradeId, ...next.addTrade };
+    delete next.addTrade;
+  }
+
+  // If both add + update somehow, prefer update on active trade
+  if (next.addTrade && next.updateTrade) {
+    delete next.addTrade;
+  }
+
+  return next;
+}
+
 function parseActions(
   choice: OpenAI.Chat.Completions.ChatCompletionMessage,
   strategy: Strategy,
@@ -250,6 +334,15 @@ function parseActions(
     }
     if (call.function.name === "update_trade" && args.id) {
       actions.updateTrade = args;
+    }
+    if (call.function.name === "delete_trade") {
+      const ids = [
+        ...(typeof args.id === "string" && args.id ? [args.id] : []),
+        ...(Array.isArray(args.ids) ? args.ids.filter((x: unknown) => typeof x === "string") : []),
+      ];
+      if (ids.length) {
+        actions.deleteTradeIds = [...new Set(ids)];
+      }
     }
     if (call.function.name === "update_strategy") {
       const patch: Partial<Strategy> = { ...args };
@@ -295,6 +388,7 @@ export async function POST(req: NextRequest) {
     history = [],
     apiKey: clientApiKey,
     model: clientModel,
+    activeTradeId = null,
   }: {
     message: string;
     images?: string[];
@@ -304,6 +398,7 @@ export async function POST(req: NextRequest) {
     history: { role: string; content: string }[];
     apiKey?: string;
     model?: string;
+    activeTradeId?: string | null;
   } = body;
 
   const imageList = Array.isArray(images)
@@ -340,7 +435,7 @@ export async function POST(req: NextRequest) {
 
   try {
     const openai = new OpenAI({ apiKey });
-    const system = buildSystemPrompt(strategy, stats, trades);
+    const system = buildSystemPrompt(strategy, stats, trades, activeTradeId);
 
     const userText =
       message?.trim() ||
@@ -379,7 +474,8 @@ export async function POST(req: NextRequest) {
     } as OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming);
 
     const choice = completion.choices[0]?.message;
-    const actions = choice ? parseActions(choice, strategy) : {};
+    let actions = choice ? parseActions(choice, strategy) : {};
+    actions = coerceActions(actions, userText, activeTradeId);
     let reply = choice?.content?.trim() ?? "";
 
     if (isWeakReply(reply)) {
@@ -399,12 +495,12 @@ export async function POST(req: NextRequest) {
           },
           {
             role: "assistant",
-            content: `Tool actions taken this turn (if any): ${JSON.stringify(actions)}. Now write the full trader-facing reply.`,
+            content: `Tool actions for this turn: ${JSON.stringify(actions)}. Confirm what you actually did (or will do via those tools), review vs strategy, ask only for still-missing fields.`,
           },
           {
             role: "user",
             content:
-              "Write your reply now. Review vs my strategy, call out missing fields, and give coaching input. Plain text only. Do not say just 'Trade logged'.",
+              "Write your reply now. Be conversational and decisive. Plain text only. Do not say just 'Trade logged' or claim an update without tying it to the tool actions above.",
           },
         ],
         reasoning_effort: "none",
@@ -412,7 +508,7 @@ export async function POST(req: NextRequest) {
 
       reply =
         followup.choices[0]?.message?.content?.trim() ||
-        "I looked at that against your plan — tell me entry, SL, TP, and session so I can grade it properly.";
+        "Tell me what you want changed on the active trade and I’ll update it.";
     }
 
     return NextResponse.json({ reply, actions, mode: "openai", model });

@@ -24,6 +24,7 @@ export function ChatWidget() {
   const chat = useTradingStore((s) => s.chat);
   const openaiApiKey = useTradingStore((s) => s.openaiApiKey);
   const openaiModel = useTradingStore((s) => s.openaiModel);
+  const activeTradeId = useTradingStore((s) => s.activeTradeId);
   const addChatMessage = useTradingStore((s) => s.addChatMessage);
   const clearChat = useTradingStore((s) => s.clearChat);
   const hydrated = useTradingStore((s) => s.hydrated);
@@ -85,6 +86,7 @@ export function ChatWidget() {
           stats: computeStats(trades),
           apiKey: openaiApiKey || undefined,
           model: openaiModel,
+          activeTradeId,
           history: chat.slice(-12).map((m) => ({
             role: m.role,
             content: m.content,
@@ -109,6 +111,7 @@ export function ChatWidget() {
         const applied = applyChatActions({
           addTrade: data.actions.addTrade,
           updateTrade: data.actions.updateTrade,
+          deleteTradeIds: data.actions.deleteTradeIds,
           updateStrategy: data.actions.updateStrategy,
           charts: [],
           screenshots: images.length ? images : undefined,
