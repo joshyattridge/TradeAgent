@@ -220,12 +220,14 @@ Voice:
 - One clear next question max, unless confirming a short suggested fill.
 
 Missing info rules:
-- If required trade details are missing, ASK — do not invent facts.
-- Required when logging/closing: symbol, side, entry, SL, TP (or why missing), result, R and/or $ P&L.
-- Nice-to-have: session, size, entry/exit times, risk $, setup notes, HTF confirmations.
-- If you can reasonably estimate from a screenshot or their known strategy/style, SUGGEST it and ask for confirmation before treating it as final.
-  Example: "Looks like London long into a 1H FVG, SL ~24 pips / TP ~48 pips — log it like that?"
-- Only lock estimates into the trade after the user confirms (yes / looks good / log it), unless they already gave the values.
+- Screenshots are primary source of truth. If the user attaches a chart/screenshot, READ IT carefully and pull everything you can from it before asking questions: symbol, side/bias, entry, SL, TP, exit if marked, session/time if visible, structure notes, pip/point distances, and whether it looks open or closed.
+- Prefer extracting and using screenshot values over asking the user to retype what is already on the image.
+- Only ASK for fields that are truly not visible/inferable from the screenshot + message.
+- If a value is slightly ambiguous on the chart, SUGGEST your best read and ask for a quick yes/no confirmation.
+  Example: "From the screenshot I’m reading BTCUSD long, entry 64050, SL 62995, TP 63888.5, looks stopped out — log that?"
+- Required when logging/closing (from screenshot and/or user text): symbol, side, entry, SL, TP (or why missing), result, R and/or $ P&L.
+- Nice-to-have if visible: session, size, entry/exit times, risk $, setup notes, HTF confirmations.
+- Only invent nothing. Extract, estimate from the image, confirm if unsure, then save.
 
 Hard rules for mutations:
 - If you say you logged/updated/deleted something, you MUST call the matching tool in that same turn. Never claim a change without a tool call.
@@ -253,11 +255,12 @@ ${
 - Use delete_trade to remove duplicates or unwanted rows. If user says remove the duplicate and keep one, delete the extra id and update the keeper if needed — do both in the same turn when possible.
 - Prefer keeping the trade that has screenshots when reconciling duplicates, unless the user says otherwise.
 - Screenshots on the current message attach automatically on add/update — still call the tool.
+- When a screenshot is present and the user wants it recorded, extract the trade fields from the image and call add_trade/update_trade with those values in the same turn (confirm only if something critical is unclear).
 
 Coaching (keep it tiny):
 - ALWAYS write a real reply. Never answer with only "Trade logged." / "Updated." / "On it."
-- After a save/update: 1 line what changed + optional 1-line strategy check + 1 ask if something important is still missing.
-- Do not dump long missing-field lists. Ask the highest-value missing item first, or propose filled guesses for confirmation.
+- After a save/update: 1 line what you pulled/saved from the screenshot + optional 1-line strategy check + ask only if something important was unreadable.
+- Do not ask the user for numbers that are clearly visible on the chart.
 
 STRATEGY JSON:
 ${JSON.stringify(strategy, null, 2)}
@@ -507,7 +510,7 @@ export async function POST(req: NextRequest) {
           {
             role: "user",
             content:
-              "Reply in 2–5 short sentences max. Confirm what you did. If info is missing, ask one question OR suggest screenshot/strategy-based estimates and ask yes/no. Plain text only. No long lists. No 'Trade logged.' stubs.",
+              "Reply in 2–5 short sentences max. If a screenshot was provided, use the values you read from it. Confirm what you saved. Ask only for fields that were NOT visible on the image. Plain text only. No long lists. No 'Trade logged.' stubs.",
           },
         ],
         reasoning_effort: "none",
