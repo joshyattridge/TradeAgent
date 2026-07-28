@@ -3,6 +3,7 @@ export type TradeResult = "win" | "loss" | "breakeven" | "open";
 
 export interface Trade {
   id: string;
+  /** Calendar date YYYY-MM-DD */
   date: string;
   symbol: string;
   side: TradeSide;
@@ -11,6 +12,20 @@ export interface Trade {
   stop: number;
   target: number;
   exit?: number;
+  /** ISO datetime when the entry filled */
+  entryTime?: string;
+  /** ISO datetime when the trade was closed */
+  exitTime?: string;
+  /** Duration in minutes (optional; derived from entry/exit times when missing) */
+  timeInTradeMinutes?: number;
+  /** Realized P&L in account currency ($) */
+  pnlUsd?: number;
+  /** Dollars risked for 1R on this trade */
+  riskUsd?: number;
+  /** Position size label, e.g. "0.40 lots" or "2 contracts" */
+  size?: string;
+  /** Fees / commission / swap in $ */
+  feesUsd?: number;
   rMultiple: number;
   result: TradeResult;
   notes?: string;

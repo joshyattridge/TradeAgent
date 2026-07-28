@@ -98,7 +98,7 @@ export const useTradingStore = create<Store>()(
         }),
     }),
     {
-      name: "tradeagent-store-v1",
+      name: "tradeagent-store-v2",
       partialize: (state) => ({
         trades: state.trades,
         strategy: state.strategy,
@@ -121,7 +121,11 @@ export function applyChatActions(actions: ChatActionPayload) {
 
   if (actions.addTrade) {
     const trade = store.addTrade(actions.addTrade);
-    notes.push(`Logged ${trade.side.toUpperCase()} ${trade.symbol} (${trade.result}, ${trade.rMultiple}R).`);
+    notes.push(
+      `Logged ${trade.side.toUpperCase()} ${trade.symbol} (${trade.result}, ${trade.rMultiple}R${
+        trade.pnlUsd != null ? `, $${trade.pnlUsd}` : ""
+      }).`,
+    );
   }
 
   if (actions.updateStrategy) {

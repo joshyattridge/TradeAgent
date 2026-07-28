@@ -1,5 +1,6 @@
 import { format, parseISO } from "date-fns";
 import type { ChartSpec, Trade } from "./types";
+import { getTimeInTradeMinutes } from "./trade-format";
 
 export function closedTrades(trades: Trade[]) {
   return trades.filter((t) => t.result !== "open");
@@ -15,6 +16,13 @@ export function computeStats(trades: Trade[]) {
   const expectancy = avgR;
   const best = closed.reduce((m, t) => Math.max(m, t.rMultiple), 0);
   const worst = closed.reduce((m, t) => Math.min(m, t.rMultiple), 0);
+  const totalPnlUsd = closed.reduce((sum, t) => sum + (t.pnlUsd ?? 0), 0);
+  const durations = closed
+    .map((t) => getTimeInTradeMinutes(t))
+    .filter((m): m is number => typeof m === "number");
+  const avgTimeInTradeMinutes = durations.length
+    ? durations.reduce((a, b) => a + b, 0) / durations.length
+    : undefined;
   const openCount = trades.filter((t) => t.result === "open").length;
 
   return {
@@ -29,6 +37,8 @@ export function computeStats(trades: Trade[]) {
     expectancy,
     best,
     worst,
+    totalPnlUsd,
+    avgTimeInTradeMinutes,
   };
 }
 

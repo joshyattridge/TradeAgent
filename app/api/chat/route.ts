@@ -32,6 +32,31 @@ const tools: OpenAI.Chat.Completions.ChatCompletionTool[] = [
           stop: { type: "number" },
           target: { type: "number" },
           exit: { type: "number" },
+          entryTime: {
+            type: "string",
+            description: "ISO datetime when entry filled, e.g. 2026-07-28T08:42:00Z",
+          },
+          exitTime: {
+            type: "string",
+            description: "ISO datetime when trade closed",
+          },
+          timeInTradeMinutes: {
+            type: "number",
+            description: "Minutes held; derive from entry/exit times when possible",
+          },
+          pnlUsd: {
+            type: "number",
+            description: "Realized dollar P&L (negative for losses)",
+          },
+          riskUsd: {
+            type: "number",
+            description: "Dollars risked for 1R on this trade",
+          },
+          size: {
+            type: "string",
+            description: 'Position size, e.g. "0.40 lots" or "2 contracts"',
+          },
+          feesUsd: { type: "number", description: "Fees/commission/swap in $" },
           rMultiple: { type: "number" },
           result: {
             type: "string",
@@ -187,6 +212,7 @@ Formatting rules (important — this UI is plain text, not a markdown doc):
 Job:
 - Analyze performance, generate charts, log trades, and refine strategy via tools when needed
 - Prefer R-multiples and process adherence over vibes
+- When logging trades, capture as much detail as available: entry/exit times (ISO), time in trade, $ P&L, risk $, size, fees
 - When the user attaches chart screenshots or images, read them carefully (setup, structure, levels, invalidation) and tie advice back to their rules
 - When mutating data, call tools
 

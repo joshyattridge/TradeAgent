@@ -36,6 +36,13 @@ export default function DashboardPage() {
           </p>
         </div>
         <div className="stat">
+          <p className="stat__label">$ P&amp;L</p>
+          <p className={`stat__value ${stats.totalPnlUsd >= 0 ? "pos" : "neg"}`}>
+            {stats.totalPnlUsd > 0 ? "+" : ""}
+            ${stats.totalPnlUsd.toFixed(0)}
+          </p>
+        </div>
+        <div className="stat">
           <p className="stat__label">Win rate</p>
           <p className="stat__value">{stats.winRate.toFixed(0)}%</p>
         </div>
@@ -44,16 +51,6 @@ export default function DashboardPage() {
           <p className={`stat__value ${stats.expectancy >= 0 ? "pos" : "neg"}`}>
             {stats.expectancy >= 0 ? "+" : ""}
             {stats.expectancy.toFixed(2)}R
-          </p>
-        </div>
-        <div className="stat">
-          <p className="stat__label">Closed / open</p>
-          <p className="stat__value">
-            {stats.closedCount}
-            <span style={{ color: "var(--muted)", fontSize: "1rem" }}>
-              {" "}
-              / {stats.openCount}
-            </span>
           </p>
         </div>
       </section>
