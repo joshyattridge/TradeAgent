@@ -166,6 +166,9 @@ export function ChatWidget() {
             ref={inputRef}
             value={input}
             onChange={(e) => setInput(e.target.value)}
+            onFocus={() => {
+              if (chat.length > 0) setExpanded(true);
+            }}
             placeholder="Ask TradeAgent — log a trade, update strategy, pull a chart…"
             aria-label="Message TradeAgent"
           />
