@@ -255,7 +255,7 @@ export async function POST(req: NextRequest) {
   const model =
     (typeof clientModel === "string" && clientModel.trim()) ||
     process.env.OPENAI_MODEL ||
-    "gpt-4.1-mini";
+    "gpt-5.6-luna";
 
   if (!apiKey) {
     return NextResponse.json(localFallback(message, trades, strategy, stats));

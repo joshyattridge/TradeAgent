@@ -784,6 +784,59 @@ textarea {
   color: var(--teal-deep);
 }
 
+.field.is-dimmed {
+  opacity: 0.55;
+}
+
+.field.is-dimmed select {
+  cursor: not-allowed;
+}
+
+.settings-advanced {
+  margin: -0.35rem 0 1.15rem;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.settings-advanced summary {
+  cursor: pointer;
+  list-style: none;
+  width: fit-content;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  opacity: 0.72;
+}
+
+.settings-advanced summary::-webkit-details-marker {
+  display: none;
+}
+
+.settings-advanced summary:hover {
+  opacity: 1;
+  color: var(--ink-soft);
+}
+
+.advanced-link {
+  display: inline-block;
+  margin-top: 0.55rem;
+  border: none;
+  background: none;
+  padding: 0;
+  color: var(--muted);
+  font-size: 0.82rem;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.advanced-link:hover {
+  color: var(--ink-soft);
+}
+
+.field--custom {
+  animation: rise 0.25s ease both;
+}
+
 @media (max-width: 900px) {
   .stat-row,
   .grid-2,

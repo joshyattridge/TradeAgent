@@ -2,7 +2,7 @@
 
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import { DEFAULT_OPENAI_MODEL, type OpenAIModelId } from "./models";
+import { DEFAULT_OPENAI_MODEL } from "./models";
 import { seedStrategy, seedTrades } from "./seed-data";
 import type { ChatMessage, ChartSpec, Strategy, Trade } from "./types";
 
@@ -15,11 +15,11 @@ interface Store {
   strategy: Strategy;
   chat: ChatMessage[];
   openaiApiKey: string;
-  openaiModel: OpenAIModelId;
+  openaiModel: string;
   hydrated: boolean;
   setHydrated: (v: boolean) => void;
   setOpenAIApiKey: (key: string) => void;
-  setOpenAIModel: (model: OpenAIModelId) => void;
+  setOpenAIModel: (model: string) => void;
   addTrade: (trade: Omit<Trade, "id"> | Trade) => Trade;
   updateTrade: (id: string, patch: Partial<Trade>) => void;
   deleteTrade: (id: string) => void;

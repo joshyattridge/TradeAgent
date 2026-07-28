@@ -2,7 +2,13 @@
 
 import { FormEvent, useEffect, useState } from "react";
 import Link from "next/link";
-import { DEFAULT_OPENAI_MODEL, OPENAI_MODELS, type OpenAIModelId } from "@/lib/models";
+import {
+  DEFAULT_OPENAI_MODEL,
+  OPENAI_MODELS,
+  isPresetModel,
+  resolveModelLabel,
+  type PresetOpenAIModelId,
+} from "@/lib/models";
 import { useTradingStore } from "@/lib/store";
 
 export default function SettingsPage() {
@@ -13,20 +19,40 @@ export default function SettingsPage() {
   const setOpenAIModel = useTradingStore((s) => s.setOpenAIModel);
 
   const [apiKey, setApiKey] = useState("");
-  const [model, setModel] = useState<OpenAIModelId>(DEFAULT_OPENAI_MODEL);
+  const [preset, setPreset] = useState<PresetOpenAIModelId>(DEFAULT_OPENAI_MODEL);
+  const [customModel, setCustomModel] = useState("");
+  const [useCustom, setUseCustom] = useState(false);
   const [showKey, setShowKey] = useState(false);
   const [saved, setSaved] = useState(false);
 
   useEffect(() => {
     if (!hydrated) return;
     setApiKey(savedKey);
-    setModel(savedModel);
+    if (isPresetModel(savedModel)) {
+      setPreset(savedModel);
+      setCustomModel("");
+      setUseCustom(false);
+    } else if (savedModel) {
+      setPreset(DEFAULT_OPENAI_MODEL);
+      setCustomModel(savedModel);
+      setUseCustom(true);
+    } else {
+      setPreset(DEFAULT_OPENAI_MODEL);
+      setCustomModel("");
+      setUseCustom(false);
+    }
   }, [hydrated, savedKey, savedModel]);
 
   function onSave(e: FormEvent) {
     e.preventDefault();
+    if (useCustom) {
+      const id = customModel.trim();
+      if (!id) return;
+      setOpenAIModel(id);
+    } else {
+      setOpenAIModel(preset);
+    }
     setOpenAIApiKey(apiKey);
-    setOpenAIModel(model);
     setSaved(true);
     window.setTimeout(() => setSaved(false), 1800);
   }
@@ -63,7 +89,7 @@ export default function SettingsPage() {
           <span className={`status-dot${connected ? " is-on" : ""}`} />
           <p>
             {connected
-              ? `Connected · ${OPENAI_MODELS.find((m) => m.id === savedModel)?.label ?? savedModel}`
+              ? `Connected · ${resolveModelLabel(savedModel)}`
               : "No API key yet — chat falls back to the local parser"}
           </p>
         </div>
@@ -101,11 +127,15 @@ export default function SettingsPage() {
           </span>
         </label>
 
-        <label className="field">
+        <label className={`field${useCustom ? " is-dimmed" : ""}`}>
           <span className="field__label">Model</span>
           <select
-            value={model}
-            onChange={(e) => setModel(e.target.value as OpenAIModelId)}
+            value={preset}
+            onChange={(e) => {
+              setPreset(e.target.value as PresetOpenAIModelId);
+              setUseCustom(false);
+            }}
+            disabled={useCustom}
           >
             {OPENAI_MODELS.map((option) => (
               <option key={option.id} value={option.id}>
@@ -114,9 +144,48 @@ export default function SettingsPage() {
             ))}
           </select>
           <span className="field__hint">
-            Swap anytime. Heavier models cost more but reason better on trade reviews.
+            Latest GPT-5.6 family. Luna is the everyday pick; Sol for deeper trade
+            reviews.
           </span>
         </label>
+
+        <details className="settings-advanced" open={useCustom || undefined}>
+          <summary>Advanced</summary>
+          {!useCustom ? (
+            <button
+              type="button"
+              className="advanced-link"
+              onClick={() => setUseCustom(true)}
+            >
+              Use a custom OpenAI model ID
+            </button>
+          ) : (
+            <label className="field field--custom">
+              <span className="field__label">Custom model ID</span>
+              <input
+                type="text"
+                value={customModel}
+                onChange={(e) => setCustomModel(e.target.value)}
+                placeholder="e.g. gpt-5.6-sol or ft:…"
+                autoComplete="off"
+                spellCheck={false}
+              />
+              <span className="field__hint">
+                Exact API model string. Overrides the preset dropdown.{" "}
+                <button
+                  type="button"
+                  className="advanced-link"
+                  onClick={() => {
+                    setUseCustom(false);
+                    setCustomModel("");
+                  }}
+                >
+                  Back to presets
+                </button>
+              </span>
+            </label>
+          )}
+        </details>
 
         <div className="settings-actions">
           <button type="submit" className="primary-btn">
