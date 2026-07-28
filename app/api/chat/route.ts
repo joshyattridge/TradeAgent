@@ -258,7 +258,12 @@ export async function POST(req: NextRequest) {
     "gpt-5.6-luna";
 
   if (!apiKey) {
-    return NextResponse.json(localFallback(message, trades, strategy, stats));
+    return NextResponse.json({
+      ...localFallback(message, trades, strategy, stats),
+      mode: "local",
+      notice:
+        "Local mode — add your OpenAI API key in Settings to use a real model.",
+    });
   }
 
   try {
@@ -332,11 +337,19 @@ ${JSON.stringify(trades.slice(0, 40), null, 2)}`;
       reply = parts.join(" ") || "On it.";
     }
 
-    return NextResponse.json({ reply, actions, mode: "openai" });
+    return NextResponse.json({ reply, actions, mode: "openai", model });
   } catch (error) {
     console.error(error);
+    const messageText =
+      error instanceof Error ? error.message : "OpenAI request failed";
     return NextResponse.json(
-      localFallback(message, trades, strategy, stats),
+      {
+        reply: `OpenAI error: ${messageText}\n\nCheck your API key and model in Settings.`,
+        actions: {},
+        mode: "error",
+        model,
+      },
+      { status: 200 },
     );
   }
 }

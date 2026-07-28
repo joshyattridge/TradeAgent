@@ -86,7 +86,10 @@ export function ChatWidget() {
 
       addChatMessage({
         role: "assistant",
-        content: data.reply ?? "Done.",
+        content:
+          data.mode === "local" && data.notice
+            ? `${data.reply ?? "Done."}\n\n_${data.notice}_`
+            : (data.reply ?? "Done."),
         charts: charts.length ? charts : undefined,
       });
     } catch {
