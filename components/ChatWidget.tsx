@@ -1,17 +1,18 @@
 "use client";
 
 import { FormEvent, useEffect, useRef, useState } from "react";
-import { MessageSquare, Send, X, Minimize2 } from "lucide-react";
+import { Minimize2, Send } from "lucide-react";
 import { ChartRenderer } from "@/components/ChartRenderer";
 import { applyChatActions, useTradingStore } from "@/lib/store";
 import { buildChart, computeStats } from "@/lib/stats";
 import type { ChartSpec } from "@/lib/types";
 
 export function ChatWidget() {
-  const [open, setOpen] = useState(false);
+  const [expanded, setExpanded] = useState(false);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const scroller = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   const trades = useTradingStore((s) => s.trades);
   const strategy = useTradingStore((s) => s.strategy);
@@ -22,12 +23,12 @@ export function ChatWidget() {
   const hydrated = useTradingStore((s) => s.hydrated);
 
   useEffect(() => {
-    if (!open) return;
+    if (!expanded) return;
     scroller.current?.scrollTo({
       top: scroller.current.scrollHeight,
       behavior: "smooth",
     });
-  }, [chat, open, loading]);
+  }, [chat, expanded, loading]);
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
@@ -35,6 +36,7 @@ export function ChatWidget() {
     if (!text || loading) return;
 
     setInput("");
+    setExpanded(true);
     addChatMessage({ role: "user", content: text });
     setLoading(true);
 
@@ -95,41 +97,31 @@ export function ChatWidget() {
       });
     } finally {
       setLoading(false);
+      inputRef.current?.focus();
     }
   }
 
   if (!hydrated) return null;
 
   return (
-    <div className={`chat-dock${open ? " is-open" : ""}`}>
-      {open ? (
-        <section className="chat-panel" aria-label="TradeAgent chat">
-          <header className="chat-panel__header">
-            <div>
-              <p className="chat-panel__eyebrow">Always on</p>
-              <h2>TradeAgent</h2>
-            </div>
-            <div className="chat-panel__actions">
+    <div className={`chat-dock${expanded ? " is-expanded" : ""}`}>
+      <section className="chat-shell" aria-label="TradeAgent chat">
+        {expanded ? (
+          <div className="chat-panel__messages" ref={scroller}>
+            <header className="chat-panel__header chat-panel__header--inline">
+              <div>
+                <p className="chat-panel__eyebrow">TradeAgent</p>
+              </div>
               <button
                 type="button"
                 className="icon-btn"
-                onClick={() => setOpen(false)}
-                aria-label="Minimize chat"
+                onClick={() => setExpanded(false)}
+                aria-label="Collapse chat"
               >
                 <Minimize2 size={16} />
               </button>
-              <button
-                type="button"
-                className="icon-btn"
-                onClick={() => setOpen(false)}
-                aria-label="Close chat"
-              >
-                <X size={16} />
-              </button>
-            </div>
-          </header>
+            </header>
 
-          <div className="chat-panel__messages" ref={scroller}>
             {chat.map((message) => (
               <div
                 key={message.id}
@@ -149,30 +141,26 @@ export function ChatWidget() {
               </div>
             ) : null}
           </div>
+        ) : null}
 
-          <form className="chat-panel__composer" onSubmit={onSubmit}>
-            <input
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              placeholder="Log a trade, update strategy, ask for a chart…"
-              aria-label="Message TradeAgent"
-            />
-            <button type="submit" className="send-btn" disabled={loading || !input.trim()}>
-              <Send size={16} />
-            </button>
-          </form>
-        </section>
-      ) : (
-        <button
-          type="button"
-          className="chat-fab"
-          onClick={() => setOpen(true)}
-          aria-label="Open TradeAgent chat"
-        >
-          <MessageSquare size={18} />
-          <span>Ask TradeAgent</span>
-        </button>
-      )}
+        <form className="chat-bar" onSubmit={onSubmit}>
+          <input
+            ref={inputRef}
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            placeholder="Ask TradeAgent — log a trade, update strategy, pull a chart…"
+            aria-label="Message TradeAgent"
+          />
+          <button
+            type="submit"
+            className="send-btn"
+            disabled={loading || !input.trim()}
+            aria-label="Send message"
+          >
+            <Send size={16} />
+          </button>
+        </form>
+      </section>
     </div>
   );
 }
