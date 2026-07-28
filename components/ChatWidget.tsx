@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useRef, useState } from "react";
-import { Send, X } from "lucide-react";
+import { Eraser, Send, X } from "lucide-react";
 import { ChartRenderer } from "@/components/ChartRenderer";
 import { applyChatActions, useTradingStore } from "@/lib/store";
 import { buildChart, computeStats } from "@/lib/stats";
@@ -20,6 +20,7 @@ export function ChatWidget() {
   const openaiApiKey = useTradingStore((s) => s.openaiApiKey);
   const openaiModel = useTradingStore((s) => s.openaiModel);
   const addChatMessage = useTradingStore((s) => s.addChatMessage);
+  const clearChat = useTradingStore((s) => s.clearChat);
   const hydrated = useTradingStore((s) => s.hydrated);
 
   useEffect(() => {
@@ -118,14 +119,26 @@ export function ChatWidget() {
       <section className="chat-shell" aria-label="TradeAgent chat">
         {expanded ? (
           <div className="chat-panel__messages" ref={scroller}>
-            <button
-              type="button"
-              className="chat-close-btn"
-              onClick={() => setExpanded(false)}
-              aria-label="Close chat"
-            >
-              <X size={16} />
-            </button>
+            <div className="chat-float-actions">
+              <button
+                type="button"
+                className="chat-float-btn"
+                onClick={() => clearChat()}
+                aria-label="Clear chat"
+                title="Clear chat"
+              >
+                <Eraser size={15} />
+              </button>
+              <button
+                type="button"
+                className="chat-float-btn"
+                onClick={() => setExpanded(false)}
+                aria-label="Close chat"
+                title="Close chat"
+              >
+                <X size={16} />
+              </button>
+            </div>
 
             {chat.map((message) => (
               <div
