@@ -87,6 +87,20 @@ function cellValue(trade: Trade, column: TradeColumnId) {
       );
     case "result":
       return <span className={badgeClass(trade.result)}>{trade.result}</span>;
+    case "screenshots":
+      return trade.screenshots?.length ? (
+        <span className="trade-shot-stack">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={trade.screenshots[0]} alt="" />
+          {trade.screenshots.length > 1 ? (
+            <span className="trade-shot-stack__count">
+              +{trade.screenshots.length - 1}
+            </span>
+          ) : null}
+        </span>
+      ) : (
+        "—"
+      );
     case "notes":
       return <span className="notes">{trade.notes ?? "—"}</span>;
   }

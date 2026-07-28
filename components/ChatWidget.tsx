@@ -110,6 +110,7 @@ export function ChatWidget() {
           addTrade: data.actions.addTrade,
           updateStrategy: data.actions.updateStrategy,
           charts: [],
+          screenshots: images.length ? images : undefined,
         });
 
         if (data.actions.chartRequests?.length) {

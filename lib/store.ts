@@ -146,11 +146,19 @@ export function applyChatActions(actions: ChatActionPayload) {
   const notes: string[] = [];
 
   if (actions.addTrade) {
-    const trade = store.addTrade(actions.addTrade);
+    const screenshots = actions.screenshots?.length
+      ? actions.screenshots.slice(0, 4)
+      : undefined;
+    const trade = store.addTrade({
+      ...actions.addTrade,
+      screenshots: screenshots?.length
+        ? [...(actions.addTrade.screenshots ?? []), ...screenshots].slice(0, 4)
+        : actions.addTrade.screenshots,
+    });
     notes.push(
       `Logged ${trade.side.toUpperCase()} ${trade.symbol} (${trade.result}, ${trade.rMultiple}R${
         trade.pnlUsd != null ? `, $${trade.pnlUsd}` : ""
-      }).`,
+      }${trade.screenshots?.length ? `, ${trade.screenshots.length} screenshot${trade.screenshots.length > 1 ? "s" : ""}` : ""}).`,
     );
   }
 
@@ -171,4 +179,6 @@ export interface ChatActionPayload {
   addTrade?: Omit<Trade, "id">;
   updateStrategy?: Partial<Strategy>;
   charts?: ChartSpec[];
+  /** Screenshots from the current chat turn to attach to a newly logged trade */
+  screenshots?: string[];
 }

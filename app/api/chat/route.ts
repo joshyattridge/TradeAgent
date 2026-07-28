@@ -20,7 +20,8 @@ const tools: OpenAI.Chat.Completions.ChatCompletionTool[] = [
     type: "function",
     function: {
       name: "add_trade",
-      description: "Record a new trade in the user's trading log",
+      description:
+        "Record a new trade in the user's trading log. Chart screenshots attached to the user's message are saved onto the trade automatically — still call this tool when they ask to log a trade from an image.",
       parameters: {
         type: "object",
         properties: {
@@ -227,6 +228,7 @@ Job:
 - Analyze performance, generate charts, log trades, and refine strategy via tools when needed
 - Prefer R-multiples and process adherence over vibes
 - When logging trades, capture as much detail as available: entry/exit times (ISO), SL/TP prices, SL/TP pip distance, time in trade, $ P&L, risk $, size, fees
+- If the user attaches chart screenshots while asking to log a trade, call add_trade — those images are attached to the trade log entry automatically
 - When the user attaches chart screenshots or images, read them carefully (setup, structure, levels, invalidation) and tie advice back to their rules
 - When mutating data, call tools
 

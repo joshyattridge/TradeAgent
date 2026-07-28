@@ -433,6 +433,49 @@ textarea {
   line-height: 1.45;
 }
 
+.trade-detail__shots {
+  margin-top: 1.15rem;
+}
+
+.trade-detail__shot-grid {
+  display: grid;
+  gap: 0.55rem;
+  margin-top: 0.5rem;
+}
+
+.trade-detail__shot-grid img {
+  width: 100%;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  display: block;
+}
+
+.trade-shot-stack {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.trade-shot-stack img {
+  width: 36px;
+  height: 28px;
+  object-fit: cover;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  display: block;
+}
+
+.trade-shot-stack__count {
+  position: absolute;
+  right: -0.35rem;
+  bottom: -0.25rem;
+  background: var(--ink);
+  color: var(--paper-2);
+  font-size: 0.62rem;
+  padding: 0.05rem 0.28rem;
+  border-radius: 999px;
+}
+
 .mono {
   font-family: var(--font-mono);
   font-size: 0.86rem;

@@ -36,6 +36,8 @@ export interface Trade {
   result: TradeResult;
   notes?: string;
   session?: string;
+  /** Chart screenshots / images attached when the trade was logged */
+  screenshots?: string[];
 }
 
 export interface Strategy {

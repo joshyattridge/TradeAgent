@@ -145,6 +145,18 @@ export function TradeDetail({
           </Row>
         </div>
 
+        {trade.screenshots?.length ? (
+          <div className="trade-detail__shots">
+            <p className="trade-detail__eyebrow">Screenshots</p>
+            <div className="trade-detail__shot-grid">
+              {trade.screenshots.map((src, i) => (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img key={`${trade.id}-shot-${i}`} src={src} alt={`Trade chart ${i + 1}`} />
+              ))}
+            </div>
+          </div>
+        ) : null}
+
         {trade.notes ? (
           <div className="trade-detail__notes">
             <p className="trade-detail__eyebrow">Notes</p>

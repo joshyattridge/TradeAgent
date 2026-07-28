@@ -18,6 +18,7 @@ export const TRADE_COLUMNS = [
   { id: "pnlUsd", label: "$ P&L", defaultVisible: true },
   { id: "rMultiple", label: "R", defaultVisible: true },
   { id: "result", label: "Result", defaultVisible: true },
+  { id: "screenshots", label: "Chart", defaultVisible: true },
   { id: "notes", label: "Notes", defaultVisible: false },
 ] as const;
 
