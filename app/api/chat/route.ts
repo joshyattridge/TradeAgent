@@ -495,12 +495,12 @@ export async function POST(req: NextRequest) {
           },
           {
             role: "assistant",
-            content: `Tool actions for this turn: ${JSON.stringify(actions)}. Confirm what you actually did (or will do via those tools), review vs strategy, ask only for still-missing fields.`,
+            content: `Tool actions for this turn: ${JSON.stringify(actions)}. Keep the user-facing reply short.`,
           },
           {
             role: "user",
             content:
-              "Write your reply now. Be conversational and decisive. Plain text only. Do not say just 'Trade logged' or claim an update without tying it to the tool actions above.",
+              "Reply in 2–5 short sentences max. Confirm what you did. If info is missing, ask one question OR suggest screenshot/strategy-based estimates and ask yes/no. Plain text only. No long lists. No 'Trade logged.' stubs.",
           },
         ],
         reasoning_effort: "none",
@@ -508,7 +508,7 @@ export async function POST(req: NextRequest) {
 
       reply =
         followup.choices[0]?.message?.content?.trim() ||
-        "Tell me what you want changed on the active trade and I’ll update it.";
+        "What do you want changed on the active trade?";
     }
 
     return NextResponse.json({ reply, actions, mode: "openai", model });
