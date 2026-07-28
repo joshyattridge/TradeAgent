@@ -11,9 +11,67 @@ type ChartRequest = {
 
 type Actions = {
   addTrade?: Omit<Trade, "id">;
+  updateTrade?: { id: string } & Partial<Omit<Trade, "id">>;
   updateStrategy?: Partial<Strategy>;
   chartRequests?: ChartRequest[];
 };
+
+const tradeFields = {
+  date: { type: "string", description: "YYYY-MM-DD" },
+  symbol: { type: "string" },
+  side: { type: "string", enum: ["long", "short"] },
+  setup: { type: "string" },
+  entry: { type: "number" },
+  stop: {
+    type: "number",
+    description: "Stop loss price level (SL)",
+  },
+  target: {
+    type: "number",
+    description: "Take profit price level (TP)",
+  },
+  exit: { type: "number" },
+  slPips: {
+    type: "number",
+    description: "Distance from entry to SL in pips (or points for indices)",
+  },
+  tpPips: {
+    type: "number",
+    description: "Distance from entry to TP in pips (or points for indices)",
+  },
+  entryTime: {
+    type: "string",
+    description: "ISO datetime when entry filled, e.g. 2026-07-28T08:42:00Z",
+  },
+  exitTime: {
+    type: "string",
+    description: "ISO datetime when trade closed",
+  },
+  timeInTradeMinutes: {
+    type: "number",
+    description: "Minutes held; derive from entry/exit times when possible",
+  },
+  pnlUsd: {
+    type: "number",
+    description: "Realized dollar P&L (negative for losses)",
+  },
+  riskUsd: {
+    type: "number",
+    description: "Dollars risked for 1R on this trade",
+  },
+  size: {
+    type: "string",
+    description: 'Position size, e.g. "0.40 lots" or "2 contracts"',
+  },
+  feesUsd: { type: "number", description: "Fees/commission/swap in $" },
+  rMultiple: { type: "number" },
+  result: {
+    type: "string",
+    enum: ["win", "loss", "breakeven", "open"],
+  },
+  notes: { type: "string" },
+  session: { type: "string" },
+} as const;
 
 const tools: OpenAI.Chat.Completions.ChatCompletionTool[] = [
   {
@@ -21,65 +79,10 @@ const tools: OpenAI.Chat.Completions.ChatCompletionTool[] = [
     function: {
       name: "add_trade",
       description:
-        "Record a new trade in the user's trading log. Chart screenshots attached to the user's message are saved onto the trade automatically — still call this tool when they ask to log a trade from an image.",
+        "Create a NEW trade in the log. Only call when the user clearly wants to log/save a trade (or confirms after you proposed logging). Screenshots on the message are attached automatically. Do not call this just to analyze a chart.",
       parameters: {
         type: "object",
-        properties: {
-          date: { type: "string", description: "YYYY-MM-DD" },
-          symbol: { type: "string" },
-          side: { type: "string", enum: ["long", "short"] },
-          setup: { type: "string" },
-          entry: { type: "number" },
-          stop: {
-            type: "number",
-            description: "Stop loss price level (SL)",
-          },
-          target: {
-            type: "number",
-            description: "Take profit price level (TP)",
-          },
-          exit: { type: "number" },
-          slPips: {
-            type: "number",
-            description: "Distance from entry to SL in pips (or points for indices)",
-          },
-          tpPips: {
-            type: "number",
-            description: "Distance from entry to TP in pips (or points for indices)",
-          },
-          entryTime: {
-            type: "string",
-            description: "ISO datetime when entry filled, e.g. 2026-07-28T08:42:00Z",
-          },
-          exitTime: {
-            type: "string",
-            description: "ISO datetime when trade closed",
-          },
-          timeInTradeMinutes: {
-            type: "number",
-            description: "Minutes held; derive from entry/exit times when possible",
-          },
-          pnlUsd: {
-            type: "number",
-            description: "Realized dollar P&L (negative for losses)",
-          },
-          riskUsd: {
-            type: "number",
-            description: "Dollars risked for 1R on this trade",
-          },
-          size: {
-            type: "string",
-            description: 'Position size, e.g. "0.40 lots" or "2 contracts"',
-          },
-          feesUsd: { type: "number", description: "Fees/commission/swap in $" },
-          rMultiple: { type: "number" },
-          result: {
-            type: "string",
-            enum: ["win", "loss", "breakeven", "open"],
-          },
-          notes: { type: "string" },
-          session: { type: "string" },
-        },
+        properties: tradeFields,
         required: [
           "date",
           "symbol",
@@ -91,6 +94,25 @@ const tools: OpenAI.Chat.Completions.ChatCompletionTool[] = [
           "rMultiple",
           "result",
         ],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "update_trade",
+      description:
+        "Modify an existing logged trade by id. Use when the user wants to fix fields, close a trade, change P&L/R, add notes, or correct SL/TP/times. Prefer updating the most recent matching trade if they don't give an id.",
+      parameters: {
+        type: "object",
+        properties: {
+          id: {
+            type: "string",
+            description: "Trade id from the trade log (required)",
+          },
+          ...tradeFields,
+        },
+        required: ["id"],
       },
     },
   },
@@ -154,6 +176,114 @@ const tools: OpenAI.Chat.Completions.ChatCompletionTool[] = [
   },
 ];
 
+function buildSystemPrompt(
+  strategy: Strategy,
+  stats: Record<string, number>,
+  trades: Trade[],
+) {
+  return `You are TradeAgent — a day-trading coach with the user's strategy, trade log, and stats in context.
+
+Voice:
+- Direct coach energy. Plain chat text only.
+- Short paragraphs. Light dash bullets (-) when listing 3+ items.
+- No markdown: no **bold**, no ## headings, no tables, no code fences.
+
+Core behavior (important):
+- ALWAYS write a real reply to the user. Never answer with only a tool call and silence.
+- Never reply with empty fluff like "Trade logged." or "On it." — that is a failure.
+- When the user shares a trade or chart (especially screenshots), review it against THEIR strategy rules before anything else.
+- Say what fits the model and what does not (bias, PD zone, POI, sweep, displacement, session, risk).
+- Ask for missing details instead of inventing them. Priority asks: entry/SL/TP, session, R or $ risk/P&L, entry/exit times, result.
+- Give coaching input: grade the setup briefly (A/B/C or pass), one thing done well, one leak, one next question.
+- Only call add_trade when they clearly want it saved/logged (or confirm after you offer). Analyzing a screenshot alone is NOT enough to auto-log.
+- Use update_trade to change existing trades (fix SL, close trade, patch P&L, notes, etc.). Use the trade id from the log. If unclear which trade, ask or update the newest matching symbol.
+- Screenshots on the current message are auto-attached when you add/update a trade — still call the tool when saving.
+- Prefer process adherence and R-multiples over vibes.
+
+STRATEGY JSON:
+${JSON.stringify(strategy, null, 2)}
+
+STATS:
+${JSON.stringify(stats, null, 2)}
+
+RECENT TRADES (newest first, capped — use these ids for update_trade):
+${JSON.stringify(
+  trades.slice(0, 40).map((t) => ({
+    id: t.id,
+    date: t.date,
+    symbol: t.symbol,
+    side: t.side,
+    setup: t.setup,
+    entry: t.entry,
+    stop: t.stop,
+    target: t.target,
+    exit: t.exit,
+    slPips: t.slPips,
+    tpPips: t.tpPips,
+    entryTime: t.entryTime,
+    exitTime: t.exitTime,
+    timeInTradeMinutes: t.timeInTradeMinutes,
+    pnlUsd: t.pnlUsd,
+    riskUsd: t.riskUsd,
+    size: t.size,
+    rMultiple: t.rMultiple,
+    result: t.result,
+    session: t.session,
+    notes: t.notes,
+    hasScreenshots: Boolean(t.screenshots?.length),
+  })),
+  null,
+  2,
+)}`;
+}
+
+function parseActions(
+  choice: OpenAI.Chat.Completions.ChatCompletionMessage,
+  strategy: Strategy,
+): Actions {
+  const actions: Actions = {};
+  for (const call of choice.tool_calls ?? []) {
+    if (call.type !== "function") continue;
+    const args = JSON.parse(call.function.arguments || "{}");
+    if (call.function.name === "add_trade") {
+      actions.addTrade = args;
+    }
+    if (call.function.name === "update_trade" && args.id) {
+      actions.updateTrade = args;
+    }
+    if (call.function.name === "update_strategy") {
+      const patch: Partial<Strategy> = { ...args };
+      delete (patch as { addRule?: unknown }).addRule;
+      delete (patch as { addRisk?: unknown }).addRisk;
+      if (args.addRule) {
+        patch.rules = [...(strategy.rules ?? []), args.addRule];
+      }
+      if (args.addRisk) {
+        patch.risk = [...(strategy.risk ?? []), args.addRisk];
+      }
+      actions.updateStrategy = patch;
+    }
+    if (call.function.name === "generate_charts") {
+      actions.chartRequests = args.charts;
+    }
+  }
+  return actions;
+}
+
+function isWeakReply(reply?: string | null) {
+  if (!reply?.trim()) return true;
+  const weak = [
+    /^trade logged\.?$/i,
+    /^trade updated\.?$/i,
+    /^strategy updated\.?$/i,
+    /^charts ready\.?$/i,
+    /^on it\.?$/i,
+    /^done\.?$/i,
+    /^logged\.?$/i,
+  ];
+  return weak.some((re) => re.test(reply.trim()));
+}
+
 export async function POST(req: NextRequest) {
   const body = await req.json();
   const {
@@ -210,40 +340,11 @@ export async function POST(req: NextRequest) {
 
   try {
     const openai = new OpenAI({ apiKey });
-    const system = `You are TradeAgent — a sharp day-trading copilot with full context of the user's strategy, trade log, and dashboard stats.
-
-Voice:
-- Direct, clear, and conversational — like a good trading coach in chat
-- Short paragraphs. Prefer plain sentences over essay structure
-- Gen-Z energy is fine, but stay useful and specific
-
-Formatting rules (important — this UI is plain text, not a markdown doc):
-- Do NOT use markdown: no **bold**, no ## headings, no ### sections, no tables, no code fences unless pasting a tiny snippet
-- Do NOT wrap every number or label in asterisks
-- Use simple line breaks and light dash bullets (-) when listing 3+ items
-- Keep replies scannable: lead with the answer, then 3–6 bullets max if needed, then one short close
-- Avoid long "What's working / Leaks / Verdict" essay templates unless the user asks for a deep review
-
-Job:
-- Analyze performance, generate charts, log trades, and refine strategy via tools when needed
-- Prefer R-multiples and process adherence over vibes
-- When logging trades, capture as much detail as available: entry/exit times (ISO), SL/TP prices, SL/TP pip distance, time in trade, $ P&L, risk $, size, fees
-- If the user attaches chart screenshots while asking to log a trade, call add_trade — those images are attached to the trade log entry automatically
-- When the user attaches chart screenshots or images, read them carefully (setup, structure, levels, invalidation) and tie advice back to their rules
-- When mutating data, call tools
-
-STRATEGY JSON:
-${JSON.stringify(strategy, null, 2)}
-
-STATS:
-${JSON.stringify(stats, null, 2)}
-
-RECENT TRADES (newest first, capped):
-${JSON.stringify(trades.slice(0, 40), null, 2)}`;
+    const system = buildSystemPrompt(strategy, stats, trades);
 
     const userText =
       message?.trim() ||
-      "Analyze this chart / image in the context of my strategy and trade log.";
+      "Review this chart / image against my strategy. Tell me what fits, what doesn't, and what's missing.";
 
     const userContent: OpenAI.Chat.Completions.ChatCompletionContentPart[] = [
       { type: "text", text: userText },
@@ -274,44 +375,44 @@ ${JSON.stringify(trades.slice(0, 40), null, 2)}`;
       messages,
       tools,
       tool_choice: "auto",
-      // GPT-5.6+ defaults to reasoning on chat completions, which rejects
-      // function tools unless effort is none (or you switch to /v1/responses).
       reasoning_effort: "none",
     } as OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming);
 
     const choice = completion.choices[0]?.message;
-    const actions: Actions = {};
+    const actions = choice ? parseActions(choice, strategy) : {};
+    let reply = choice?.content?.trim() ?? "";
 
-    for (const call of choice?.tool_calls ?? []) {
-      if (call.type !== "function") continue;
-      const args = JSON.parse(call.function.arguments || "{}");
-      if (call.function.name === "add_trade") {
-        actions.addTrade = args;
-      }
-      if (call.function.name === "update_strategy") {
-        const patch: Partial<Strategy> = { ...args };
-        delete (patch as { addRule?: unknown }).addRule;
-        delete (patch as { addRisk?: unknown }).addRisk;
-        if (args.addRule) {
-          patch.rules = [...(strategy.rules ?? []), args.addRule];
-        }
-        if (args.addRisk) {
-          patch.risk = [...(strategy.risk ?? []), args.addRisk];
-        }
-        actions.updateStrategy = patch;
-      }
-      if (call.function.name === "generate_charts") {
-        actions.chartRequests = args.charts;
-      }
-    }
+    if (isWeakReply(reply)) {
+      const followup = await openai.chat.completions.create({
+        model,
+        messages: [
+          { role: "system", content: system },
+          ...history
+            .filter((m) => m.role === "user" || m.role === "assistant")
+            .map((m) => ({
+              role: m.role as "user" | "assistant",
+              content: m.content,
+            })),
+          {
+            role: "user",
+            content: imageList.length ? userContent : userText,
+          },
+          {
+            role: "assistant",
+            content: `Tool actions taken this turn (if any): ${JSON.stringify(actions)}. Now write the full trader-facing reply.`,
+          },
+          {
+            role: "user",
+            content:
+              "Write your reply now. Review vs my strategy, call out missing fields, and give coaching input. Plain text only. Do not say just 'Trade logged'.",
+          },
+        ],
+        reasoning_effort: "none",
+      } as OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming);
 
-    let reply = choice?.content?.trim();
-    if (!reply) {
-      const parts: string[] = [];
-      if (actions.addTrade) parts.push("Trade logged.");
-      if (actions.updateStrategy) parts.push("Strategy updated.");
-      if (actions.chartRequests?.length) parts.push("Charts ready.");
-      reply = parts.join(" ") || "On it.";
+      reply =
+        followup.choices[0]?.message?.content?.trim() ||
+        "I looked at that against your plan — tell me entry, SL, TP, and session so I can grade it properly.";
     }
 
     return NextResponse.json({ reply, actions, mode: "openai", model });

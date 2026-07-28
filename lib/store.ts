@@ -162,6 +162,26 @@ export function applyChatActions(actions: ChatActionPayload) {
     );
   }
 
+  if (actions.updateTrade?.id) {
+    const { id, ...patch } = actions.updateTrade;
+    const screenshots = actions.screenshots?.length
+      ? actions.screenshots.slice(0, 4)
+      : undefined;
+    const existing = store.trades.find((t) => t.id === id);
+    store.updateTrade(id, {
+      ...patch,
+      ...(screenshots?.length
+        ? {
+            screenshots: [
+              ...(existing?.screenshots ?? []),
+              ...screenshots,
+            ].slice(0, 4),
+          }
+        : {}),
+    });
+    notes.push(`Updated trade ${id}.`);
+  }
+
   if (actions.updateStrategy) {
     store.updateStrategy(actions.updateStrategy);
     notes.push("Strategy updated.");
@@ -177,6 +197,7 @@ export function applyChatActions(actions: ChatActionPayload) {
 
 export interface ChatActionPayload {
   addTrade?: Omit<Trade, "id">;
+  updateTrade?: { id: string } & Partial<Omit<Trade, "id">>;
   updateStrategy?: Partial<Strategy>;
   charts?: ChartSpec[];
   /** Screenshots from the current chat turn to attach to a newly logged trade */

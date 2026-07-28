@@ -108,6 +108,7 @@ export function ChatWidget() {
       if (data.actions) {
         const applied = applyChatActions({
           addTrade: data.actions.addTrade,
+          updateTrade: data.actions.updateTrade,
           updateStrategy: data.actions.updateStrategy,
           charts: [],
           screenshots: images.length ? images : undefined,
@@ -124,7 +125,8 @@ export function ChatWidget() {
           charts = [...charts, ...data.actions.charts];
         }
 
-        if (applied.notes.length && !data.reply) {
+        // Only use tool notes if the model still gave no usable reply
+        if (applied.notes.length && !data.reply?.trim()) {
           data.reply = applied.notes.join(" ");
         }
       }
