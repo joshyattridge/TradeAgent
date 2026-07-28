@@ -89,7 +89,7 @@ export default function SettingsPage() {
           <p>
             {connected
               ? `Connected · ${resolveModelLabel(savedModel)}`
-              : "No API key — chat won’t work until you add one"}}
+              : "No API key — chat won't work until you add one"}
           </p>
         </div>
 
