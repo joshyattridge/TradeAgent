@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { format, parseISO } from "date-fns";
-import { X } from "lucide-react";
+import { Trash2, X } from "lucide-react";
+import { useTradingStore } from "@/lib/store";
 import type { Trade } from "@/lib/types";
 import {
   formatClock,
@@ -37,6 +38,9 @@ export function TradeDetail({
   trade: Trade;
   onClose: () => void;
 }) {
+  const deleteTrade = useTradingStore((s) => s.deleteTrade);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if (e.key === "Escape") onClose();
@@ -45,11 +49,24 @@ export function TradeDetail({
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
 
+  useEffect(() => {
+    setConfirmDelete(false);
+  }, [trade.id]);
+
   const duration = getTimeInTradeMinutes(trade);
   const slPips = getSlPips(trade);
   const tpPips = getTpPips(trade);
   const pnlClass =
     trade.pnlUsd == null ? "" : trade.pnlUsd >= 0 ? "pos" : "neg";
+
+  function onDelete() {
+    if (!confirmDelete) {
+      setConfirmDelete(true);
+      return;
+    }
+    deleteTrade(trade.id);
+    onClose();
+  }
 
   return (
     <div className="trade-detail-backdrop" onClick={onClose} role="presentation">
@@ -163,6 +180,30 @@ export function TradeDetail({
             <p>{trade.notes}</p>
           </div>
         ) : null}
+
+        <div className="trade-detail__actions">
+          {confirmDelete ? (
+            <>
+              <p className="trade-detail__confirm">Delete this trade permanently?</p>
+              <button type="button" className="danger-btn" onClick={onDelete}>
+                <Trash2 size={14} />
+                Confirm delete
+              </button>
+              <button
+                type="button"
+                className="ghost-btn"
+                onClick={() => setConfirmDelete(false)}
+              >
+                Cancel
+              </button>
+            </>
+          ) : (
+            <button type="button" className="danger-btn" onClick={onDelete}>
+              <Trash2 size={14} />
+              Delete trade
+            </button>
+          )}
+        </div>
       </aside>
     </div>
   );
