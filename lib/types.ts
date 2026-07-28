@@ -9,9 +9,15 @@ export interface Trade {
   side: TradeSide;
   setup: string;
   entry: number;
+  /** Stop loss price level */
   stop: number;
+  /** Take profit price level */
   target: number;
   exit?: number;
+  /** Distance from entry to SL in pips (or points for indices) */
+  slPips?: number;
+  /** Distance from entry to TP in pips (or points for indices) */
+  tpPips?: number;
   /** ISO datetime when the entry filled */
   entryTime?: string;
   /** ISO datetime when the trade was closed */

@@ -98,7 +98,7 @@ export const useTradingStore = create<Store>()(
         }),
     }),
     {
-      name: "tradeagent-store-v2",
+      name: "tradeagent-store-v3",
       partialize: (state) => ({
         trades: state.trades,
         strategy: state.strategy,

@@ -5,8 +5,11 @@ import type { Trade } from "@/lib/types";
 import {
   formatClock,
   formatDuration,
+  formatPips,
   formatPnlUsd,
+  getSlPips,
   getTimeInTradeMinutes,
+  getTpPips,
 } from "@/lib/trade-format";
 
 function badgeClass(result: Trade["result"]) {
@@ -33,6 +36,10 @@ export function TradeTable({ trades }: { trades: Trade[] }) {
             <th>Session</th>
             <th>Size</th>
             <th>Entry</th>
+            <th>SL</th>
+            <th>TP</th>
+            <th>SL pips</th>
+            <th>TP pips</th>
             <th>Exit</th>
             <th>Entry time</th>
             <th>Exit time</th>
@@ -47,6 +54,8 @@ export function TradeTable({ trades }: { trades: Trade[] }) {
         <tbody>
           {trades.map((trade) => {
             const duration = getTimeInTradeMinutes(trade);
+            const slPips = getSlPips(trade);
+            const tpPips = getTpPips(trade);
             const pnlClass =
               trade.pnlUsd == null
                 ? ""
@@ -65,6 +74,10 @@ export function TradeTable({ trades }: { trades: Trade[] }) {
                 <td>{trade.session ?? "—"}</td>
                 <td className="mono">{trade.size ?? "—"}</td>
                 <td className="mono">{trade.entry}</td>
+                <td className="mono neg">{trade.stop}</td>
+                <td className="mono pos">{trade.target}</td>
+                <td className="mono">{formatPips(slPips)}</td>
+                <td className="mono">{formatPips(tpPips)}</td>
                 <td className="mono">{trade.exit ?? "—"}</td>
                 <td className="mono">{formatClock(trade.entryTime)}</td>
                 <td className="mono">{formatClock(trade.exitTime)}</td>
