@@ -4,10 +4,20 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { DEFAULT_OPENAI_MODEL } from "./models";
 import { seedStrategy, seedTrades } from "./seed-data";
+import {
+  DEFAULT_VISIBLE_TRADE_COLUMNS,
+  TRADE_COLUMNS,
+  type TradeColumnId,
+} from "./trade-columns";
 import type { ChatMessage, ChartSpec, Strategy, Trade } from "./types";
 
 function uid() {
   return crypto.randomUUID();
+}
+
+function orderedColumns(ids: TradeColumnId[]): TradeColumnId[] {
+  const set = new Set(ids);
+  return TRADE_COLUMNS.map((c) => c.id).filter((id) => set.has(id));
 }
 
 interface Store {
@@ -16,10 +26,13 @@ interface Store {
   chat: ChatMessage[];
   openaiApiKey: string;
   openaiModel: string;
+  visibleTradeColumns: TradeColumnId[];
   hydrated: boolean;
   setHydrated: (v: boolean) => void;
   setOpenAIApiKey: (key: string) => void;
   setOpenAIModel: (model: string) => void;
+  toggleTradeColumn: (id: TradeColumnId) => void;
+  resetTradeColumns: () => void;
   addTrade: (trade: Omit<Trade, "id"> | Trade) => Trade;
   updateTrade: (id: string, patch: Partial<Trade>) => void;
   deleteTrade: (id: string) => void;
@@ -46,10 +59,22 @@ export const useTradingStore = create<Store>()(
       ],
       openaiApiKey: "",
       openaiModel: DEFAULT_OPENAI_MODEL,
+      visibleTradeColumns: DEFAULT_VISIBLE_TRADE_COLUMNS,
       hydrated: false,
       setHydrated: (v) => set({ hydrated: v }),
       setOpenAIApiKey: (key) => set({ openaiApiKey: key.trim() }),
       setOpenAIModel: (model) => set({ openaiModel: model }),
+      toggleTradeColumn: (id) => {
+        const current = get().visibleTradeColumns;
+        if (current.includes(id)) {
+          if (current.length <= 1) return;
+          set({ visibleTradeColumns: current.filter((c) => c !== id) });
+        } else {
+          set({ visibleTradeColumns: orderedColumns([...current, id]) });
+        }
+      },
+      resetTradeColumns: () =>
+        set({ visibleTradeColumns: DEFAULT_VISIBLE_TRADE_COLUMNS }),
       addTrade: (trade) => {
         const next: Trade = {
           ...trade,
@@ -106,6 +131,7 @@ export const useTradingStore = create<Store>()(
         chat: state.chat.map(({ images: _images, ...rest }) => rest),
         openaiApiKey: state.openaiApiKey,
         openaiModel: state.openaiModel,
+        visibleTradeColumns: state.visibleTradeColumns,
       }),
       onRehydrateStorage: () => (state) => {
         state?.setHydrated(true);

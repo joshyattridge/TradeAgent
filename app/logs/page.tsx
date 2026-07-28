@@ -29,8 +29,8 @@ export default function LogsPage() {
       <section className="page-hero">
         <h1>Trading Logs</h1>
         <p>
-          Every trade on record — times, duration, dollar P&amp;L, and R. Ask the
-          chat to log a new one and it stays synced across the app.
+          Every trade on record. Keep the table light, click a row for full
+          details, and toggle columns anytime.
         </p>
       </section>
 
