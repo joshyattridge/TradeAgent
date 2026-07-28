@@ -1,0 +1,174 @@
+"use client";
+
+import { FormEvent, useEffect, useRef, useState } from "react";
+import { MessageSquare, Send, X, Minimize2 } from "lucide-react";
+import { ChartRenderer } from "@/components/ChartRenderer";
+import { applyChatActions, useTradingStore } from "@/lib/store";
+import { buildChart, computeStats } from "@/lib/stats";
+import type { ChartSpec } from "@/lib/types";
+
+export function ChatWidget() {
+  const [open, setOpen] = useState(false);
+  const [input, setInput] = useState("");
+  const [loading, setLoading] = useState(false);
+  const scroller = useRef<HTMLDivElement>(null);
+
+  const trades = useTradingStore((s) => s.trades);
+  const strategy = useTradingStore((s) => s.strategy);
+  const chat = useTradingStore((s) => s.chat);
+  const addChatMessage = useTradingStore((s) => s.addChatMessage);
+  const hydrated = useTradingStore((s) => s.hydrated);
+
+  useEffect(() => {
+    if (!open) return;
+    scroller.current?.scrollTo({
+      top: scroller.current.scrollHeight,
+      behavior: "smooth",
+    });
+  }, [chat, open, loading]);
+
+  async function onSubmit(e: FormEvent) {
+    e.preventDefault();
+    const text = input.trim();
+    if (!text || loading) return;
+
+    setInput("");
+    addChatMessage({ role: "user", content: text });
+    setLoading(true);
+
+    try {
+      const res = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          message: text,
+          trades,
+          strategy,
+          stats: computeStats(trades),
+          history: chat.slice(-12).map((m) => ({
+            role: m.role,
+            content: m.content,
+          })),
+        }),
+      });
+
+      const data = await res.json();
+
+      let charts: ChartSpec[] = [];
+      if (data.actions) {
+        const applied = applyChatActions({
+          addTrade: data.actions.addTrade,
+          updateStrategy: data.actions.updateStrategy,
+          charts: [],
+        });
+
+        if (data.actions.chartRequests?.length) {
+          charts = data.actions.chartRequests.map(
+            (req: { type: ChartSpec["type"]; title?: string }) =>
+              buildChart(req.type, useTradingStore.getState().trades, req.title),
+          );
+        }
+
+        if (data.actions.charts?.length) {
+          charts = [...charts, ...data.actions.charts];
+        }
+
+        if (applied.notes.length && !data.reply) {
+          data.reply = applied.notes.join(" ");
+        }
+      }
+
+      addChatMessage({
+        role: "assistant",
+        content: data.reply ?? "Done.",
+        charts: charts.length ? charts : undefined,
+      });
+    } catch {
+      addChatMessage({
+        role: "assistant",
+        content:
+          "Couldn't reach the AI endpoint. Check your connection or OPENAI_API_KEY.",
+      });
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  if (!hydrated) return null;
+
+  return (
+    <div className={`chat-dock${open ? " is-open" : ""}`}>
+      {open ? (
+        <section className="chat-panel" aria-label="TradeAgent chat">
+          <header className="chat-panel__header">
+            <div>
+              <p className="chat-panel__eyebrow">Always on</p>
+              <h2>TradeAgent</h2>
+            </div>
+            <div className="chat-panel__actions">
+              <button
+                type="button"
+                className="icon-btn"
+                onClick={() => setOpen(false)}
+                aria-label="Minimize chat"
+              >
+                <Minimize2 size={16} />
+              </button>
+              <button
+                type="button"
+                className="icon-btn"
+                onClick={() => setOpen(false)}
+                aria-label="Close chat"
+              >
+                <X size={16} />
+              </button>
+            </div>
+          </header>
+
+          <div className="chat-panel__messages" ref={scroller}>
+            {chat.map((message) => (
+              <div
+                key={message.id}
+                className={`chat-bubble chat-bubble--${message.role}`}
+              >
+                <p>{message.content}</p>
+                {message.charts?.map((chart) => (
+                  <div key={chart.id} className="chat-chart">
+                    <ChartRenderer chart={chart} />
+                  </div>
+                ))}
+              </div>
+            ))}
+            {loading ? (
+              <div className="chat-bubble chat-bubble--assistant">
+                <p className="typing">Thinking through your book…</p>
+              </div>
+            ) : null}
+          </div>
+
+          <form className="chat-panel__composer" onSubmit={onSubmit}>
+            <input
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              placeholder="Log a trade, update strategy, ask for a chart…"
+              aria-label="Message TradeAgent"
+            />
+            <button type="submit" className="send-btn" disabled={loading || !input.trim()}>
+              <Send size={16} />
+            </button>
+          </form>
+        </section>
+      ) : (
+        <button
+          type="button"
+          className="chat-fab"
+          onClick={() => setOpen(true)}
+          aria-label="Open TradeAgent chat"
+        >
+          <MessageSquare size={18} />
+          <span>Ask TradeAgent</span>
+        </button>
+      )}
+    </div>
+  );
+}
