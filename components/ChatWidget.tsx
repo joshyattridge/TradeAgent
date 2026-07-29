@@ -110,22 +110,24 @@ export function ChatWidget() {
       if (data.actions) {
         const applied = applyChatActions({
           addTrade: data.actions.addTrade,
+          addTrades: data.actions.addTrades,
           updateTrade: data.actions.updateTrade,
+          updateTrades: data.actions.updateTrades,
           deleteTradeIds: data.actions.deleteTradeIds,
           updateStrategy: data.actions.updateStrategy,
-          charts: [],
+          charts: data.actions.charts ?? [],
+          activeTradeId: data.activeTradeId,
           screenshots: images.length ? images : undefined,
         });
 
-        if (data.actions.chartRequests?.length) {
+        charts = applied.charts;
+
+        // Fallback if server sent requests without pre-built charts
+        if (!charts.length && data.actions.chartRequests?.length) {
           const tradesNow = useTradingStore.getState().trades;
           charts = data.actions.chartRequests.map((req: ChartRequest) =>
             buildChartFromRequest(req, tradesNow),
           );
-        }
-
-        if (data.actions.charts?.length) {
-          charts = [...charts, ...data.actions.charts];
         }
 
         // Only use tool notes if the model still gave no usable reply

@@ -165,16 +165,23 @@ export function applyChatActions(actions: ChatActionPayload) {
   const charts: ChartSpec[] = [];
   const notes: string[] = [];
   let touchedTradeId: string | null = store.activeTradeId;
+  const screenshots = actions.screenshots?.length
+    ? actions.screenshots.slice(0, 4)
+    : undefined;
 
-  if (actions.addTrade) {
-    const screenshots = actions.screenshots?.length
-      ? actions.screenshots.slice(0, 4)
-      : undefined;
+  const addTrades: Array<Omit<Trade, "id"> | Trade> = [
+    ...(actions.addTrades ?? []),
+    ...(actions.addTrade && !actions.addTrades?.length ? [actions.addTrade] : []),
+  ];
+
+  for (const incoming of addTrades) {
     const trade = store.addTrade({
-      ...actions.addTrade,
+      ...incoming,
       screenshots: screenshots?.length
-        ? [...(actions.addTrade.screenshots ?? []), ...screenshots].slice(0, 4)
-        : actions.addTrade.screenshots,
+        ? [...(incoming.screenshots ?? []), ...screenshots]
+            .filter((s) => s !== "pending")
+            .slice(0, 4)
+        : (incoming.screenshots ?? []).filter((s) => s !== "pending"),
     });
     touchedTradeId = trade.id;
     notes.push(
@@ -184,11 +191,16 @@ export function applyChatActions(actions: ChatActionPayload) {
     );
   }
 
-  if (actions.updateTrade?.id) {
-    const { id, ...patch } = actions.updateTrade;
-    const screenshots = actions.screenshots?.length
-      ? actions.screenshots.slice(0, 4)
-      : undefined;
+  const updateTrades: Array<{ id: string } & Partial<Omit<Trade, "id">>> = [
+    ...(actions.updateTrades ?? []),
+    ...(actions.updateTrade?.id && !actions.updateTrades?.length
+      ? [actions.updateTrade]
+      : []),
+  ];
+
+  for (const update of updateTrades) {
+    const { id, ...patch } = update;
+    if (!id) continue;
     const existing = store.trades.find((t) => t.id === id);
     store.updateTrade(id, {
       ...patch,
@@ -232,15 +244,23 @@ export function applyChatActions(actions: ChatActionPayload) {
     );
   }
 
+  if (actions.activeTradeId !== undefined) {
+    store.setActiveTradeId(actions.activeTradeId);
+    if (actions.activeTradeId) touchedTradeId = actions.activeTradeId;
+  }
+
   return { charts, notes, touchedTradeId };
 }
 
 export interface ChatActionPayload {
-  addTrade?: Omit<Trade, "id">;
+  addTrade?: Omit<Trade, "id"> | Trade;
+  addTrades?: Array<Omit<Trade, "id"> | Trade>;
   updateTrade?: { id: string } & Partial<Omit<Trade, "id">>;
+  updateTrades?: Array<{ id: string } & Partial<Omit<Trade, "id">>>;
   deleteTradeIds?: string[];
   updateStrategy?: Partial<Strategy>;
   charts?: ChartSpec[];
+  activeTradeId?: string | null;
   /** Screenshots from the current chat turn to attach to a newly logged/updated trade */
   screenshots?: string[];
 }
