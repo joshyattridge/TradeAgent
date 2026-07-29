@@ -2,7 +2,6 @@
 
 import { useMemo, useState } from "react";
 import { ArrowDown, ArrowUp, ArrowUpDown, Columns3 } from "lucide-react";
-import { format, parseISO } from "date-fns";
 import { TradeDetail } from "@/components/TradeDetail";
 import {
   TRADE_COLUMNS,
@@ -15,9 +14,11 @@ import {
   formatDuration,
   formatPips,
   formatPnlUsd,
+  formatTradeDate,
   getSlPips,
   getTimeInTradeMinutes,
   getTpPips,
+  parseTradeDateTime,
 } from "@/lib/trade-format";
 
 type SortDir = "asc" | "desc";
@@ -29,10 +30,31 @@ function badgeClass(result: Trade["result"]) {
   return "badge";
 }
 
+/**
+ * Build a reliable millisecond timestamp for sorting.
+ * Handles ISO datetimes, date-only YYYY-MM-DD, and time-only HH:mm[:ss]
+ * (combined with the trade's calendar date).
+ */
+function toSortTimestamp(
+  raw: string | undefined,
+  fallbackDate?: string,
+): number | null {
+  const d = parseTradeDateTime(raw, fallbackDate);
+  return d ? d.getTime() : null;
+}
+
+/** Date/time sort key: entry datetime when present, else calendar date. */
+function tradeDateTimeKey(trade: Trade): number | null {
+  return (
+    toSortTimestamp(trade.entryTime, trade.date) ??
+    toSortTimestamp(trade.date)
+  );
+}
+
 function cellValue(trade: Trade, column: TradeColumnId) {
   switch (column) {
     case "date":
-      return format(parseISO(trade.date), "MMM d, yyyy");
+      return formatTradeDate(trade.date);
     case "symbol":
       return <span className="mono">{trade.symbol}</span>;
     case "side":
@@ -60,9 +82,13 @@ function cellValue(trade: Trade, column: TradeColumnId) {
     case "exit":
       return <span className="mono">{trade.exit ?? "—"}</span>;
     case "entryTime":
-      return <span className="mono">{formatClock(trade.entryTime)}</span>;
+      return (
+        <span className="mono">{formatClock(trade.entryTime, trade.date)}</span>
+      );
     case "exitTime":
-      return <span className="mono">{formatClock(trade.exitTime)}</span>;
+      return (
+        <span className="mono">{formatClock(trade.exitTime, trade.date)}</span>
+      );
     case "timeInTrade":
       return (
         <span className="mono">
@@ -115,8 +141,7 @@ function sortValue(
 ): string | number | null {
   switch (column) {
     case "date":
-      // Prefer full datetime when available so default sort is time+date
-      return trade.entryTime ?? trade.date;
+      return tradeDateTimeKey(trade);
     case "symbol":
       return trade.symbol.toUpperCase();
     case "side":
@@ -140,9 +165,9 @@ function sortValue(
     case "exit":
       return trade.exit ?? null;
     case "entryTime":
-      return trade.entryTime ?? null;
+      return toSortTimestamp(trade.entryTime, trade.date);
     case "exitTime":
-      return trade.exitTime ?? null;
+      return toSortTimestamp(trade.exitTime, trade.date);
     case "timeInTrade":
       return getTimeInTradeMinutes(trade) ?? null;
     case "riskUsd":
@@ -172,10 +197,12 @@ function compareSortValues(
   if (typeof a === "number" && typeof b === "number") {
     return (a - b) * mul;
   }
-  return String(a).localeCompare(String(b), undefined, {
-    numeric: true,
-    sensitivity: "base",
-  }) * mul;
+  return (
+    String(a).localeCompare(String(b), undefined, {
+      numeric: true,
+      sensitivity: "base",
+    }) * mul
+  );
 }
 
 function SortIcon({
@@ -212,12 +239,14 @@ export function TradeTable({ trades }: { trades: Trade[] }) {
         sortDir,
       );
       if (primary !== 0) return primary;
-      // Stable secondary: newest datetime
-      return compareSortValues(
-        sortValue(a, "date"),
-        sortValue(b, "date"),
+      // Tie-break: newest datetime, then id for stability
+      const byTime = compareSortValues(
+        tradeDateTimeKey(a),
+        tradeDateTimeKey(b),
         "desc",
       );
+      if (byTime !== 0) return byTime;
+      return a.id.localeCompare(b.id);
     });
   }, [trades, sortColumn, sortDir]);
 

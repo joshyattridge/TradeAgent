@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
-import { format, parseISO } from "date-fns";
 import { Trash2, X } from "lucide-react";
 import { useTradingStore } from "@/lib/store";
 import type { Trade } from "@/lib/types";
@@ -11,6 +10,8 @@ import {
   formatDuration,
   formatPips,
   formatPnlUsd,
+  formatTradeDate,
+  formatTradeDateTime,
   getSlPips,
   getTimeInTradeMinutes,
   getTpPips,
@@ -129,7 +130,7 @@ export function TradeDetail({
           </div>
 
           <div className="trade-detail__grid">
-            <Row label="Date">{format(parseISO(trade.date), "MMM d, yyyy")}</Row>
+            <Row label="Date">{formatTradeDate(trade.date)}</Row>
             <Row label="Session">{trade.session ?? "—"}</Row>
             <Row label="Setup" wide>
               {trade.setup}
@@ -160,16 +161,12 @@ export function TradeDetail({
             </Row>
             <Row label="Entry time">
               <span className="mono">
-                {trade.entryTime
-                  ? format(parseISO(trade.entryTime), "MMM d, HH:mm")
-                  : "—"}
+                {formatTradeDateTime(trade.entryTime, trade.date)}
               </span>
             </Row>
             <Row label="Exit time">
               <span className="mono">
-                {trade.exitTime
-                  ? format(parseISO(trade.exitTime), "MMM d, HH:mm")
-                  : "—"}
+                {formatTradeDateTime(trade.exitTime, trade.date)}
               </span>
             </Row>
             <Row label="Duration">
@@ -182,7 +179,8 @@ export function TradeDetail({
             </Row>
             <Row label="Clock" wide>
               <span className="mono">
-                {formatClock(trade.entryTime)} → {formatClock(trade.exitTime)}
+                {formatClock(trade.entryTime, trade.date)} →{" "}
+                {formatClock(trade.exitTime, trade.date)}
               </span>
             </Row>
           </div>
