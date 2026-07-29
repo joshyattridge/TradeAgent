@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { format, parseISO } from "date-fns";
 import { Trash2, X } from "lucide-react";
 import { useTradingStore } from "@/lib/store";
@@ -22,9 +23,17 @@ function badgeClass(result: Trade["result"]) {
   return "badge";
 }
 
-function Row({ label, children }: { label: string; children: React.ReactNode }) {
+function Row({
+  label,
+  children,
+  wide,
+}: {
+  label: string;
+  children: React.ReactNode;
+  wide?: boolean;
+}) {
   return (
-    <div className="trade-detail__row">
+    <div className={`trade-detail__row${wide ? " trade-detail__row--wide" : ""}`}>
       <span>{label}</span>
       <strong>{children}</strong>
     </div>
@@ -40,13 +49,23 @@ export function TradeDetail({
 }) {
   const deleteTrade = useTradingStore((s) => s.deleteTrade);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if (e.key === "Escape") onClose();
     }
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      document.body.style.overflow = prev;
+    };
   }, [onClose]);
 
   useEffect(() => {
@@ -68,11 +87,14 @@ export function TradeDetail({
     onClose();
   }
 
-  return (
+  if (!mounted) return null;
+
+  return createPortal(
     <div className="trade-detail-backdrop" onClick={onClose} role="presentation">
       <aside
         className="trade-detail"
         role="dialog"
+        aria-modal="true"
         aria-label={`${trade.symbol} trade details`}
         onClick={(e) => e.stopPropagation()}
       >
@@ -96,92 +118,100 @@ export function TradeDetail({
           </button>
         </header>
 
-        <div className="trade-detail__status">
-          <span className={badgeClass(trade.result)}>{trade.result}</span>
-          <span className={`mono ${trade.rMultiple >= 0 ? "pos" : "neg"}`}>
-            {trade.rMultiple > 0 ? "+" : ""}
-            {trade.rMultiple.toFixed(1)}R
-          </span>
-          <span className={`mono ${pnlClass}`}>{formatPnlUsd(trade.pnlUsd)}</span>
-        </div>
+        <div className="trade-detail__body">
+          <div className="trade-detail__status">
+            <span className={badgeClass(trade.result)}>{trade.result}</span>
+            <span className={`mono ${trade.rMultiple >= 0 ? "pos" : "neg"}`}>
+              {trade.rMultiple > 0 ? "+" : ""}
+              {trade.rMultiple.toFixed(1)}R
+            </span>
+            <span className={`mono ${pnlClass}`}>{formatPnlUsd(trade.pnlUsd)}</span>
+          </div>
 
-        <div className="trade-detail__grid">
-          <Row label="Date">{format(parseISO(trade.date), "MMM d, yyyy")}</Row>
-          <Row label="Setup">{trade.setup}</Row>
-          <Row label="Session">{trade.session ?? "—"}</Row>
-          <Row label="Size">{trade.size ?? "—"}</Row>
-          <Row label="Entry">
-            <span className="mono">{trade.entry}</span>
-          </Row>
-          <Row label="SL">
-            <span className="mono neg">{trade.stop}</span>
-          </Row>
-          <Row label="TP">
-            <span className="mono pos">{trade.target}</span>
-          </Row>
-          <Row label="Exit">
-            <span className="mono">{trade.exit ?? "—"}</span>
-          </Row>
-          <Row label="SL pips">
-            <span className="mono">{formatPips(slPips)}</span>
-          </Row>
-          <Row label="TP pips">
-            <span className="mono">{formatPips(tpPips)}</span>
-          </Row>
-          <Row label="Entry time">
-            <span className="mono">
-              {trade.entryTime
-                ? format(parseISO(trade.entryTime), "MMM d, HH:mm")
-                : "—"}
-            </span>
-          </Row>
-          <Row label="Exit time">
-            <span className="mono">
-              {trade.exitTime
-                ? format(parseISO(trade.exitTime), "MMM d, HH:mm")
-                : "—"}
-            </span>
-          </Row>
-          <Row label="Time in trade">
-            <span className="mono">{formatDuration(duration)}</span>
-          </Row>
-          <Row label="Risk $">
-            <span className="mono">
-              {trade.riskUsd != null ? `$${trade.riskUsd.toFixed(0)}` : "—"}
-            </span>
-          </Row>
-          <Row label="Fees $">
-            <span className="mono">
-              {trade.feesUsd != null ? `$${trade.feesUsd.toFixed(2)}` : "—"}
-            </span>
-          </Row>
-          <Row label="Clock">
-            <span className="mono">
-              {formatClock(trade.entryTime)} → {formatClock(trade.exitTime)}
-            </span>
-          </Row>
-        </div>
+          <div className="trade-detail__grid">
+            <Row label="Date">{format(parseISO(trade.date), "MMM d, yyyy")}</Row>
+            <Row label="Session">{trade.session ?? "—"}</Row>
+            <Row label="Setup" wide>
+              {trade.setup}
+            </Row>
+            <Row label="Size">{trade.size ?? "—"}</Row>
+            <Row label="Risk $">
+              <span className="mono">
+                {trade.riskUsd != null ? `$${trade.riskUsd.toFixed(0)}` : "—"}
+              </span>
+            </Row>
+            <Row label="Entry">
+              <span className="mono">{trade.entry}</span>
+            </Row>
+            <Row label="Exit">
+              <span className="mono">{trade.exit ?? "—"}</span>
+            </Row>
+            <Row label="SL">
+              <span className="mono neg">{trade.stop}</span>
+            </Row>
+            <Row label="TP">
+              <span className="mono pos">{trade.target}</span>
+            </Row>
+            <Row label="SL pips">
+              <span className="mono">{formatPips(slPips)}</span>
+            </Row>
+            <Row label="TP pips">
+              <span className="mono">{formatPips(tpPips)}</span>
+            </Row>
+            <Row label="Entry time">
+              <span className="mono">
+                {trade.entryTime
+                  ? format(parseISO(trade.entryTime), "MMM d, HH:mm")
+                  : "—"}
+              </span>
+            </Row>
+            <Row label="Exit time">
+              <span className="mono">
+                {trade.exitTime
+                  ? format(parseISO(trade.exitTime), "MMM d, HH:mm")
+                  : "—"}
+              </span>
+            </Row>
+            <Row label="Duration">
+              <span className="mono">{formatDuration(duration)}</span>
+            </Row>
+            <Row label="Fees $">
+              <span className="mono">
+                {trade.feesUsd != null ? `$${trade.feesUsd.toFixed(2)}` : "—"}
+              </span>
+            </Row>
+            <Row label="Clock" wide>
+              <span className="mono">
+                {formatClock(trade.entryTime)} → {formatClock(trade.exitTime)}
+              </span>
+            </Row>
+          </div>
 
-        {trade.screenshots?.length ? (
-          <div className="trade-detail__shots">
-            <p className="trade-detail__eyebrow">Screenshots</p>
-            <div className="trade-detail__shot-grid">
-              {trade.screenshots.map((src, i) => (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img key={`${trade.id}-shot-${i}`} src={src} alt={`Trade chart ${i + 1}`} />
-              ))}
+          {trade.screenshots?.length ? (
+            <div className="trade-detail__shots">
+              <p className="trade-detail__eyebrow">Screenshots</p>
+              <div className="trade-detail__shot-grid">
+                {trade.screenshots.map((src, i) => (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    key={`${trade.id}-shot-${i}`}
+                    src={src}
+                    alt={`Trade chart ${i + 1}`}
+                  />
+                ))}
+              </div>
             </div>
-          </div>
-        ) : null}
+          ) : null}
 
-        {trade.notes ? (
-          <div className="trade-detail__notes">
-            <p className="trade-detail__eyebrow">Notes</p>
-            <p>{trade.notes}</p>
-          </div>
-        ) : null}
+          {trade.notes ? (
+            <div className="trade-detail__notes">
+              <p className="trade-detail__eyebrow">Notes</p>
+              <p>{trade.notes}</p>
+            </div>
+          ) : null}
+        </div>
 
-        <div className="trade-detail__actions">
+        <footer className="trade-detail__actions">
           {confirmDelete ? (
             <>
               <p className="trade-detail__confirm">Delete this trade permanently?</p>
@@ -203,8 +233,9 @@ export function TradeDetail({
               Delete trade
             </button>
           )}
-        </div>
+        </footer>
       </aside>
-    </div>
+    </div>,
+    document.body,
   );
 }
