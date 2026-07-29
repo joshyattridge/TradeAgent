@@ -241,9 +241,37 @@ export const getTradeSchema = z.object({
   id: z.string().describe("Trade id to fetch"),
 });
 
+export const findTradeSchema = z.object({
+  symbol: z.string().optional().describe("Pair to search, e.g. AUDUSD"),
+  side: tradeSideSchema.optional(),
+  result: tradeResultSchema.optional(),
+  date: z.string().optional().describe("YYYY-MM-DD if known"),
+  entry: z.number().optional().describe("Entry price from screenshot/message"),
+  stop: z.number().optional(),
+  target: z.number().optional(),
+  exit: z.number().optional(),
+  size: z.string().optional(),
+  pnlUsd: z.number().optional(),
+  entryTime: z.string().optional(),
+  exitTime: z.string().optional(),
+  text: z
+    .string()
+    .optional()
+    .describe("Ticket number or unique note fragment"),
+  limit: z
+    .number()
+    .int()
+    .min(1)
+    .max(15)
+    .optional()
+    .default(8)
+    .describe("How many ranked candidates to return"),
+});
+
 export type AddTradeInput = z.infer<typeof addTradeSchema>;
 export type UpdateTradeInput = z.infer<typeof updateTradeSchema>;
 export type TradeFilterInput = z.infer<typeof tradeFilterSchema>;
 export type QueryTradesInput = z.infer<typeof queryTradesSchema>;
 export type GetStrategyInput = z.infer<typeof getStrategySchema>;
 export type GetTradeInput = z.infer<typeof getTradeSchema>;
+export type FindTradeInput = z.infer<typeof findTradeSchema>;

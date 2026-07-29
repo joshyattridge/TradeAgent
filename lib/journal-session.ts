@@ -1,7 +1,12 @@
 import { buildChartFromRequest, computeStats } from "@/lib/stats";
-import { looksLikeFollowUpUpdate, tradeSnapshot } from "@/lib/chat-context";
+import {
+  looksLikeFollowUpUpdate,
+  normalizeSymbol,
+  tradeSnapshot,
+} from "@/lib/chat-context";
 import type {
   AddTradeInput,
+  FindTradeInput,
   QueryTradesInput,
   TradeFilterInput,
   UpdateTradeInput,
@@ -61,6 +66,162 @@ function appendNotes(existing: string | undefined, append?: string, replace?: st
   return `${existing.trim()}\n${append.trim()}`;
 }
 
+function symbolsMatch(a?: string | null, b?: string | null) {
+  if (!a || !b) return false;
+  return normalizeSymbol(a) === normalizeSymbol(b);
+}
+
+/** Newest-first matches for a symbol in the working journal. */
+function findTradesBySymbol(trades: Trade[], symbol: string) {
+  const key = normalizeSymbol(symbol);
+  return trades.filter((t) => normalizeSymbol(t.symbol) === key);
+}
+
+type TradeHints = {
+  symbol?: string;
+  side?: Trade["side"];
+  result?: Trade["result"];
+  date?: string;
+  entry?: number;
+  stop?: number;
+  target?: number;
+  exit?: number;
+  size?: string;
+  pnlUsd?: number;
+  entryTime?: string;
+  exitTime?: string;
+  text?: string;
+};
+
+function priceClose(a: number | undefined, b: number | undefined, tolRatio = 0.0008) {
+  if (a == null || b == null || Number.isNaN(a) || Number.isNaN(b)) return false;
+  const scale = Math.max(Math.abs(a), Math.abs(b), 1e-9);
+  return Math.abs(a - b) / scale <= tolRatio || Math.abs(a - b) <= 0.00005;
+}
+
+function scoreTradeAgainstHints(trade: Trade, hints: TradeHints, newestIndex: number) {
+  let score = 0;
+  const reasons: string[] = [];
+
+  if (hints.symbol) {
+    if (symbolsMatch(trade.symbol, hints.symbol)) {
+      score += 40;
+      reasons.push("symbol");
+    } else {
+      return { score: -1000, reasons: ["symbol mismatch"] };
+    }
+  }
+
+  if (hints.side && trade.side === hints.side) {
+    score += 18;
+    reasons.push("side");
+  }
+  if (hints.result && trade.result === hints.result) {
+    score += 18;
+    reasons.push("result");
+  }
+  if (hints.date && trade.date === hints.date) {
+    score += 22;
+    reasons.push("date");
+  }
+  if (priceClose(trade.entry, hints.entry)) {
+    score += 35;
+    reasons.push("entry");
+  }
+  if (priceClose(trade.stop, hints.stop)) {
+    score += 14;
+    reasons.push("stop");
+  }
+  if (priceClose(trade.target, hints.target)) {
+    score += 14;
+    reasons.push("target");
+  }
+  if (priceClose(trade.exit, hints.exit)) {
+    score += 18;
+    reasons.push("exit");
+  }
+  if (
+    hints.pnlUsd != null &&
+    trade.pnlUsd != null &&
+    Math.abs(trade.pnlUsd - hints.pnlUsd) <= Math.max(1, Math.abs(hints.pnlUsd) * 0.05)
+  ) {
+    score += 16;
+    reasons.push("pnl");
+  }
+  if (
+    hints.size &&
+    trade.size &&
+    trade.size.toLowerCase().includes(hints.size.toLowerCase().replace(/\s+/g, " ").trim())
+  ) {
+    score += 10;
+    reasons.push("size");
+  }
+  if (hints.entryTime && trade.entryTime) {
+    // Compare clock portion if both look like ISO
+    const a = hints.entryTime.slice(11, 16);
+    const b = trade.entryTime.slice(11, 16);
+    if (a && b && a === b) {
+      score += 16;
+      reasons.push("entryTime");
+    }
+  }
+  if (hints.exitTime && trade.exitTime) {
+    const a = hints.exitTime.slice(11, 16);
+    const b = trade.exitTime.slice(11, 16);
+    if (a && b && a === b) {
+      score += 12;
+      reasons.push("exitTime");
+    }
+  }
+  if (hints.text) {
+    const q = hints.text.toLowerCase();
+    const hay = `${trade.notes ?? ""} ${(trade.tags ?? []).join(" ")} ${trade.chartExtract?.notes ?? ""}`.toLowerCase();
+    if (hay.includes(q)) {
+      score += 28;
+      reasons.push("text");
+    }
+  }
+
+  // Prefer newer trades when hints are sparse
+  score += Math.max(0, 8 - newestIndex);
+
+  return { score, reasons };
+}
+
+function rankTradesByHints(trades: Trade[], hints: TradeHints, limit = 8) {
+  const pool = hints.symbol
+    ? findTradesBySymbol(trades, hints.symbol)
+    : [...trades];
+
+  // Newest first for index bonus
+  const newestFirst = [...pool].sort((a, b) => {
+    const aKey = a.entryTime ?? a.date;
+    const bKey = b.entryTime ?? b.date;
+    return bKey.localeCompare(aKey);
+  });
+
+  const ranked = newestFirst
+    .map((trade, index) => {
+      const { score, reasons } = scoreTradeAgainstHints(trade, hints, index);
+      return { trade, score, reasons };
+    })
+    .filter((r) => r.score > -500)
+    .sort((a, b) => b.score - a.score || (b.trade.date.localeCompare(a.trade.date)))
+    .slice(0, limit);
+
+  const best = ranked[0];
+  const second = ranked[1];
+  const confident =
+    Boolean(best) &&
+    best.score >= 50 &&
+    (!second || best.score - second.score >= 12 || ranked.length === 1);
+
+  return {
+    ranked,
+    bestMatch: confident ? best : undefined,
+  };
+}
+
 export function filterTrades(trades: Trade[], filter: TradeFilterInput): Trade[] {
   return trades.filter((t) => {
     if (filter.ids?.length && !filter.ids.includes(t.id)) return false;
@@ -112,7 +273,6 @@ function sortTrades(trades: Trade[], sort: QueryTradesInput["sort"] = "newest") 
 export class JournalSession {
   trades: Trade[];
   strategy: Strategy;
-  activeTradeId: string | null;
   private readonly userMessage: string;
   private readonly turnHasScreenshots: boolean;
   private readonly addTrades: Trade[] = [];
@@ -127,13 +287,11 @@ export class JournalSession {
   constructor(opts: {
     trades: Trade[];
     strategy: Strategy;
-    activeTradeId?: string | null;
     userMessage: string;
     turnHasScreenshots?: boolean;
   }) {
     this.trades = opts.trades.map((t) => ({ ...t }));
     this.strategy = { ...opts.strategy };
-    this.activeTradeId = opts.activeTradeId ?? null;
     this.userMessage = opts.userMessage;
     this.turnHasScreenshots = Boolean(opts.turnHasScreenshots);
   }
@@ -166,12 +324,33 @@ export class JournalSession {
   }
 
   addTrade(input: AddTradeInput) {
-    if (
-      this.activeTradeId &&
-      looksLikeFollowUpUpdate(this.userMessage) &&
-      this.trades.some((t) => t.id === this.activeTradeId)
-    ) {
-      return this.updateTrade({ ...input, id: this.activeTradeId });
+    // Follow-up with details → resolve which existing row to update using hints
+    if (looksLikeFollowUpUpdate(this.userMessage)) {
+      const { ranked, bestMatch } = rankTradesByHints(this.trades, input, 8);
+      if (bestMatch) {
+        return this.updateTrade({ ...input, id: bestMatch.trade.id });
+      }
+      if (ranked.length > 0) {
+        return {
+          ok: false as const,
+          error: `Could not uniquely resolve which ${input.symbol} trade to update. Review candidates and call update_trade with the correct id (or call find_trade with more hints).`,
+          candidates: ranked.map((r) => ({
+            id: r.trade.id,
+            score: r.score,
+            matched: r.reasons,
+            symbol: r.trade.symbol,
+            side: r.trade.side,
+            date: r.trade.date,
+            result: r.trade.result,
+            entry: r.trade.entry,
+            stop: r.trade.stop,
+            target: r.trade.target,
+            exit: r.trade.exit,
+            pnlUsd: r.trade.pnlUsd,
+            size: r.trade.size,
+          })),
+        };
+      }
     }
 
     const chartExtract = input.chartExtract
@@ -211,32 +390,89 @@ export class JournalSession {
     };
 
     this.trades = [trade, ...this.trades];
-    this.activeTradeId = trade.id;
     this.addTrades.push(trade);
 
     return {
       ok: true as const,
       action: "add_trade",
       trade: tradeSnapshot(trade),
-      activeTradeId: this.activeTradeId,
       stats: this.getStats(),
       note: "Use this trade.id for further updates. Do not add_trade again for the same position.",
     };
   }
 
   updateTrade(input: UpdateTradeInput) {
-    const existing = this.trades.find((t) => t.id === input.id);
+    let targetId = input.id;
+    let redirectedFrom: string | undefined;
+    let existing = this.trades.find((t) => t.id === targetId);
+
+    // Guard: never overwrite EURUSD with AUDUSD fields (etc.)
+    if (
+      existing &&
+      input.symbol &&
+      !symbolsMatch(existing.symbol, input.symbol)
+    ) {
+      const { ranked, bestMatch } = rankTradesByHints(this.trades, input, 8);
+      if (bestMatch) {
+        redirectedFrom = targetId;
+        targetId = bestMatch.trade.id;
+        existing = bestMatch.trade;
+      } else {
+        return {
+          ok: false as const,
+          error: `Refused to apply ${input.symbol} fields onto ${existing.symbol} (${input.id}). Could not uniquely match a ${input.symbol} trade — pick an id from candidates.`,
+          candidates: ranked.map((r) => ({
+            id: r.trade.id,
+            score: r.score,
+            matched: r.reasons,
+            symbol: r.trade.symbol,
+            side: r.trade.side,
+            date: r.trade.date,
+            result: r.trade.result,
+            entry: r.trade.entry,
+            stop: r.trade.stop,
+            target: r.trade.target,
+            exit: r.trade.exit,
+            pnlUsd: r.trade.pnlUsd,
+          })),
+        };
+      }
+    }
+
+    // Wrong/missing id but hints uniquely identify a trade
+    if (!existing) {
+      const { ranked, bestMatch } = rankTradesByHints(this.trades, input, 8);
+      if (bestMatch) {
+        targetId = bestMatch.trade.id;
+        existing = bestMatch.trade;
+      } else if (ranked.length) {
+        return {
+          ok: false as const,
+          error: `No trade found with id ${input.id}. Candidates below — call update_trade with the correct id.`,
+          candidates: ranked.map((r) => ({
+            id: r.trade.id,
+            score: r.score,
+            matched: r.reasons,
+            symbol: r.trade.symbol,
+            date: r.trade.date,
+            result: r.trade.result,
+            entry: r.trade.entry,
+          })),
+          hint: "Use find_trade with screenshot levels to resolve ambiguity.",
+        };
+      }
+    }
+
     if (!existing) {
       return {
         ok: false as const,
         error: `No trade found with id ${input.id}`,
-        activeTradeId: this.activeTradeId,
-        hint: "Use an id from query_trades or a prior add_trade result.",
+        hint: "Call find_trade or query_trades first, then update_trade with that exact id.",
       };
     }
 
     const {
-      id,
+      id: _id,
       appendNote,
       appendTags,
       chartExtract,
@@ -244,6 +480,7 @@ export class JournalSession {
       tags,
       ...rest
     } = input;
+    void _id;
 
     const patch: Partial<Omit<Trade, "id">> = {};
     for (const [key, value] of Object.entries(rest)) {
@@ -251,6 +488,11 @@ export class JournalSession {
         (patch as Record<string, unknown>)[key] = value;
       }
     }
+    // Keep the row's real symbol unless explicitly correcting typos on the SAME pair
+    if (patch.symbol && !symbolsMatch(existing.symbol, patch.symbol)) {
+      delete patch.symbol;
+    }
+
     patch.notes = appendNotes(existing.notes, appendNote, notes);
     if (tags) patch.tags = tags;
     if (appendTags?.length) patch.tags = mergeTags(tags ?? existing.tags, appendTags);
@@ -264,7 +506,8 @@ export class JournalSession {
     const next: Trade = {
       ...existing,
       ...patch,
-      id,
+      id: targetId,
+      symbol: existing.symbol,
       ...(this.turnHasScreenshots
         ? {
             screenshots: [...(existing.screenshots ?? []), "pending"].slice(0, 4),
@@ -272,15 +515,17 @@ export class JournalSession {
         : {}),
     };
 
-    this.trades = this.trades.map((t) => (t.id === id ? next : t));
-    this.activeTradeId = id;
-    this.updateTrades.push({ id, ...patch });
+    this.trades = this.trades.map((t) => (t.id === targetId ? next : t));
+    this.updateTrades.push({ id: targetId, ...patch, symbol: existing.symbol });
 
     return {
       ok: true as const,
       action: "update_trade",
       trade: tradeSnapshot(next),
-      activeTradeId: this.activeTradeId,
+      redirectedFrom,
+      note: redirectedFrom
+        ? `Redirected update from ${redirectedFrom} → ${targetId} because symbol ${existing.symbol} did not match the requested id's pair.`
+        : undefined,
       stats: this.getStats(),
     };
   }
@@ -304,16 +549,12 @@ export class JournalSession {
     const remove = new Set(found);
     this.trades = this.trades.filter((t) => !remove.has(t.id));
     for (const id of found) this.deleteTradeIds.add(id);
-    if (this.activeTradeId && remove.has(this.activeTradeId)) {
-      this.activeTradeId = this.trades[0]?.id ?? null;
-    }
 
     return {
       ok: true as const,
       action: "delete_trade",
       deletedIds: found,
       missingIds: missing.length ? missing : undefined,
-      activeTradeId: this.activeTradeId,
       stats: this.getStats(),
     };
   }
@@ -488,14 +729,50 @@ export class JournalSession {
         ok: false as const,
         action: "get_trade",
         error: `No trade found with id ${id}`,
-        activeTradeId: this.activeTradeId,
       };
     }
     return {
       ok: true as const,
       action: "get_trade",
       trade: tradeSnapshot(trade),
-      isActive: trade.id === this.activeTradeId,
+    };
+  }
+
+  /**
+   * Rank recent trades against screenshot/message hints so the model can pick
+   * the right row even when multiple trades share a symbol.
+   */
+  findTrade(input: FindTradeInput) {
+    const limit = input.limit ?? 8;
+    const { ranked, bestMatch } = rankTradesByHints(this.trades, input, limit);
+
+    if (!ranked.length) {
+      return {
+        ok: false as const,
+        action: "find_trade",
+        error: "No matching trades",
+        journal: {
+          total: this.trades.length,
+        },
+      };
+    }
+
+    return {
+      ok: true as const,
+      action: "find_trade",
+      confident: Boolean(bestMatch),
+      bestMatchId: bestMatch?.trade.id,
+      bestScore: bestMatch?.score,
+      matchedOn: bestMatch?.reasons,
+      candidates: ranked.map((r) => ({
+        id: r.trade.id,
+        score: r.score,
+        matched: r.reasons,
+        trade: tradeSnapshot(r.trade),
+      })),
+      note: bestMatch
+        ? `Best match ${bestMatch.trade.id} (${bestMatch.trade.symbol}). Call update_trade with this id.`
+        : "No single confident match — compare candidates to the screenshot and pick an id, or ask the user which one.",
     };
   }
 

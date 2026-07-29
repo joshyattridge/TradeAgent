@@ -42,7 +42,6 @@ export type TradeSnapshot = {
 
 export type ChatContextPack = {
   /** Pointer only — full strategy/trades are loaded via tools */
-  activeTradeId: string | null;
   tradeCount: number;
   strategyName: string | null;
   conversationSummary: string;
@@ -85,6 +84,22 @@ export function looksLikeFollowUpUpdate(message: string) {
   return /(update|lost|loss|won|win|closed|close it|fix|change|correct|actually|reflect|make it|set (it|the)|pnl|p&l|-\s*\$?\d|result|duplicate|remove|delete|keep the)/i.test(
     message,
   );
+}
+
+export function normalizeSymbol(symbol: string) {
+  return symbol.toUpperCase().replace(/[^A-Z0-9]/g, "");
+}
+
+/** Symbols from the journal that appear as whole tokens in the message. */
+export function mentionedJournalSymbols(message: string, trades: Trade[]) {
+  const found = new Set<string>();
+  for (const symbol of new Set(trades.map((t) => t.symbol).filter(Boolean))) {
+    const token = normalizeSymbol(symbol);
+    if (token.length < 2) continue;
+    const re = new RegExp(`\\b${token.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i");
+    if (re.test(message)) found.add(symbol);
+  }
+  return [...found];
 }
 
 function truncate(text: string, max: number) {
@@ -183,7 +198,6 @@ function extractSetupHints(message: string) {
 function scoreTrade(
   trade: Trade,
   opts: {
-    activeTradeId: string | null;
     symbols: Set<string>;
     dates: Set<string>;
     setupHints: string[];
@@ -194,7 +208,6 @@ function scoreTrade(
   },
 ) {
   let score = 0;
-  if (opts.activeTradeId && trade.id === opts.activeTradeId) score += 100;
 
   const sym = trade.symbol.toUpperCase();
   for (const s of opts.symbols) {
@@ -219,18 +232,15 @@ function scoreTrade(
     }
   }
 
-  // Mild recency bias (newest trades are first in the array typically)
   return score;
 }
 
 /**
  * Pick trades relevant to the user message instead of stuffing the newest N.
- * Always includes the active trade when present; fills remaining slots by score + recency.
  */
 export function selectRelevantTrades(
   trades: Trade[],
   userMessage: string,
-  activeTradeId?: string | null,
   limit = RELEVANT_TRADES_LIMIT,
 ): { trades: Trade[]; notes: string[] } {
   if (!trades.length) return { trades: [], notes: ["No trades in log."] };
@@ -238,11 +248,11 @@ export function selectRelevantTrades(
   const symbols = extractMentionedSymbols(userMessage, trades);
   const dates = extractMentionedDates(userMessage);
   const setupHints = extractSetupHints(userMessage);
-  const lower = userMessage.toLowerCase();
   const wantsLosses = /\b(loss|losses|losers|red)\b/i.test(userMessage);
   const wantsWins = /\b(win|wins|winners|green)\b/i.test(userMessage);
   const wantsOpen = /\b(open|active|running)\b/i.test(userMessage);
-  const queryTokens = lower
+  const queryTokens = userMessage
+    .toLowerCase()
     .split(/[^a-z0-9]+/)
     .filter((t) => t.length >= 3)
     .slice(0, 24);
@@ -251,7 +261,6 @@ export function selectRelevantTrades(
     trade,
     index,
     score: scoreTrade(trade, {
-      activeTradeId: activeTradeId ?? null,
       symbols,
       dates,
       setupHints,
@@ -264,7 +273,6 @@ export function selectRelevantTrades(
 
   scored.sort((a, b) => {
     if (b.score !== a.score) return b.score - a.score;
-    // Prefer newer (lower index if newest-first; also prefer later dates)
     const byDate = b.trade.date.localeCompare(a.trade.date);
     if (byDate !== 0) return byDate;
     return a.index - b.index;
@@ -274,25 +282,14 @@ export function selectRelevantTrades(
   const seen = new Set<string>();
   const notes: string[] = [];
 
-  const active = activeTradeId
-    ? trades.find((t) => t.id === activeTradeId)
-    : undefined;
-  if (active) {
-    picked.push(active);
-    seen.add(active.id);
-    notes.push(`Included active trade ${active.id}.`);
-  }
-
   for (const row of scored) {
     if (picked.length >= limit) break;
     if (seen.has(row.trade.id)) continue;
-    // Keep zero-score trades only to fill with recent if we have room and few matches
     if (row.score <= 0 && picked.length >= Math.min(5, limit)) continue;
     picked.push(row.trade);
     seen.add(row.trade.id);
   }
 
-  // Ensure a few newest trades are present for general journaling continuity
   for (const trade of trades) {
     if (picked.length >= limit) break;
     if (seen.has(trade.id)) continue;
@@ -319,44 +316,41 @@ export function buildTradeIndex(trades: Trade[], limit = TRADE_INDEX_LIMIT) {
 }
 
 /**
- * Re-attach active-trade screenshots on follow-ups that need visual context
- * when the user did not upload new images this turn.
+ * Optionally re-attach screenshots from a trade uniquely identified by symbol
+ * in the user message (no "active trade" concept).
  */
 export function selectReattachedScreenshots(opts: {
   userMessage: string;
   hasNewImages: boolean;
-  activeTrade?: Trade | null;
+  trades: Trade[];
   max?: number;
 }): string[] {
   const {
     userMessage,
     hasNewImages,
-    activeTrade,
+    trades,
     max = MAX_REATTACH_SCREENSHOTS,
   } = opts;
-  if (hasNewImages || !activeTrade) return [];
+  if (hasNewImages || !trades.length) return [];
 
-  const real = (activeTrade.screenshots ?? []).filter(
+  const mentioned = mentionedJournalSymbols(userMessage, trades);
+  if (mentioned.length !== 1) return [];
+
+  const matches = trades.filter(
+    (t) => normalizeSymbol(t.symbol) === normalizeSymbol(mentioned[0]),
+  );
+  if (matches.length !== 1) return [];
+
+  const real = (matches[0].screenshots ?? []).filter(
     (s) => typeof s === "string" && s.startsWith("data:image/"),
   );
   if (!real.length) return [];
-
-  const analyticsOnly =
-    /\b(equity|win ?rate|by setup|by symbol|performance|stats|expectancy|drawdown|generate (a )?chart|show (me )?(a )?chart)\b/i.test(
-      userMessage,
-    ) &&
-    !/\b(this trade|the trade|my trade|active trade|screenshot|the chart|this chart)\b/i.test(
-      userMessage,
-    );
-
-  if (analyticsOnly) return [];
 
   const needsVisual =
     looksLikeFollowUpUpdate(userMessage) ||
     /\b(screenshot|image|chart|look|see|review|re-?read|from (the|this)|levels?|entry|stop|target|sl|tp)\b/i.test(
       userMessage,
-    ) ||
-    (userMessage.trim().length > 0 && userMessage.trim().length < 100);
+    );
 
   if (!needsVisual) return [];
 
@@ -389,7 +383,7 @@ export async function foldConversationSummary(opts: {
     const { text } = await generateText({
       model: opts.model,
       system:
-        "You maintain a compact rolling summary of a trading-journal chat. Output plain text only, 4–8 short lines max. Capture: active trade thread (symbol/side/ids if known), decisions made, pending questions, and coaching points. No markdown.",
+        "You maintain a compact rolling summary of a trading-journal chat. Output plain text only, 4–8 short lines max. Capture: trades discussed (symbol/side/ids if known), decisions made, pending questions, and coaching points. No markdown.",
       prompt: [
         existing ? `Existing summary:\n${existing}` : "No existing summary.",
         "",
@@ -438,12 +432,10 @@ export function splitHistoryForContext(
 export function buildChatContextPack(opts: {
   strategy: Strategy;
   trades: Trade[];
-  activeTradeId?: string | null;
   conversationSummary: string;
   reattachedScreenshotCount?: number;
 }): ChatContextPack {
   return {
-    activeTradeId: opts.activeTradeId ?? null,
     tradeCount: opts.trades.length,
     strategyName: opts.strategy?.name ?? null,
     conversationSummary: opts.conversationSummary,

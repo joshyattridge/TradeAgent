@@ -282,6 +282,41 @@ textarea {
   text-transform: uppercase;
   letter-spacing: 0.07em;
   font-weight: 600;
+  white-space: nowrap;
+}
+
+.th-sort {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  cursor: pointer;
+  user-select: none;
+}
+
+.th-sort:hover,
+.th-sort.is-active {
+  color: var(--ink);
+}
+
+.sort-icon {
+  flex-shrink: 0;
+  opacity: 0.85;
+}
+
+.sort-icon--idle {
+  opacity: 0.35;
+}
+
+.th-sort:hover .sort-icon--idle {
+  opacity: 0.6;
 }
 
 .trade-table tr:last-child td {

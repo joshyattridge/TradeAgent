@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Columns3 } from "lucide-react";
+import { ArrowDown, ArrowUp, ArrowUpDown, Columns3 } from "lucide-react";
 import { format, parseISO } from "date-fns";
 import { TradeDetail } from "@/components/TradeDetail";
 import {
@@ -19,6 +19,8 @@ import {
   getTimeInTradeMinutes,
   getTpPips,
 } from "@/lib/trade-format";
+
+type SortDir = "asc" | "desc";
 
 function badgeClass(result: Trade["result"]) {
   if (result === "win") return "badge badge--win";
@@ -106,19 +108,130 @@ function cellValue(trade: Trade, column: TradeColumnId) {
   }
 }
 
+/** Comparable value for sorting a column. null = missing (sorted last). */
+function sortValue(
+  trade: Trade,
+  column: TradeColumnId,
+): string | number | null {
+  switch (column) {
+    case "date":
+      // Prefer full datetime when available so default sort is time+date
+      return trade.entryTime ?? trade.date;
+    case "symbol":
+      return trade.symbol.toUpperCase();
+    case "side":
+      return trade.side;
+    case "setup":
+      return trade.setup.toLowerCase();
+    case "session":
+      return (trade.session ?? "").toLowerCase() || null;
+    case "size":
+      return (trade.size ?? "").toLowerCase() || null;
+    case "entry":
+      return trade.entry;
+    case "stop":
+      return trade.stop;
+    case "target":
+      return trade.target;
+    case "slPips":
+      return getSlPips(trade) ?? null;
+    case "tpPips":
+      return getTpPips(trade) ?? null;
+    case "exit":
+      return trade.exit ?? null;
+    case "entryTime":
+      return trade.entryTime ?? null;
+    case "exitTime":
+      return trade.exitTime ?? null;
+    case "timeInTrade":
+      return getTimeInTradeMinutes(trade) ?? null;
+    case "riskUsd":
+      return trade.riskUsd ?? null;
+    case "pnlUsd":
+      return trade.pnlUsd ?? null;
+    case "rMultiple":
+      return trade.rMultiple;
+    case "result":
+      return trade.result;
+    case "screenshots":
+      return trade.screenshots?.length ?? 0;
+    case "notes":
+      return (trade.notes ?? "").toLowerCase() || null;
+  }
+}
+
+function compareSortValues(
+  a: string | number | null,
+  b: string | number | null,
+  dir: SortDir,
+): number {
+  const mul = dir === "asc" ? 1 : -1;
+  if (a == null && b == null) return 0;
+  if (a == null) return 1; // missing always last
+  if (b == null) return -1;
+  if (typeof a === "number" && typeof b === "number") {
+    return (a - b) * mul;
+  }
+  return String(a).localeCompare(String(b), undefined, {
+    numeric: true,
+    sensitivity: "base",
+  }) * mul;
+}
+
+function SortIcon({
+  active,
+  dir,
+}: {
+  active: boolean;
+  dir: SortDir;
+}) {
+  if (!active) return <ArrowUpDown size={12} className="sort-icon sort-icon--idle" />;
+  if (dir === "asc") return <ArrowUp size={12} className="sort-icon" />;
+  return <ArrowDown size={12} className="sort-icon" />;
+}
+
 export function TradeTable({ trades }: { trades: Trade[] }) {
   const visibleTradeColumns = useTradingStore((s) => s.visibleTradeColumns);
   const toggleTradeColumn = useTradingStore((s) => s.toggleTradeColumn);
   const resetTradeColumns = useTradingStore((s) => s.resetTradeColumns);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [columnsOpen, setColumnsOpen] = useState(false);
+  const [sortColumn, setSortColumn] = useState<TradeColumnId>("date");
+  const [sortDir, setSortDir] = useState<SortDir>("desc");
 
   const visible = useMemo(
     () => TRADE_COLUMNS.filter((c) => visibleTradeColumns.includes(c.id)),
     [visibleTradeColumns],
   );
 
-  const selected = trades.find((t) => t.id === selectedId) ?? null;
+  const sortedTrades = useMemo(() => {
+    return [...trades].sort((a, b) => {
+      const primary = compareSortValues(
+        sortValue(a, sortColumn),
+        sortValue(b, sortColumn),
+        sortDir,
+      );
+      if (primary !== 0) return primary;
+      // Stable secondary: newest datetime
+      return compareSortValues(
+        sortValue(a, "date"),
+        sortValue(b, "date"),
+        "desc",
+      );
+    });
+  }, [trades, sortColumn, sortDir]);
+
+  const selected = sortedTrades.find((t) => t.id === selectedId) ?? null;
+
+  function onSort(column: TradeColumnId) {
+    if (sortColumn === column) {
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSortColumn(column);
+      // Date/time defaults to newest first; most other columns start ascending
+      setSortDir(column === "date" || column === "entryTime" || column === "exitTime" ? "desc" : "asc");
+    }
+  }
 
   if (!trades.length) {
     return <p className="empty-note">No trades logged yet. Tell the chat to add one.</p>;
@@ -127,7 +240,9 @@ export function TradeTable({ trades }: { trades: Trade[] }) {
   return (
     <div className="trade-log">
       <div className="trade-log__toolbar">
-        <p className="trade-log__hint">Click a row for full trade details</p>
+        <p className="trade-log__hint">
+          Click a column header to sort · click a row for details
+        </p>
         <div className="trade-log__column-wrap">
           <button
             type="button"
@@ -170,13 +285,25 @@ export function TradeTable({ trades }: { trades: Trade[] }) {
         <table className="trade-table trade-table--interactive">
           <thead>
             <tr>
-              {visible.map((col) => (
-                <th key={col.id}>{col.label}</th>
-              ))}
+              {visible.map((col) => {
+                const active = sortColumn === col.id;
+                return (
+                  <th key={col.id} aria-sort={active ? (sortDir === "asc" ? "ascending" : "descending") : "none"}>
+                    <button
+                      type="button"
+                      className={`th-sort${active ? " is-active" : ""}`}
+                      onClick={() => onSort(col.id)}
+                    >
+                      <span>{col.label}</span>
+                      <SortIcon active={active} dir={sortDir} />
+                    </button>
+                  </th>
+                );
+              })}
             </tr>
           </thead>
           <tbody>
-            {trades.map((trade) => (
+            {sortedTrades.map((trade) => (
               <tr
                 key={trade.id}
                 tabIndex={0}

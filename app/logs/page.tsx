@@ -10,12 +10,6 @@ export default function LogsPage() {
   const hydrated = useTradingStore((s) => s.hydrated);
   const stats = computeStats(trades);
 
-  const sorted = [...trades].sort((a, b) => {
-    const aKey = a.entryTime ?? a.date;
-    const bKey = b.entryTime ?? b.date;
-    return bKey.localeCompare(aKey);
-  });
-
   if (!hydrated) {
     return (
       <div className="page">
@@ -70,7 +64,7 @@ export default function LogsPage() {
         </div>
       </section>
 
-      <TradeTable trades={sorted} />
+      <TradeTable trades={trades} />
     </div>
   );
 }

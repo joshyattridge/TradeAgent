@@ -7,8 +7,7 @@ import type { Strategy, Trade } from "@/lib/types";
 
 export const runtime = "nodejs";
 
-function stripTradePayload(trade: Trade, keepScreenshots: boolean): Trade {
-  if (keepScreenshots) return trade;
+function stripTradeScreenshots(trade: Trade): Trade {
   const next = { ...trade };
   delete next.screenshots;
   return next;
@@ -30,7 +29,6 @@ export async function POST(req: NextRequest) {
     chatSummary = "",
     apiKey: clientApiKey,
     model: clientModel,
-    activeTradeId = null,
   }: {
     message: string;
     images?: string[];
@@ -41,7 +39,6 @@ export async function POST(req: NextRequest) {
     chatSummary?: string;
     apiKey?: string;
     model?: string;
-    activeTradeId?: string | null;
   } = body;
 
   const imageList = Array.isArray(images)
@@ -86,10 +83,17 @@ export async function POST(req: NextRequest) {
     message?.trim() ||
     "Review this chart / image against my strategy. Tell me what fits, what doesn't, and what's missing.";
 
+  // Keep screenshots only for symbols named in the message (for optional reattach)
   const tradeList = Array.isArray(trades)
-    ? trades.map((t) =>
-        stripTradePayload(t, Boolean(activeTradeId && t.id === activeTradeId)),
-      )
+    ? trades.map((t) => {
+        const named =
+          typeof message === "string" &&
+          new RegExp(
+            `\\b${t.symbol.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`,
+            "i",
+          ).test(message);
+        return named ? t : stripTradeScreenshots(t);
+      })
     : [];
 
   const encoder = new TextEncoder();
@@ -108,7 +112,6 @@ export async function POST(req: NextRequest) {
           stats,
           history,
           chatSummary: typeof chatSummary === "string" ? chatSummary : "",
-          activeTradeId,
           userText,
           images: imageList,
         })) {

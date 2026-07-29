@@ -29,13 +29,10 @@ interface Store {
   openaiApiKey: string;
   openaiModel: string;
   visibleTradeColumns: TradeColumnId[];
-  /** Most recently created/updated trade — chat should prefer updating this */
-  activeTradeId: string | null;
   hydrated: boolean;
   setHydrated: (v: boolean) => void;
   setOpenAIApiKey: (key: string) => void;
   setOpenAIModel: (model: string) => void;
-  setActiveTradeId: (id: string | null) => void;
   setChatSummary: (summary: string) => void;
   toggleTradeColumn: (id: TradeColumnId) => void;
   resetTradeColumns: () => void;
@@ -68,12 +65,10 @@ export const useTradingStore = create<Store>()(
       openaiModel: DEFAULT_OPENAI_MODEL,
       chatSummary: "",
       visibleTradeColumns: DEFAULT_VISIBLE_TRADE_COLUMNS,
-      activeTradeId: null,
       hydrated: false,
       setHydrated: (v) => set({ hydrated: v }),
       setOpenAIApiKey: (key) => set({ openaiApiKey: key.trim() }),
       setOpenAIModel: (model) => set({ openaiModel: model }),
-      setActiveTradeId: (id) => set({ activeTradeId: id }),
       setChatSummary: (summary) => set({ chatSummary: summary }),
       toggleTradeColumn: (id) => {
         const current = get().visibleTradeColumns;
@@ -91,26 +86,21 @@ export const useTradingStore = create<Store>()(
           ...trade,
           id: "id" in trade && trade.id ? trade.id : uid(),
         };
-        set({ trades: [next, ...get().trades], activeTradeId: next.id });
+        set({ trades: [next, ...get().trades] });
         return next;
       },
       updateTrade: (id, patch) =>
         set({
           trades: get().trades.map((t) => (t.id === id ? { ...t, ...patch } : t)),
-          activeTradeId: id,
         }),
       deleteTrade: (id) =>
         set({
           trades: get().trades.filter((t) => t.id !== id),
-          activeTradeId:
-            get().activeTradeId === id ? null : get().activeTradeId,
         }),
       deleteTrades: (ids) => {
         const remove = new Set(ids);
-        const active = get().activeTradeId;
         set({
           trades: get().trades.filter((t) => !remove.has(t.id)),
-          activeTradeId: active && remove.has(active) ? null : active,
         });
       },
       updateStrategy: (patch) =>
@@ -157,7 +147,6 @@ export const useTradingStore = create<Store>()(
         openaiApiKey: state.openaiApiKey,
         openaiModel: state.openaiModel,
         visibleTradeColumns: state.visibleTradeColumns,
-        activeTradeId: state.activeTradeId,
       }),
       onRehydrateStorage: () => (state) => {
         state?.setHydrated(true);
@@ -170,7 +159,7 @@ export function applyChatActions(actions: ChatActionPayload) {
   const store = useTradingStore.getState();
   const charts: ChartSpec[] = [];
   const notes: string[] = [];
-  let touchedTradeId: string | null = store.activeTradeId;
+  let touchedTradeId: string | null = null;
   const screenshots = actions.screenshots?.length
     ? actions.screenshots.slice(0, 4)
     : undefined;
@@ -234,7 +223,7 @@ export function applyChatActions(actions: ChatActionPayload) {
       touchedTradeId &&
       actions.deleteTradeIds.includes(touchedTradeId)
     ) {
-      touchedTradeId = useTradingStore.getState().activeTradeId;
+      touchedTradeId = null;
     }
   }
 
@@ -250,11 +239,6 @@ export function applyChatActions(actions: ChatActionPayload) {
     );
   }
 
-  if (actions.activeTradeId !== undefined) {
-    store.setActiveTradeId(actions.activeTradeId);
-    if (actions.activeTradeId) touchedTradeId = actions.activeTradeId;
-  }
-
   return { charts, notes, touchedTradeId };
 }
 
@@ -266,7 +250,6 @@ export interface ChatActionPayload {
   deleteTradeIds?: string[];
   updateStrategy?: Partial<Strategy>;
   charts?: ChartSpec[];
-  activeTradeId?: string | null;
   /** Screenshots from the current chat turn to attach to a newly logged/updated trade */
   screenshots?: string[];
 }

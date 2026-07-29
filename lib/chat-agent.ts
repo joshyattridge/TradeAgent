@@ -20,6 +20,7 @@ import {
   bulkUpdateTradesSchema,
   compareToStrategySchema,
   deleteTradeSchema,
+  findTradeSchema,
   generateChartsSchema,
   getStatsSchema,
   getStrategySchema,
@@ -57,7 +58,6 @@ export type AgentStreamEvent =
       type: "done";
       reply: string;
       actions: ChatActions;
-      activeTradeId: string | null;
       chatSummary: string;
       steps: number;
       reattachedScreenshotCount: number;
@@ -71,6 +71,7 @@ const TOOL_LABELS: Record<string, string> = {
   update_strategy: "Updating strategy",
   get_strategy: "Reading strategy",
   get_trade: "Reading trade",
+  find_trade: "Finding matching trade",
   generate_charts: "Building charts",
   query_trades: "Searching trades",
   get_stats: "Computing stats",
@@ -105,7 +106,16 @@ function toolResultDetail(output: unknown): { ok: boolean; detail?: string } {
     typeof obj.trade === "object"
   ) {
     const t = obj.trade as { id?: string; symbol?: string };
-    return { ok, detail: t.symbol ? `${t.symbol} (${t.id})` : t.id };
+    const redirected =
+      typeof obj.redirectedFrom === "string"
+        ? ` (redirected from ${obj.redirectedFrom})`
+        : "";
+    return {
+      ok,
+      detail: t.symbol
+        ? `${t.symbol} (${t.id})${redirected}`
+        : `${t.id ?? ""}${redirected}`,
+    };
   }
   if (obj.action === "delete_trade" && Array.isArray(obj.deletedIds)) {
     return { ok, detail: `${obj.deletedIds.length} removed` };
@@ -157,6 +167,13 @@ function toolResultDetail(output: unknown): { ok: boolean; detail?: string } {
       detail: t?.symbol ? `${t.symbol} (${t.id})` : typeof obj.id === "string" ? obj.id : undefined,
     };
   }
+  if (obj.action === "find_trade") {
+    if (typeof obj.bestMatchId === "string") {
+      return { ok, detail: `best ${obj.bestMatchId}` };
+    }
+    const n = Array.isArray(obj.candidates) ? obj.candidates.length : 0;
+    return { ok, detail: `${n} candidate(s)` };
+  }
   return { ok };
 }
 
@@ -170,9 +187,15 @@ function createJournalTools(session: JournalSession) {
     }),
     get_trade: tool({
       description:
-        "Fetch one trade by id (full snapshot including chartExtract). Use for the active trade or any known id.",
+        "Fetch one trade by id (full snapshot including chartExtract). Get the id from find_trade or query_trades first.",
       inputSchema: getTradeSchema,
       execute: async (input) => session.getTrade(input.id),
+    }),
+    find_trade: tool({
+      description:
+        "Rank recent journal trades against screenshot/message hints (symbol, entry/SL/TP/exit, side, result, date, size, pnl, ticket text). Use this BEFORE update_trade when the user says update a trade — especially if multiple trades share a symbol. Then update_trade with bestMatchId (if confident) or the chosen candidate id.",
+      inputSchema: findTradeSchema,
+      execute: async (input) => session.findTrade(input),
     }),
     add_trade: tool({
       description:
@@ -182,7 +205,7 @@ function createJournalTools(session: JournalSession) {
     }),
     update_trade: tool({
       description:
-        "Modify an existing trade by id. Prefer this for the active trade. Can set/merge chartExtract, tags, appendNote.",
+        "Modify an existing trade by id. There is no active trade. Always find_trade (or query_trades) first using screenshot levels / symbol / date, then pass that exact id. Never guess.",
       inputSchema: updateTradeSchema,
       execute: async (input) => session.updateTrade(input),
     }),
@@ -242,11 +265,16 @@ This product is conversational. The user runs their whole journal through chat: 
 On-demand context (IMPORTANT):
 - Do NOT assume you already know the strategy or trade log. They are NOT included in this prompt.
 - Call get_strategy when you need the plan/rules/risk (or before coaching against the strategy).
-- Call query_trades / get_trade / get_stats when you need history, a specific trade, or performance numbers.
+- Call query_trades / find_trade / get_trade / get_stats when you need history or to identify a row.
 - Before answering questions about "my trades", "entries", "closed trades", or journal size: ALWAYS call query_trades (omit result filter for the full book). Trust journal.total/open/closed from the tool result — never invent or reuse a count from earlier chat.
 - If the user says there are more trades than you returned, re-query with a higher limit and no result filter before answering again.
 - Call compare_to_strategy when checking whether a trade fits the plan.
 - Never invent trades, stats, or strategy rules from memory.
+
+Identifying which trade to update:
+- There is NO active trade. Multiple trades (even same symbol) can exist at once.
+- When the user asks to update a trade / fill details from a screenshot: extract levels from the image, call find_trade with those hints (symbol, side, entry, stop, target, exit, result, date, size, pnl, ticket text), then update_trade with bestMatchId if confident — otherwise pick the best candidate by comparing levels or ask which id.
+- Prefer find_trade over guessing. Same-symbol duplicates are normal; match on entry/SL/TP/exit/time/result.
 
 Tool loop (Vercel AI SDK):
 - Tools execute immediately and return JSON results (ids, errors, stats, chart summaries).
@@ -264,14 +292,16 @@ Missing info / screenshots:
 - Screenshots are primary source of truth. Extract symbol, side, entry, SL, TP, exit, session, structure notes before asking.
 - Prefer screenshot values over asking the user to retype.
 - If ambiguous, suggest your best read and ask yes/no.
-- Reattached screenshots (if any this turn): ${ctx.reattachedScreenshotCount}. Treat them as the active trade's charts.
+- Reattached screenshots (if any this turn): ${ctx.reattachedScreenshotCount}. These belong to a trade uniquely named in the message.
 - Required when logging/closing: symbol, side, entry, SL, TP (or why missing), result, R and/or $ P&L.
 
 Hard rules for mutations:
 - If you say you logged/updated/deleted something, you MUST call the matching tool.
-- ACTIVE TRADE ID: ${ctx.activeTradeId ?? "none"} (call get_trade with this id if you need its fields)
+- There is NO active/selected trade. Multiple open trades (and multiple of the same symbol) are normal.
 - Journal size: ${ctx.tradeCount} trades. Strategy name: ${ctx.strategyName ?? "unset"}.
-- After add_trade, further details about THAT trade MUST use update_trade on the same id.
+- Always resolve the target with find_trade (pass screenshot levels) or query_trades, then update_trade with that id.
+- Trade identity is sacred: NEVER apply one symbol's fields onto another pair's row.
+- After add_trade, further details about THAT trade MUST use update_trade on the returned id.
 - Only use add_trade for a brand new position.
 - Screenshots on the current message attach automatically on add/update — still call the tool and fill chartExtract.
 
@@ -315,7 +345,6 @@ export async function* streamAgentLoop(opts: {
   stats: Record<string, number | undefined>;
   history: HistoryMessage[];
   chatSummary?: string;
-  activeTradeId?: string | null;
   userText: string;
   images: string[];
 }): AsyncGenerator<AgentStreamEvent> {
@@ -335,27 +364,22 @@ export async function* streamAgentLoop(opts: {
     olderMessages: older,
   });
 
-  const activeTrade = opts.activeTradeId
-    ? opts.trades.find((t) => t.id === opts.activeTradeId)
-    : null;
-
   const reattached = selectReattachedScreenshots({
     userMessage: opts.userText,
     hasNewImages: opts.images.length > 0,
-    activeTrade,
+    trades: opts.trades,
   });
 
   if (reattached.length) {
     yield {
       type: "status",
-      message: `Re-attaching ${reattached.length} active-trade screenshot${reattached.length > 1 ? "s" : ""}…`,
+      message: `Re-attaching ${reattached.length} screenshot${reattached.length > 1 ? "s" : ""} for the named trade…`,
     };
   }
 
   const session = new JournalSession({
     trades: opts.trades,
     strategy: opts.strategy,
-    activeTradeId: opts.activeTradeId,
     userMessage: opts.userText,
     turnHasScreenshots: opts.images.length > 0 || reattached.length > 0,
   });
@@ -363,7 +387,6 @@ export async function* streamAgentLoop(opts: {
   const ctx = buildChatContextPack({
     strategy: session.strategy,
     trades: session.trades,
-    activeTradeId: session.activeTradeId,
     conversationSummary: chatSummary,
     reattachedScreenshotCount: reattached.length,
   });
@@ -521,14 +544,13 @@ export async function* streamAgentLoop(opts: {
     });
     reply =
       nudge.text?.trim() ||
-      "What do you want changed on the active trade?";
+      "Which trade should I update? Name the symbol (and date/result if there are several).";
   }
 
   yield {
     type: "done",
     reply: reply || "Done.",
     actions: session.toActions(),
-    activeTradeId: session.activeTradeId,
     chatSummary,
     steps,
     reattachedScreenshotCount: reattached.length,

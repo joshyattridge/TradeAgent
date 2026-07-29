@@ -30,7 +30,6 @@ type StreamDonePayload = {
     charts?: ChartSpec[];
     chartRequests?: ChartRequest[];
   };
-  activeTradeId?: string | null;
   chatSummary?: string;
 };
 
@@ -52,7 +51,6 @@ export function ChatWidget() {
   const openaiApiKey = useTradingStore((s) => s.openaiApiKey);
   const openaiModel = useTradingStore((s) => s.openaiModel);
   const chatSummary = useTradingStore((s) => s.chatSummary);
-  const activeTradeId = useTradingStore((s) => s.activeTradeId);
   const addChatMessage = useTradingStore((s) => s.addChatMessage);
   const setChatSummary = useTradingStore((s) => s.setChatSummary);
   const clearChat = useTradingStore((s) => s.clearChat);
@@ -126,7 +124,6 @@ export function ChatWidget() {
         deleteTradeIds: data.actions.deleteTradeIds,
         updateStrategy: data.actions.updateStrategy as never,
         charts: data.actions.charts ?? [],
-        activeTradeId: data.activeTradeId,
         screenshots: images.length ? images : undefined,
       });
 
@@ -181,7 +178,14 @@ export function ChatWidget() {
             "Analyze this chart / image in the context of my strategy and trade log.",
           images,
           trades: trades.map((t) => {
-            if (t.id === activeTradeId) return t;
+            // Keep screenshots only for symbols named in this message (reattach)
+            const named =
+              text &&
+              new RegExp(
+                `\\b${t.symbol.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`,
+                "i",
+              ).test(text);
+            if (named) return t;
             const next = { ...t };
             delete next.screenshots;
             return next;
@@ -190,7 +194,6 @@ export function ChatWidget() {
           stats: computeStats(trades),
           apiKey: openaiApiKey || undefined,
           model: openaiModel,
-          activeTradeId,
           chatSummary,
           history: chat.slice(-20).map((m) => ({
             role: m.role,
@@ -246,7 +249,6 @@ export function ChatWidget() {
             detail?: string;
             reply?: string;
             actions?: StreamDonePayload["actions"];
-            activeTradeId?: string | null;
             chatSummary?: string;
           };
           try {
@@ -298,7 +300,6 @@ export function ChatWidget() {
               {
                 reply: event.reply?.trim() || "Done.",
                 actions: event.actions,
-                activeTradeId: event.activeTradeId,
                 chatSummary: event.chatSummary,
               },
               images,
