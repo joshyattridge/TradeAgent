@@ -10,11 +10,38 @@ import type { ChartRequest, ChartSpec } from "@/lib/types";
 
 const MAX_IMAGES = 4;
 
+type ToolStatus = {
+  toolCallId: string;
+  name: string;
+  label: string;
+  state: "running" | "done" | "error";
+  detail?: string;
+};
+
+type StreamDonePayload = {
+  reply: string;
+  actions?: {
+    addTrade?: unknown;
+    addTrades?: unknown[];
+    updateTrade?: unknown;
+    updateTrades?: unknown[];
+    deleteTradeIds?: string[];
+    updateStrategy?: unknown;
+    charts?: ChartSpec[];
+    chartRequests?: ChartRequest[];
+  };
+  activeTradeId?: string | null;
+  chatSummary?: string;
+};
+
 export function ChatWidget() {
   const [expanded, setExpanded] = useState(false);
   const [input, setInput] = useState("");
   const [pendingImages, setPendingImages] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
+  const [statusMessage, setStatusMessage] = useState("Thinking…");
+  const [streamingText, setStreamingText] = useState("");
+  const [toolStatuses, setToolStatuses] = useState<ToolStatus[]>([]);
   const scroller = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -24,8 +51,10 @@ export function ChatWidget() {
   const chat = useTradingStore((s) => s.chat);
   const openaiApiKey = useTradingStore((s) => s.openaiApiKey);
   const openaiModel = useTradingStore((s) => s.openaiModel);
+  const chatSummary = useTradingStore((s) => s.chatSummary);
   const activeTradeId = useTradingStore((s) => s.activeTradeId);
   const addChatMessage = useTradingStore((s) => s.addChatMessage);
+  const setChatSummary = useTradingStore((s) => s.setChatSummary);
   const clearChat = useTradingStore((s) => s.clearChat);
   const hydrated = useTradingStore((s) => s.hydrated);
 
@@ -35,7 +64,15 @@ export function ChatWidget() {
       top: scroller.current.scrollHeight,
       behavior: "smooth",
     });
-  }, [chat, expanded, loading, pendingImages]);
+  }, [
+    chat,
+    expanded,
+    loading,
+    pendingImages,
+    streamingText,
+    toolStatuses,
+    statusMessage,
+  ]);
 
   async function addFiles(files: FileList | File[]) {
     const list = [...files].filter((f) => f.type.startsWith("image/"));
@@ -58,6 +95,62 @@ export function ChatWidget() {
     }
   }
 
+  function resetStreamUi() {
+    setStatusMessage("Thinking…");
+    setStreamingText("");
+    setToolStatuses([]);
+  }
+
+  function upsertToolStatus(next: ToolStatus) {
+    setToolStatuses((prev) => {
+      const idx = prev.findIndex((t) => t.toolCallId === next.toolCallId);
+      if (idx === -1) return [...prev, next];
+      const copy = [...prev];
+      copy[idx] = { ...copy[idx], ...next };
+      return copy;
+    });
+  }
+
+  function applyDone(data: StreamDonePayload, images: string[]) {
+    if (typeof data.chatSummary === "string") {
+      setChatSummary(data.chatSummary);
+    }
+
+    let charts: ChartSpec[] = [];
+    if (data.actions) {
+      const applied = applyChatActions({
+        addTrade: data.actions.addTrade as never,
+        addTrades: data.actions.addTrades as never,
+        updateTrade: data.actions.updateTrade as never,
+        updateTrades: data.actions.updateTrades as never,
+        deleteTradeIds: data.actions.deleteTradeIds,
+        updateStrategy: data.actions.updateStrategy as never,
+        charts: data.actions.charts ?? [],
+        activeTradeId: data.activeTradeId,
+        screenshots: images.length ? images : undefined,
+      });
+
+      charts = applied.charts;
+
+      if (!charts.length && data.actions.chartRequests?.length) {
+        const tradesNow = useTradingStore.getState().trades;
+        charts = data.actions.chartRequests.map((req: ChartRequest) =>
+          buildChartFromRequest(req, tradesNow),
+        );
+      }
+
+      if (applied.notes.length && !data.reply?.trim()) {
+        data.reply = applied.notes.join(" ");
+      }
+    }
+
+    addChatMessage({
+      role: "assistant",
+      content: data.reply ?? "Done.",
+      charts: charts.length ? charts : undefined,
+    });
+  }
+
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
     const text = input.trim();
@@ -73,30 +166,47 @@ export function ChatWidget() {
       images: images.length ? images : undefined,
     });
     setLoading(true);
+    resetStreamUi();
 
     try {
       const res = await fetch("/api/chat", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/x-ndjson",
+        },
         body: JSON.stringify({
-          message: text || "Analyze this chart / image in the context of my strategy and trade log.",
+          message:
+            text ||
+            "Analyze this chart / image in the context of my strategy and trade log.",
           images,
-          trades,
+          trades: trades.map((t) => {
+            if (t.id === activeTradeId) return t;
+            const next = { ...t };
+            delete next.screenshots;
+            return next;
+          }),
           strategy,
           stats: computeStats(trades),
           apiKey: openaiApiKey || undefined,
           model: openaiModel,
           activeTradeId,
-          history: chat.slice(-12).map((m) => ({
+          chatSummary,
+          history: chat.slice(-20).map((m) => ({
             role: m.role,
             content: m.content,
           })),
         }),
       });
 
-      const data = await res.json();
+      const contentType = res.headers.get("content-type") ?? "";
 
-      if (!res.ok || data.mode === "error") {
+      // Non-stream JSON fallback (auth errors, etc.)
+      if (!contentType.includes("ndjson")) {
+        const data = await res.json();
+        if (typeof data.chatSummary === "string") {
+          setChatSummary(data.chatSummary);
+        }
         addChatMessage({
           role: "assistant",
           content:
@@ -106,41 +216,124 @@ export function ChatWidget() {
         return;
       }
 
-      let charts: ChartSpec[] = [];
-      if (data.actions) {
-        const applied = applyChatActions({
-          addTrade: data.actions.addTrade,
-          addTrades: data.actions.addTrades,
-          updateTrade: data.actions.updateTrade,
-          updateTrades: data.actions.updateTrades,
-          deleteTradeIds: data.actions.deleteTradeIds,
-          updateStrategy: data.actions.updateStrategy,
-          charts: data.actions.charts ?? [],
-          activeTradeId: data.activeTradeId,
-          screenshots: images.length ? images : undefined,
-        });
+      if (!res.body) {
+        throw new Error("No response body");
+      }
 
-        charts = applied.charts;
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let finished = false;
 
-        // Fallback if server sent requests without pre-built charts
-        if (!charts.length && data.actions.chartRequests?.length) {
-          const tradesNow = useTradingStore.getState().trades;
-          charts = data.actions.chartRequests.map((req: ChartRequest) =>
-            buildChartFromRequest(req, tradesNow),
-          );
-        }
+      while (!finished) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() ?? "";
 
-        // Only use tool notes if the model still gave no usable reply
-        if (applied.notes.length && !data.reply?.trim()) {
-          data.reply = applied.notes.join(" ");
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed) continue;
+          let event: {
+            type: string;
+            message?: string;
+            text?: string;
+            toolCallId?: string;
+            name?: string;
+            label?: string;
+            ok?: boolean;
+            detail?: string;
+            reply?: string;
+            actions?: StreamDonePayload["actions"];
+            activeTradeId?: string | null;
+            chatSummary?: string;
+          };
+          try {
+            event = JSON.parse(trimmed);
+          } catch {
+            continue;
+          }
+
+          if (event.type === "status" && event.message) {
+            setStatusMessage(event.message);
+          } else if (event.type === "text-delta" && event.text) {
+            setStreamingText((prev) => prev + event.text!);
+          } else if (
+            event.type === "tool-start" &&
+            event.toolCallId &&
+            event.name &&
+            event.label
+          ) {
+            upsertToolStatus({
+              toolCallId: event.toolCallId,
+              name: event.name,
+              label: event.label,
+              state: "running",
+            });
+          } else if (
+            event.type === "tool-result" &&
+            event.toolCallId &&
+            event.name &&
+            event.label
+          ) {
+            upsertToolStatus({
+              toolCallId: event.toolCallId,
+              name: event.name,
+              label: event.label,
+              state: event.ok === false ? "error" : "done",
+              detail: event.detail,
+            });
+          } else if (event.type === "error") {
+            addChatMessage({
+              role: "assistant",
+              content:
+                event.reply ??
+                "OpenAI error. Check your API key and model in Settings.",
+            });
+            finished = true;
+            break;
+          } else if (event.type === "done") {
+            applyDone(
+              {
+                reply: event.reply?.trim() || "Done.",
+                actions: event.actions,
+                activeTradeId: event.activeTradeId,
+                chatSummary: event.chatSummary,
+              },
+              images,
+            );
+            finished = true;
+            break;
+          }
         }
       }
 
-      addChatMessage({
-        role: "assistant",
-        content: data.reply ?? "Done.",
-        charts: charts.length ? charts : undefined,
-      });
+      // Flush trailing buffer if stream ended without explicit done
+      if (!finished && buffer.trim()) {
+        try {
+          const event = JSON.parse(buffer.trim());
+          if (event.type === "done") {
+            applyDone(event, images);
+            finished = true;
+          } else if (event.type === "error") {
+            addChatMessage({
+              role: "assistant",
+              content: event.reply ?? "OpenAI error.",
+            });
+            finished = true;
+          }
+        } catch {
+          // ignore
+        }
+      }
+
+      if (!finished && streamingText.trim()) {
+        addChatMessage({
+          role: "assistant",
+          content: streamingText.trim(),
+        });
+      }
     } catch {
       addChatMessage({
         role: "assistant",
@@ -149,6 +342,7 @@ export function ChatWidget() {
       });
     } finally {
       setLoading(false);
+      resetStreamUi();
       inputRef.current?.focus();
     }
   }
@@ -196,7 +390,11 @@ export function ChatWidget() {
                   <div className="chat-bubble__images">
                     {message.images.map((src, i) => (
                       // eslint-disable-next-line @next/next/no-img-element
-                      <img key={`${message.id}-img-${i}`} src={src} alt="Uploaded chart" />
+                      <img
+                        key={`${message.id}-img-${i}`}
+                        src={src}
+                        alt="Uploaded chart"
+                      />
                     ))}
                   </div>
                 ) : null}
@@ -209,8 +407,35 @@ export function ChatWidget() {
               </div>
             ))}
             {loading ? (
-              <div className="chat-bubble chat-bubble--assistant">
-                <p className="typing">Thinking through your book…</p>
+              <div className="chat-bubble chat-bubble--assistant chat-bubble--streaming">
+                {toolStatuses.length ? (
+                  <ul className="chat-tool-status" aria-label="Agent tools">
+                    {toolStatuses.map((tool) => (
+                      <li
+                        key={tool.toolCallId}
+                        className={`chat-tool-status__item chat-tool-status__item--${tool.state}`}
+                      >
+                        <span className="chat-tool-status__label">
+                          {tool.state === "running"
+                            ? `${tool.label}…`
+                            : tool.state === "error"
+                              ? `${tool.label} failed`
+                              : tool.label}
+                        </span>
+                        {tool.detail ? (
+                          <span className="chat-tool-status__detail">
+                            {tool.detail}
+                          </span>
+                        ) : null}
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+                {streamingText ? (
+                  <p>{streamingText}</p>
+                ) : (
+                  <p className="typing">{statusMessage}</p>
+                )}
               </div>
             ) : null}
           </div>
@@ -226,7 +451,9 @@ export function ChatWidget() {
                   type="button"
                   className="chat-attach-preview__remove"
                   onClick={() =>
-                    setPendingImages((prev) => prev.filter((_, idx) => idx !== i))
+                    setPendingImages((prev) =>
+                      prev.filter((_, idx) => idx !== i),
+                    )
                   }
                   aria-label="Remove image"
                 >

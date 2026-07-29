@@ -1,13 +1,22 @@
-import OpenAI from "openai";
 import { NextRequest, NextResponse } from "next/server";
 import {
-  buildSystemPrompt,
-  JournalSession,
-  runAgentLoop,
+  streamAgentLoop,
+  type AgentStreamEvent,
 } from "@/lib/chat-agent";
 import type { Strategy, Trade } from "@/lib/types";
 
 export const runtime = "nodejs";
+
+function stripTradePayload(trade: Trade, keepScreenshots: boolean): Trade {
+  if (keepScreenshots) return trade;
+  const next = { ...trade };
+  delete next.screenshots;
+  return next;
+}
+
+function encodeEvent(event: AgentStreamEvent) {
+  return `${JSON.stringify(event)}\n`;
+}
 
 export async function POST(req: NextRequest) {
   const body = await req.json();
@@ -18,6 +27,7 @@ export async function POST(req: NextRequest) {
     strategy,
     stats = {},
     history = [],
+    chatSummary = "",
     apiKey: clientApiKey,
     model: clientModel,
     activeTradeId = null,
@@ -28,6 +38,7 @@ export async function POST(req: NextRequest) {
     strategy: Strategy;
     stats: Record<string, number>;
     history: { role: string; content: string }[];
+    chatSummary?: string;
     apiKey?: string;
     model?: string;
     activeTradeId?: string | null;
@@ -71,79 +82,57 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  try {
-    const openai = new OpenAI({ apiKey });
+  const userText =
+    message?.trim() ||
+    "Review this chart / image against my strategy. Tell me what fits, what doesn't, and what's missing.";
 
-    const userText =
-      message?.trim() ||
-      "Review this chart / image against my strategy. Tell me what fits, what doesn't, and what's missing.";
+  const tradeList = Array.isArray(trades)
+    ? trades.map((t) =>
+        stripTradePayload(t, Boolean(activeTradeId && t.id === activeTradeId)),
+      )
+    : [];
 
-    const session = new JournalSession({
-      trades: Array.isArray(trades) ? trades : [],
-      strategy,
-      activeTradeId,
-      userMessage: userText,
-      turnHasScreenshots: imageList.length > 0,
-    });
+  const encoder = new TextEncoder();
+  const stream = new ReadableStream({
+    async start(controller) {
+      const push = (event: AgentStreamEvent) => {
+        controller.enqueue(encoder.encode(encodeEvent(event)));
+      };
 
-    const system = buildSystemPrompt(
-      session.strategy,
-      Object.keys(stats).length ? stats : session.getStats(),
-      session.trades,
-      session.activeTradeId,
-    );
+      try {
+        for await (const event of streamAgentLoop({
+          apiKey,
+          model,
+          strategy,
+          trades: tradeList,
+          stats,
+          history,
+          chatSummary: typeof chatSummary === "string" ? chatSummary : "",
+          activeTradeId,
+          userText,
+          images: imageList,
+        })) {
+          push(event);
+        }
+      } catch (error) {
+        console.error(error);
+        const messageText =
+          error instanceof Error ? error.message : "OpenAI request failed";
+        push({
+          type: "error",
+          reply: `OpenAI error: ${messageText}\n\nCheck your API key and model in Settings.`,
+        });
+      } finally {
+        controller.close();
+      }
+    },
+  });
 
-    const userContent: OpenAI.Chat.Completions.ChatCompletionContentPart[] = [
-      { type: "text", text: userText },
-      ...imageList.map(
-        (url): OpenAI.Chat.Completions.ChatCompletionContentPart => ({
-          type: "image_url",
-          image_url: { url, detail: "high" },
-        }),
-      ),
-    ];
-
-    const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
-      { role: "system", content: system },
-      ...history
-        .filter((m) => m.role === "user" || m.role === "assistant")
-        .map((m) => ({
-          role: m.role as "user" | "assistant",
-          content: m.content,
-        })),
-      {
-        role: "user",
-        content: imageList.length ? userContent : userText,
-      },
-    ];
-
-    const result = await runAgentLoop({
-      openai,
-      model,
-      messages,
-      session,
-    });
-
-    return NextResponse.json({
-      reply: result.reply,
-      actions: result.actions,
-      activeTradeId: result.activeTradeId,
-      rounds: result.rounds,
-      mode: "openai",
-      model,
-    });
-  } catch (error) {
-    console.error(error);
-    const messageText =
-      error instanceof Error ? error.message : "OpenAI request failed";
-    return NextResponse.json(
-      {
-        reply: `OpenAI error: ${messageText}\n\nCheck your API key and model in Settings.`,
-        actions: {},
-        mode: "error",
-        model,
-      },
-      { status: 200 },
-    );
-  }
+  return new Response(stream, {
+    headers: {
+      "Content-Type": "application/x-ndjson; charset=utf-8",
+      "Cache-Control": "no-cache, no-transform",
+      "X-Accel-Buffering": "no",
+    },
+  });
 }

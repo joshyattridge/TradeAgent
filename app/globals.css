@@ -1033,6 +1033,52 @@ textarea {
   animation: blink 1.2s ease-in-out infinite;
 }
 
+.chat-bubble--streaming {
+  opacity: 0.96;
+}
+
+.chat-tool-status {
+  list-style: none;
+  margin: 0 0 0.55rem;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.28rem;
+}
+
+.chat-tool-status__item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.35rem 0.55rem;
+  font-size: 0.78rem;
+  line-height: 1.25;
+  color: var(--muted);
+}
+
+.chat-tool-status__item--running .chat-tool-status__label {
+  color: var(--ink-soft);
+  animation: blink 1.2s ease-in-out infinite;
+}
+
+.chat-tool-status__item--done .chat-tool-status__label::before {
+  content: "✓ ";
+  opacity: 0.7;
+}
+
+.chat-tool-status__item--error .chat-tool-status__label {
+  color: #b42318;
+}
+
+.chat-tool-status__item--error .chat-tool-status__label::before {
+  content: "✕ ";
+}
+
+.chat-tool-status__detail {
+  opacity: 0.75;
+  font-size: 0.74rem;
+}
+
 @keyframes blink {
   0%,
   100% {

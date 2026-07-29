@@ -24,6 +24,8 @@ interface Store {
   trades: Trade[];
   strategy: Strategy;
   chat: ChatMessage[];
+  /** Rolling summary of older chat turns (server-maintained) */
+  chatSummary: string;
   openaiApiKey: string;
   openaiModel: string;
   visibleTradeColumns: TradeColumnId[];
@@ -34,6 +36,7 @@ interface Store {
   setOpenAIApiKey: (key: string) => void;
   setOpenAIModel: (model: string) => void;
   setActiveTradeId: (id: string | null) => void;
+  setChatSummary: (summary: string) => void;
   toggleTradeColumn: (id: TradeColumnId) => void;
   resetTradeColumns: () => void;
   addTrade: (trade: Omit<Trade, "id"> | Trade) => Trade;
@@ -63,6 +66,7 @@ export const useTradingStore = create<Store>()(
       ],
       openaiApiKey: "",
       openaiModel: DEFAULT_OPENAI_MODEL,
+      chatSummary: "",
       visibleTradeColumns: DEFAULT_VISIBLE_TRADE_COLUMNS,
       activeTradeId: null,
       hydrated: false,
@@ -70,6 +74,7 @@ export const useTradingStore = create<Store>()(
       setOpenAIApiKey: (key) => set({ openaiApiKey: key.trim() }),
       setOpenAIModel: (model) => set({ openaiModel: model }),
       setActiveTradeId: (id) => set({ activeTradeId: id }),
+      setChatSummary: (summary) => set({ chatSummary: summary }),
       toggleTradeColumn: (id) => {
         const current = get().visibleTradeColumns;
         if (current.includes(id)) {
@@ -134,7 +139,7 @@ export const useTradingStore = create<Store>()(
             },
           ],
         }),
-      clearChat: () => set({ chat: [] }),
+      clearChat: () => set({ chat: [], chatSummary: "" }),
       resetDemoData: () =>
         set({
           trades: seedTrades,
@@ -148,6 +153,7 @@ export const useTradingStore = create<Store>()(
         strategy: state.strategy,
         // Keep chat text, drop image payloads so localStorage doesn't blow up
         chat: state.chat.map(({ images: _images, ...rest }) => rest),
+        chatSummary: state.chatSummary,
         openaiApiKey: state.openaiApiKey,
         openaiModel: state.openaiModel,
         visibleTradeColumns: state.visibleTradeColumns,
