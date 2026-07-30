@@ -7,7 +7,19 @@ export function Providers({ children }: { children: React.ReactNode }) {
   const setHydrated = useTradingStore((s) => s.setHydrated);
 
   useEffect(() => {
-    setHydrated(true);
+    // Async IndexedDB rehydrate — mark ready when persist finishes (or already has).
+    const unsub = useTradingStore.persist.onFinishHydration(() => {
+      setHydrated(true);
+    });
+    if (useTradingStore.persist.hasHydrated()) {
+      setHydrated(true);
+    }
+    // Safety net if hydration hangs (blocked IDB, private mode quirks)
+    const t = window.setTimeout(() => setHydrated(true), 2500);
+    return () => {
+      unsub();
+      window.clearTimeout(t);
+    };
   }, [setHydrated]);
 
   return <>{children}</>;

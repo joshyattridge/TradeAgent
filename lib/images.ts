@@ -1,8 +1,8 @@
 /** Resize/compress an image file to a data URL suitable for vision chat. */
 export async function fileToChatImage(
   file: File,
-  maxEdge = 1280,
-  quality = 0.82,
+  maxEdge = 1024,
+  quality = 0.72,
 ): Promise<string> {
   if (!file.type.startsWith("image/")) {
     throw new Error("Only image files are supported");

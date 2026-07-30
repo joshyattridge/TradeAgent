@@ -113,7 +113,7 @@ export default function SettingsPage() {
             </button>
           </div>
           <span className="field__hint">
-            Stored only in your browser (localStorage). Never committed to git.
+            Stored in your browser (IndexedDB). Never committed to git.
             Get a key from{" "}
             <a
               href="https://platform.openai.com/api-keys"

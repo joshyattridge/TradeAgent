@@ -454,11 +454,15 @@ export function ChatWidget() {
         });
       }
     } catch {
-      addChatMessage({
-        role: "assistant",
-        content:
-          "Couldn't reach the AI endpoint. Check your connection or OPENAI_API_KEY.",
-      });
+      try {
+        addChatMessage({
+          role: "assistant",
+          content:
+            "Couldn't reach the AI endpoint. Check your connection or OPENAI_API_KEY.",
+        });
+      } catch {
+        // Persist storage full or unavailable — avoid crashing the UI
+      }
     } finally {
       setLoading(false);
       resetStreamUi();

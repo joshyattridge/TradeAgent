@@ -1,7 +1,12 @@
 "use client";
 
 import { create } from "zustand";
-import { persist } from "zustand/middleware";
+import { createJSONStorage, persist } from "zustand/middleware";
+import {
+  clearLegacyLocalStorage,
+  idbStorage,
+  migrateLegacyLocalStorageToIdb,
+} from "./idb-storage";
 import { DEFAULT_OPENAI_MODEL } from "./models";
 import { seedStrategy, seedTrades } from "./seed-data";
 import {
@@ -18,6 +23,26 @@ function uid() {
 function orderedColumns(ids: TradeColumnId[]): TradeColumnId[] {
   const set = new Set(ids);
   return TRADE_COLUMNS.map((c) => c.id).filter((id) => set.has(id));
+}
+
+const STORE_KEY = "tradeagent-store-v4";
+const MAX_PERSISTED_CHAT = 40;
+const MAX_SCREENSHOTS_PER_TRADE = 2;
+
+/** Slim chat for disk: keep text/meta, drop heavy image payloads + trim length. */
+function persistableChat(chat: ChatMessage[]): ChatMessage[] {
+  return chat.slice(-MAX_PERSISTED_CHAT).map(({ images: _images, ...rest }) => rest);
+}
+
+/** Cap screenshot arrays so one trade can't dominate storage. */
+function persistableTrades(trades: Trade[]): Trade[] {
+  return trades.map((t) => {
+    if (!t.screenshots?.length) return t;
+    const shots = t.screenshots
+      .filter((s) => typeof s === "string" && s !== "pending")
+      .slice(0, MAX_SCREENSHOTS_PER_TRADE);
+    return shots.length ? { ...t, screenshots: shots } : { ...t, screenshots: undefined };
+  });
 }
 
 interface Store {
@@ -49,6 +74,50 @@ interface Store {
   clearChat: () => void;
   resetDemoData: () => void;
 }
+
+const migratingStorage = {
+  getItem: async (name: string) => {
+    await migrateLegacyLocalStorageToIdb(name);
+    return idbStorage.getItem(name);
+  },
+  setItem: async (name: string, value: string) => {
+    try {
+      await idbStorage.setItem(name, value);
+      // Free leftover localStorage space from the old persist key
+      clearLegacyLocalStorage();
+    } catch (err) {
+      console.warn("[TradeAgent] persist write failed", err);
+      clearLegacyLocalStorage();
+      // Last resort: try again without the heaviest fields by rewriting a slimmer payload
+      try {
+        const parsed = JSON.parse(value) as {
+          state?: {
+            trades?: Trade[];
+            chat?: ChatMessage[];
+            [k: string]: unknown;
+          };
+          version?: number;
+        };
+        if (parsed?.state?.trades) {
+          parsed.state.trades = parsed.state.trades.map((t) => {
+            const next = { ...t };
+            delete next.screenshots;
+            return next;
+          });
+        }
+        if (parsed?.state?.chat) {
+          parsed.state.chat = persistableChat(parsed.state.chat).map(
+            ({ charts: _c, ...rest }) => rest,
+          );
+        }
+        await idbStorage.setItem(name, JSON.stringify(parsed));
+      } catch (err2) {
+        console.warn("[TradeAgent] slim persist write also failed", err2);
+      }
+    }
+  },
+  removeItem: (name: string) => idbStorage.removeItem(name),
+};
 
 export const useTradingStore = create<Store>()(
   persist(
@@ -87,16 +156,29 @@ export const useTradingStore = create<Store>()(
       resetTradeColumns: () =>
         set({ visibleTradeColumns: DEFAULT_VISIBLE_TRADE_COLUMNS }),
       addTrade: (trade) => {
+        const shots = trade.screenshots
+          ?.filter((s) => s && s !== "pending")
+          .slice(0, MAX_SCREENSHOTS_PER_TRADE);
         const next: Trade = {
           ...trade,
           id: "id" in trade && trade.id ? trade.id : uid(),
+          ...(shots?.length ? { screenshots: shots } : {}),
         };
         set({ trades: [next, ...get().trades] });
         return next;
       },
       updateTrade: (id, patch) =>
         set({
-          trades: get().trades.map((t) => (t.id === id ? { ...t, ...patch } : t)),
+          trades: get().trades.map((t) => {
+            if (t.id !== id) return t;
+            const merged = { ...t, ...patch };
+            if (merged.screenshots?.length) {
+              merged.screenshots = merged.screenshots
+                .filter((s) => s && s !== "pending")
+                .slice(0, MAX_SCREENSHOTS_PER_TRADE);
+            }
+            return merged;
+          }),
         }),
       deleteTrade: (id) =>
         set({
@@ -134,12 +216,14 @@ export const useTradingStore = create<Store>()(
               id: message.id ?? uid(),
               role: message.role,
               content: message.content,
+              // Keep images in memory for the current session UI only —
+              // partialize strips them before writing to disk.
               images: message.images,
               files: message.files,
               charts: message.charts,
               createdAt: new Date().toISOString(),
             },
-          ],
+          ].slice(-80),
         }),
       clearChat: () =>
         set({ chat: [], chatSummary: "", chatReferencedTradeId: null }),
@@ -150,18 +234,22 @@ export const useTradingStore = create<Store>()(
         }),
     }),
     {
-      name: "tradeagent-store-v3",
+      name: STORE_KEY,
+      storage: createJSONStorage(() => migratingStorage),
       partialize: (state) => ({
-        trades: state.trades,
+        trades: persistableTrades(state.trades),
         strategy: state.strategy,
-        // Keep chat text, drop image payloads so localStorage doesn't blow up
-        chat: state.chat.map(({ images: _images, ...rest }) => rest),
+        chat: persistableChat(state.chat),
         chatSummary: state.chatSummary,
         openaiApiKey: state.openaiApiKey,
         openaiModel: state.openaiModel,
         visibleTradeColumns: state.visibleTradeColumns,
       }),
-      onRehydrateStorage: () => (state) => {
+      onRehydrateStorage: () => (state, error) => {
+        if (error) {
+          console.warn("[TradeAgent] rehydrate failed", error);
+          clearLegacyLocalStorage();
+        }
         state?.setHydrated(true);
       },
     },
@@ -174,7 +262,7 @@ export function applyChatActions(actions: ChatActionPayload) {
   const notes: string[] = [];
   let touchedTradeId: string | null = null;
   const screenshots = actions.screenshots?.length
-    ? actions.screenshots.slice(0, 4)
+    ? actions.screenshots.slice(0, MAX_SCREENSHOTS_PER_TRADE)
     : undefined;
 
   const addTrades: Array<Omit<Trade, "id"> | Trade> = [
@@ -188,7 +276,7 @@ export function applyChatActions(actions: ChatActionPayload) {
       screenshots: screenshots?.length
         ? [...(incoming.screenshots ?? []), ...screenshots]
             .filter((s) => s !== "pending")
-            .slice(0, 4)
+            .slice(0, MAX_SCREENSHOTS_PER_TRADE)
         : (incoming.screenshots ?? []).filter((s) => s !== "pending"),
     });
     touchedTradeId = trade.id;
@@ -217,7 +305,7 @@ export function applyChatActions(actions: ChatActionPayload) {
             screenshots: [
               ...(existing?.screenshots ?? []),
               ...screenshots,
-            ].slice(0, 4),
+            ].slice(0, MAX_SCREENSHOTS_PER_TRADE),
           }
         : {}),
     });
