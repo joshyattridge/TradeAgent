@@ -18,9 +18,7 @@ import {
   type ChatAttachmentPayload,
 } from "@/lib/chat-attachments";
 import {
-  addTradeNoteSchema,
-  addTradeSchema,
-  bulkUpdateTradesSchema,
+  annotateTradeSchema,
   compareToStrategySchema,
   deleteTradeSchema,
   findTradeSchema,
@@ -28,9 +26,10 @@ import {
   getStatsSchema,
   getStrategySchema,
   getTradeSchema,
+  logTradeSchema,
+  patchTradeSchema,
   queryTradesSchema,
   updateStrategySchema,
-  updateTradeSchema,
 } from "@/lib/chat-schemas";
 import { JournalSession, type ChatActions } from "@/lib/journal-session";
 import type { Strategy, Trade } from "@/lib/types";
@@ -67,8 +66,9 @@ export type AgentStreamEvent =
   | { type: "error"; reply: string };
 
 const TOOL_LABELS: Record<string, string> = {
-  add_trade: "Logging trade",
-  update_trade: "Updating trade",
+  log_trade: "Logging trade",
+  patch_trade: "Updating trade fields",
+  annotate_trade: "Updating notes/tags",
   delete_trade: "Deleting trade",
   update_strategy: "Updating strategy",
   get_strategy: "Reading strategy",
@@ -77,9 +77,7 @@ const TOOL_LABELS: Record<string, string> = {
   generate_charts: "Building charts",
   query_trades: "Searching trades",
   get_stats: "Computing stats",
-  bulk_update_trades: "Bulk updating trades",
   compare_to_strategy: "Comparing to strategy",
-  add_trade_note: "Adding note",
 };
 
 function toolLabel(name: string) {
@@ -95,7 +93,7 @@ function toolResultDetail(output: unknown): { ok: boolean; detail?: string } {
   if (typeof obj.error === "string") {
     return { ok: false, detail: obj.error };
   }
-  if (obj.action === "add_trade" && obj.trade && typeof obj.trade === "object") {
+  if (obj.action === "log_trade" && obj.trade && typeof obj.trade === "object") {
     const t = obj.trade as { symbol?: string; side?: string; result?: string };
     return {
       ok,
@@ -103,20 +101,14 @@ function toolResultDetail(output: unknown): { ok: boolean; detail?: string } {
     };
   }
   if (
-    obj.action === "update_trade" &&
+    (obj.action === "patch_trade" || obj.action === "annotate_trade") &&
     obj.trade &&
     typeof obj.trade === "object"
   ) {
     const t = obj.trade as { id?: string; symbol?: string };
-    const redirected =
-      typeof obj.redirectedFrom === "string"
-        ? ` (redirected from ${obj.redirectedFrom})`
-        : "";
     return {
       ok,
-      detail: t.symbol
-        ? `${t.symbol} (${t.id})${redirected}`
-        : `${t.id ?? ""}${redirected}`,
+      detail: t.symbol ? `${t.symbol} (${t.id})` : `${t.id ?? ""}`,
     };
   }
   if (obj.action === "delete_trade" && Array.isArray(obj.deletedIds)) {
@@ -141,17 +133,8 @@ function toolResultDetail(output: unknown): { ok: boolean; detail?: string } {
       };
     }
   }
-  if (obj.action === "bulk_update_trades") {
-    const updated = Array.isArray(obj.updatedIds)
-      ? obj.updatedIds.length
-      : undefined;
-    return { ok, detail: updated != null ? `${updated} updated` : undefined };
-  }
   if (obj.action === "compare_to_strategy") {
     return { ok, detail: "checklist ready" };
-  }
-  if (obj.action === "add_trade_note") {
-    return { ok, detail: typeof obj.id === "string" ? obj.id : undefined };
   }
   if (obj.action === "update_strategy") {
     return { ok, detail: "strategy saved" };
@@ -195,24 +178,30 @@ function createJournalTools(session: JournalSession) {
     }),
     find_trade: tool({
       description:
-        "Rank recent journal trades against screenshot/message hints (symbol, entry/SL/TP/exit, side, result, date, size, pnl, ticket text). Use this BEFORE update_trade when the user says update a trade — especially if multiple trades share a symbol. Then update_trade with bestMatchId (if confident) or the chosen candidate id.",
+        "Rank recent journal trades against screenshot/message hints (symbol, entry/SL/TP/exit, side, result, date, size, pnl, ticket text). Use BEFORE patch_trade or annotate_trade when identifying which row to change — especially if multiple trades share a symbol. Then call the mutation tool with bestMatchId (if confident) or the chosen candidate id.",
       inputSchema: findTradeSchema,
       execute: async (input) => session.findTrade(input),
     }),
-    add_trade: tool({
+    log_trade: tool({
       description:
-        "Create a NEW trade. Returns the new id — use update_trade for follow-ups. When reading a screenshot, also fill chartExtract with levels/setupTags/bias/sessionGuess.",
-      inputSchema: addTradeSchema,
-      execute: async (input) => session.addTrade(input),
+        "Create a NEW trade only — never updates an existing row. Returns the new id; use patch_trade for field follow-ups and annotate_trade for notes/tags. When reading a screenshot, also fill chartExtract with levels/setupTags/bias/sessionGuess.",
+      inputSchema: logTradeSchema,
+      execute: async (input) => session.logTrade(input),
     }),
-    update_trade: tool({
+    patch_trade: tool({
       description:
-        "Modify an existing trade by id. There is no active trade. Always find_trade (or query_trades) first using screenshot levels / symbol / date, then pass that exact id. Never guess.",
-      inputSchema: updateTradeSchema,
-      execute: async (input) => session.updateTrade(input),
+        "Partial update of trade fields by exact id (levels, result, session, setup, PnL, chartExtract, etc). Does NOT touch notes or tags — use annotate_trade for those. Never guess ids; call find_trade / query_trades first. No silent retargeting.",
+      inputSchema: patchTradeSchema,
+      execute: async (input) => session.patchTrade(input),
+    }),
+    annotate_trade: tool({
+      description:
+        "Notes/tags only by exact id. Prefer appendNote and addTags/removeTags. Use replaceNotes or replaceTags only when the user explicitly asks to rewrite/overwrite. Omit unused fields — do not send empty strings or empty arrays. Never use this for levels/result/session — that is patch_trade.",
+      inputSchema: annotateTradeSchema,
+      execute: async (input) => session.annotateTrade(input),
     }),
     delete_trade: tool({
-      description: "Delete one or more trades by id.",
+      description: "Delete one or more trades by exact id.",
       inputSchema: deleteTradeSchema,
       execute: async (input) => session.deleteTrade(input),
     }),
@@ -239,22 +228,11 @@ function createJournalTools(session: JournalSession) {
       inputSchema: getStatsSchema,
       execute: async (input) => session.getStatsTool(input),
     }),
-    bulk_update_trades: tool({
-      description:
-        "Apply the same patch to many trade ids (session, setup, notes, tags, result).",
-      inputSchema: bulkUpdateTradesSchema,
-      execute: async (input) => session.bulkUpdateTrades(input),
-    }),
     compare_to_strategy: tool({
       description:
         "Compare trade(s) to strategy rules/risk as a short fits/gaps/unclear checklist. Loads strategy internally.",
       inputSchema: compareToStrategySchema,
       execute: async (input) => session.compareToStrategy(input),
-    }),
-    add_trade_note: tool({
-      description: "Append a note (and optional tags) to a trade by id.",
-      inputSchema: addTradeNoteSchema,
-      execute: async (input) => session.addTradeNote(input),
     }),
   };
 }
@@ -275,16 +253,24 @@ On-demand context (IMPORTANT):
 
 Identifying which trade to update:
 - There is NO persistent active trade. Multiple trades (even same symbol) can exist at once.
-- Exception this turn only: if a User-selected trade reference id is provided below, treat "this trade" / the open detail as that exact id — call get_trade / update_trade with it. Still use find_trade when the user clearly means a different row.
-- When the user asks to update a trade / fill details from a screenshot without a UI reference: extract levels from the image, call find_trade with those hints (symbol, side, entry, stop, target, exit, result, date, size, pnl, ticket text), then update_trade with bestMatchId (if confident) or the chosen candidate id.
+- Exception this turn only: if a User-selected trade reference id is provided below, treat "this trade" / the open detail as that exact id — call get_trade / patch_trade / annotate_trade with it. Still use find_trade when the user clearly means a different row.
+- When the user asks to update a trade / fill details from a screenshot without a UI reference: extract levels from the image, call find_trade with those hints (symbol, side, entry, stop, target, exit, result, date, size, pnl, ticket text), then patch_trade / annotate_trade with bestMatchId (if confident) or the chosen candidate id.
 - Prefer find_trade over guessing. Same-symbol duplicates are normal; match on entry/SL/TP/exit/time/result.
-- When the user asks to update notes/tags/lessons: call add_trade_note or update_trade with appendNote/appendTags (or notes/tags). Confirm from the tool result that notes/tags are present before telling the user it is saved.
+- Exact id or fail — tools never silently retarget to another trade.
+
+Trade mutations (split tools — use the right one):
+- log_trade: brand-new position only. Never for follow-ups on an existing row.
+- patch_trade: field changes (levels, result, session, setup, PnL, chartExtract). Does NOT touch notes/tags.
+- annotate_trade: notes/tags only. Prefer appendNote + addTags/removeTags. Use replaceNotes/replaceTags only when the user asks to rewrite/overwrite.
+- delete_trade: remove by exact id. For multiple trades, call once with ids or call per trade — there is no bulk field-update tool.
+- After log_trade, further details about THAT trade MUST use patch_trade / annotate_trade on the returned id.
+- Confirm from the tool result that notes/tags/fields are present before telling the user it is saved.
 
 Tool loop (Vercel AI SDK):
 - Tools execute immediately and return JSON results (ids, errors, stats, chart summaries).
 - Never claim a change succeeded unless a tool result returned ok: true.
 - If a tool fails validation or execution, read the error/issues and retry with corrected args.
-- After screenshot reads, save chartExtract (levels, setupTags, bias, sessionGuess) on add_trade/update_trade so follow-ups keep structured levels even without re-uploads.
+- After screenshot reads, save chartExtract (levels, setupTags, bias, sessionGuess) on log_trade/patch_trade so follow-ups keep structured levels even without re-uploads.
 
 Voice:
 - SHORT and concise. Default to 2–5 short sentences max, or a tiny checklist.
@@ -306,13 +292,12 @@ Hard rules for mutations:
 - Journal size: ${ctx.tradeCount} trades. Strategy name: ${ctx.strategyName ?? "unset"}.
 ${
   ctx.referencedTradeId
-    ? `- User-selected trade reference (this turn only): id=${ctx.referencedTradeId}. For "this trade" / coaching / updates on the referenced row, use get_trade and update_trade with that exact id. Do not invent another id.`
-    : "- Always resolve the target with find_trade (pass screenshot levels) or query_trades, then update_trade with that id."
+    ? `- User-selected trade reference (this turn only): id=${ctx.referencedTradeId}. For "this trade" / coaching / updates on the referenced row, use get_trade, patch_trade, and annotate_trade with that exact id. Do not invent another id.`
+    : "- Always resolve the target with find_trade (pass screenshot levels) or query_trades, then patch_trade / annotate_trade with that id."
 }
 - Trade identity is sacred: NEVER apply one symbol's fields onto another pair's row.
-- After add_trade, further details about THAT trade MUST use update_trade on the returned id.
-- Only use add_trade for a brand new position.
-- Screenshots on the current message attach automatically on add/update — still call the tool and fill chartExtract.
+- Only use log_trade for a brand new position.
+- Screenshots on the current message attach automatically on log/patch — still call the tool and fill chartExtract.
 
 Charts:
 - Call generate_charts for visual analysis. Prefer field mappings over inventing data[].

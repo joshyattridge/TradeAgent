@@ -1,15 +1,12 @@
 import { buildChartFromRequest, computeStats } from "@/lib/stats";
-import {
-  looksLikeFollowUpUpdate,
-  normalizeSymbol,
-  tradeSnapshot,
-} from "@/lib/chat-context";
+import { normalizeSymbol, tradeSnapshot } from "@/lib/chat-context";
 import type {
-  AddTradeInput,
+  AnnotateTradeInput,
   FindTradeInput,
+  LogTradeInput,
+  PatchTradeInput,
   QueryTradesInput,
   TradeFilterInput,
-  UpdateTradeInput,
 } from "@/lib/chat-schemas";
 import type {
   ChartExtract,
@@ -43,6 +40,14 @@ function stripScreenshots(trade: Trade): Trade {
 function mergeTags(existing: string[] | undefined, incoming?: string[]) {
   if (!incoming?.length) return existing;
   return [...new Set([...(existing ?? []), ...incoming.map((t) => t.trim()).filter(Boolean)])];
+}
+
+function removeTags(existing: string[] | undefined, toRemove?: string[]) {
+  if (!existing?.length) return existing;
+  if (!toRemove?.length) return existing;
+  const drop = new Set(toRemove.map((t) => t.trim().toLowerCase()).filter(Boolean));
+  const next = existing.filter((t) => !drop.has(t.toLowerCase()));
+  return next.length ? next : undefined;
 }
 
 function mergeChartExtract(
@@ -287,7 +292,6 @@ function sortTrades(trades: Trade[], sort: QueryTradesInput["sort"] = "newest") 
 export class JournalSession {
   trades: Trade[];
   strategy: Strategy;
-  private readonly userMessage: string;
   private readonly turnHasScreenshots: boolean;
   private readonly addTrades: Trade[] = [];
   private readonly updateTrades: Array<
@@ -301,12 +305,11 @@ export class JournalSession {
   constructor(opts: {
     trades: Trade[];
     strategy: Strategy;
-    userMessage: string;
+    userMessage?: string;
     turnHasScreenshots?: boolean;
   }) {
     this.trades = opts.trades.map((t) => ({ ...t }));
     this.strategy = { ...opts.strategy };
-    this.userMessage = opts.userMessage;
     this.turnHasScreenshots = Boolean(opts.turnHasScreenshots);
   }
 
@@ -327,23 +330,30 @@ export class JournalSession {
       void _prevId;
       mergedById.set(id, { id, ...mergeDefined(prevRest, rest) });
     }
-    // Prefer the live journal row for notes/tags so appends always ship to the client
+    // Prefer the live journal row for fields this patch actually touched.
+    // Never attach notes/tags as a side effect of unrelated updates — that was
+    // wiping tags when the model only appended a note (and vice versa).
     const updateTrades = [...mergedById.values()].map((patch) => {
       const live = this.trades.find((t) => t.id === patch.id);
-      if (!live) {
-        const { screenshots: _s, ...rest } = patch;
-        void _s;
-        return rest;
-      }
       const { screenshots: _s, ...rest } = patch;
       void _s;
+      if (!live) return rest;
+
+      const touchedNotes = Object.prototype.hasOwnProperty.call(patch, "notes");
+      const touchedTags = Object.prototype.hasOwnProperty.call(patch, "tags");
+      const touchedSetup = Object.prototype.hasOwnProperty.call(patch, "setup");
+      const touchedSession = Object.prototype.hasOwnProperty.call(patch, "session");
+      const touchedChart = Object.prototype.hasOwnProperty.call(patch, "chartExtract");
+
       return {
         ...rest,
-        ...(live.notes !== undefined ? { notes: live.notes } : {}),
-        ...(live.tags?.length ? { tags: live.tags } : {}),
-        ...(live.setup ? { setup: live.setup } : {}),
-        ...(live.session ? { session: live.session } : {}),
-        ...(live.chartExtract ? { chartExtract: live.chartExtract } : {}),
+        ...(touchedNotes ? { notes: live.notes } : {}),
+        ...(touchedTags ? { tags: live.tags ?? [] } : {}),
+        ...(touchedSetup ? { setup: live.setup } : {}),
+        ...(touchedSession ? { session: live.session } : {}),
+        ...(touchedChart && live.chartExtract
+          ? { chartExtract: live.chartExtract }
+          : {}),
       };
     });
     const deleteTradeIds = [...this.deleteTradeIds];
@@ -364,36 +374,11 @@ export class JournalSession {
     return actions;
   }
 
-  addTrade(input: AddTradeInput) {
-    // Follow-up with details → resolve which existing row to update using hints
-    if (looksLikeFollowUpUpdate(this.userMessage)) {
-      const { ranked, bestMatch } = rankTradesByHints(this.trades, input, 8);
-      if (bestMatch) {
-        return this.updateTrade({ ...input, id: bestMatch.trade.id });
-      }
-      if (ranked.length > 0) {
-        return {
-          ok: false as const,
-          error: `Could not uniquely resolve which ${input.symbol} trade to update. Review candidates and call update_trade with the correct id (or call find_trade with more hints).`,
-          candidates: ranked.map((r) => ({
-            id: r.trade.id,
-            score: r.score,
-            matched: r.reasons,
-            symbol: r.trade.symbol,
-            side: r.trade.side,
-            date: r.trade.date,
-            result: r.trade.result,
-            entry: r.trade.entry,
-            stop: r.trade.stop,
-            target: r.trade.target,
-            exit: r.trade.exit,
-            pnlUsd: r.trade.pnlUsd,
-            size: r.trade.size,
-          })),
-        };
-      }
-    }
-
+  /**
+   * Create a brand-new trade only. Never updates an existing row.
+   * For follow-up details on a logged trade, use patch_trade / annotate_trade with the returned id.
+   */
+  logTrade(input: LogTradeInput) {
     const chartExtract = input.chartExtract
       ? {
           ...input.chartExtract,
@@ -435,111 +420,57 @@ export class JournalSession {
 
     return {
       ok: true as const,
-      action: "add_trade",
+      action: "log_trade",
       trade: tradeSnapshot(trade),
       stats: this.getStats(),
-      note: "Use this trade.id for further updates. Do not add_trade again for the same position.",
+      note: "Use this trade.id with patch_trade / annotate_trade for further changes. Do not log_trade again for the same position.",
     };
   }
 
-  updateTrade(input: UpdateTradeInput) {
-    let targetId = input.id;
-    let redirectedFrom: string | undefined;
-    let existing = this.trades.find((t) => t.id === targetId);
-
-    // Guard: never overwrite EURUSD with AUDUSD fields (etc.)
-    if (
-      existing &&
-      input.symbol &&
-      !symbolsMatch(existing.symbol, input.symbol)
-    ) {
-      const { ranked, bestMatch } = rankTradesByHints(this.trades, input, 8);
-      if (bestMatch) {
-        redirectedFrom = targetId;
-        targetId = bestMatch.trade.id;
-        existing = bestMatch.trade;
-      } else {
-        return {
-          ok: false as const,
-          error: `Refused to apply ${input.symbol} fields onto ${existing.symbol} (${input.id}). Could not uniquely match a ${input.symbol} trade — pick an id from candidates.`,
-          candidates: ranked.map((r) => ({
-            id: r.trade.id,
-            score: r.score,
-            matched: r.reasons,
-            symbol: r.trade.symbol,
-            side: r.trade.side,
-            date: r.trade.date,
-            result: r.trade.result,
-            entry: r.trade.entry,
-            stop: r.trade.stop,
-            target: r.trade.target,
-            exit: r.trade.exit,
-            pnlUsd: r.trade.pnlUsd,
-          })),
-        };
-      }
-    }
-
-    // Wrong/missing id but hints uniquely identify a trade
-    if (!existing) {
-      const { ranked, bestMatch } = rankTradesByHints(this.trades, input, 8);
-      if (bestMatch) {
-        targetId = bestMatch.trade.id;
-        existing = bestMatch.trade;
-      } else if (ranked.length) {
-        return {
-          ok: false as const,
-          error: `No trade found with id ${input.id}. Candidates below — call update_trade with the correct id.`,
-          candidates: ranked.map((r) => ({
-            id: r.trade.id,
-            score: r.score,
-            matched: r.reasons,
-            symbol: r.trade.symbol,
-            date: r.trade.date,
-            result: r.trade.result,
-            entry: r.trade.entry,
-          })),
-          hint: "Use find_trade with screenshot levels to resolve ambiguity.",
-        };
-      }
-    }
-
+  /**
+   * Partial field update by exact id. Never touches notes/tags.
+   * No silent id redirects — wrong id fails.
+   */
+  patchTrade(input: PatchTradeInput) {
+    const existing = this.trades.find((t) => t.id === input.id);
     if (!existing) {
       return {
         ok: false as const,
         error: `No trade found with id ${input.id}`,
-        hint: "Call find_trade or query_trades first, then update_trade with that exact id.",
+        hint: "Call find_trade or query_trades first, then patch_trade with that exact id.",
       };
     }
 
-    const {
-      id: _id,
-      appendNote,
-      appendTags,
-      chartExtract,
-      notes,
-      tags,
-      ...rest
-    } = input;
+    if (input.symbol && !symbolsMatch(existing.symbol, input.symbol)) {
+      return {
+        ok: false as const,
+        error: `Refused to apply ${input.symbol} fields onto ${existing.symbol} (${input.id}). Trade identity is sacred — resolve the correct id with find_trade.`,
+      };
+    }
+
+    const { id: _id, chartExtract, symbol: _symbol, ...rest } = input;
     void _id;
+    void _symbol;
 
     const patch: Partial<Omit<Trade, "id">> = {};
     for (const [key, value] of Object.entries(rest)) {
-      if (value !== undefined) {
-        (patch as Record<string, unknown>)[key] = value;
-      }
-    }
-    // Keep the row's real symbol unless explicitly correcting typos on the SAME pair
-    if (patch.symbol && !symbolsMatch(existing.symbol, patch.symbol)) {
-      delete patch.symbol;
+      // Empty strings are LLM filler for unused optional fields — never wipe.
+      if (value === undefined) continue;
+      if (typeof value === "string" && value.trim() === "") continue;
+      (patch as Record<string, unknown>)[key] = value;
     }
 
-    // Only touch notes when the model actually sent a note change
-    if (notes !== undefined || appendNote !== undefined) {
-      patch.notes = appendNotes(existing.notes, appendNote, notes);
+    // Hard deny: notes/tags/screenshots are never patchable here.
+    delete (patch as Record<string, unknown>).notes;
+    delete (patch as Record<string, unknown>).tags;
+    delete (patch as Record<string, unknown>).screenshots;
+    delete (patch as Record<string, unknown>).id;
+
+    // Same-pair typo fix only (already validated above)
+    if (input.symbol && symbolsMatch(existing.symbol, input.symbol)) {
+      patch.symbol = existing.symbol;
     }
-    if (tags) patch.tags = tags;
-    if (appendTags?.length) patch.tags = mergeTags(tags ?? existing.tags, appendTags);
+
     if (chartExtract) {
       patch.chartExtract = mergeChartExtract(existing.chartExtract, {
         ...chartExtract,
@@ -547,28 +478,88 @@ export class JournalSession {
       });
     }
 
-    // Never persist the "pending" screenshot marker into the action stream —
-    // the client attaches real images from this turn separately.
+    if (Object.keys(patch).length === 0) {
+      return {
+        ok: false as const,
+        error: "No fields to patch. Pass at least one trade field (notes/tags go through annotate_trade).",
+      };
+    }
+
     const next: Trade = {
       ...existing,
       ...patch,
-      id: targetId,
+      id: existing.id,
       symbol: existing.symbol,
+      notes: existing.notes,
+      tags: existing.tags,
+      screenshots: existing.screenshots,
     };
 
-    this.trades = this.trades.map((t) => (t.id === targetId ? next : t));
-    this.updateTrades.push({ id: targetId, ...patch, symbol: existing.symbol });
+    this.trades = this.trades.map((t) => (t.id === existing.id ? next : t));
+    this.updateTrades.push({ id: existing.id, ...patch, symbol: existing.symbol });
 
     return {
       ok: true as const,
-      action: "update_trade",
+      action: "patch_trade",
       trade: tradeSnapshot(next),
-      redirectedFrom,
-      note: redirectedFrom
-        ? `Redirected update from ${redirectedFrom} → ${targetId} because symbol ${existing.symbol} did not match the requested id's pair.`
-        : undefined,
       stats: this.getStats(),
       screenshotsPending: this.turnHasScreenshots,
+    };
+  }
+
+  /**
+   * Notes/tags only. Exact id. Append/add/remove preferred; replace* only when requested.
+   */
+  annotateTrade(input: AnnotateTradeInput) {
+    const existing = this.trades.find((t) => t.id === input.id);
+    if (!existing) {
+      return {
+        ok: false as const,
+        error: `No trade found with id ${input.id}`,
+        hint: "Call find_trade or query_trades first, then annotate_trade with that exact id.",
+      };
+    }
+
+    const patch: Partial<Omit<Trade, "id">> = {};
+
+    if (input.replaceNotes !== undefined) {
+      patch.notes = input.replaceNotes;
+    } else if (input.appendNote !== undefined) {
+      patch.notes = appendNotes(existing.notes, input.appendNote);
+    }
+
+    if (input.replaceTags !== undefined) {
+      const cleaned = [
+        ...new Set(input.replaceTags.map((t) => t.trim()).filter(Boolean)),
+      ];
+      patch.tags = cleaned;
+    } else {
+      let tags = existing.tags;
+      if (input.addTags?.length) {
+        tags = mergeTags(tags, input.addTags);
+      }
+      if (input.removeTags?.length) {
+        tags = removeTags(tags, input.removeTags);
+      }
+      if (input.addTags?.length || input.removeTags?.length) {
+        patch.tags = tags;
+      }
+    }
+
+    const next: Trade = {
+      ...existing,
+      ...patch,
+      id: existing.id,
+    };
+
+    this.trades = this.trades.map((t) => (t.id === existing.id ? next : t));
+    this.updateTrades.push({ id: existing.id, ...patch });
+
+    return {
+      ok: true as const,
+      action: "annotate_trade",
+      trade: tradeSnapshot(next),
+      stats: this.getStats(),
     };
   }
 
@@ -813,62 +804,9 @@ export class JournalSession {
         trade: tradeSnapshot(r.trade),
       })),
       note: bestMatch
-        ? `Best match ${bestMatch.trade.id} (${bestMatch.trade.symbol}). Call update_trade with this id.`
+        ? `Best match ${bestMatch.trade.id} (${bestMatch.trade.symbol}). Call patch_trade or annotate_trade with this id.`
         : "No single confident match — compare candidates to the screenshot and pick an id, or ask the user which one.",
     };
-  }
-
-  bulkUpdateTrades(input: {
-    ids: string[];
-    patch: {
-      setup?: string;
-      session?: string;
-      result?: Trade["result"];
-      notes?: string;
-      appendNote?: string;
-      tags?: string[];
-      appendTags?: string[];
-      side?: Trade["side"];
-    };
-  }) {
-    const results = input.ids.map((id) => {
-      const existing = this.trades.find((t) => t.id === id);
-      if (!existing) {
-        return { id, ok: false as const, error: "not found" };
-      }
-      const updated = this.updateTrade({
-        id,
-        setup: input.patch.setup,
-        session: input.patch.session,
-        result: input.patch.result,
-        notes: input.patch.notes,
-        appendNote: input.patch.appendNote,
-        tags: input.patch.tags,
-        appendTags: input.patch.appendTags,
-        side: input.patch.side,
-      });
-      return {
-        id,
-        ok: updated.ok,
-        error: updated.ok ? undefined : "error" in updated ? updated.error : "failed",
-      };
-    });
-
-    return {
-      ok: true as const,
-      action: "bulk_update_trades",
-      results,
-      succeeded: results.filter((r) => r.ok).length,
-      failed: results.filter((r) => !r.ok).length,
-    };
-  }
-
-  addTradeNote(input: { id: string; note: string; tags?: string[] }) {
-    return this.updateTrade({
-      id: input.id,
-      appendNote: input.note,
-      appendTags: input.tags,
-    });
   }
 
   compareToStrategy(input: TradeFilterInput & { ids?: string[]; limit?: number }) {

@@ -286,6 +286,7 @@ export function applyChatActions(actions: ChatActionPayload) {
     ...(actions.addTrade && !actions.addTrades?.length ? [actions.addTrade] : []),
   ];
 
+  let loggedNewTrade = false;
   for (const incoming of addTrades) {
     const trade = store.addTrade({
       ...incoming,
@@ -295,6 +296,7 @@ export function applyChatActions(actions: ChatActionPayload) {
             .slice(0, MAX_SCREENSHOTS_PER_TRADE)
         : (incoming.screenshots ?? []).filter((s) => s !== "pending"),
     });
+    loggedNewTrade = true;
     touchedTradeId = trade.id;
     notes.push(
       `Logged ${trade.side.toUpperCase()} ${trade.symbol} (${trade.result}, ${trade.rMultiple}R${
@@ -313,28 +315,32 @@ export function applyChatActions(actions: ChatActionPayload) {
   for (const update of updateTrades) {
     const { id, ...rawPatch } = update;
     if (!id) continue;
-    const existing = store.trades.find((t) => t.id === id);
     const patch: Partial<Trade> = {};
     for (const [key, value] of Object.entries(rawPatch)) {
       if (value !== undefined) {
         (patch as Record<string, unknown>)[key] = value;
       }
     }
-    store.updateTrade(id, {
-      ...patch,
-      ...(screenshots?.length
-        ? {
-            screenshots: [
-              ...(existing?.screenshots ?? []),
-              ...screenshots,
-            ]
-              .filter((s) => s && s !== "pending")
-              .slice(0, MAX_SCREENSHOTS_PER_TRADE),
-          }
-        : {}),
-    });
+    store.updateTrade(id, patch);
     touchedTradeId = id;
     notes.push(`Updated trade ${id}.`);
+  }
+
+  // If we only updated (no new log), attach turn screenshots to a single trade id.
+  // Never spray the same images onto every updated row in a multi-trade turn.
+  if (screenshots?.length && !loggedNewTrade) {
+    const uniqueUpdateIds = [
+      ...new Set(updateTrades.map((u) => u.id).filter(Boolean)),
+    ];
+    if (uniqueUpdateIds.length === 1) {
+      const attachId = uniqueUpdateIds[0];
+      const existing = store.trades.find((t) => t.id === attachId);
+      store.updateTrade(attachId, {
+        screenshots: [...(existing?.screenshots ?? []), ...screenshots]
+          .filter((s) => s && s !== "pending")
+          .slice(0, MAX_SCREENSHOTS_PER_TRADE),
+      });
+    }
   }
 
   if (actions.deleteTradeIds?.length) {

@@ -32,13 +32,12 @@ const optionalTradeFields = {
   riskUsd: z.number().optional(),
   size: z.string().optional(),
   feesUsd: z.number().optional(),
-  notes: z.string().optional(),
   session: z.string().optional(),
-  tags: z.array(z.string()).optional(),
   chartExtract: chartExtractSchema,
 };
 
-export const addTradeSchema = z.object({
+/** Create a brand-new trade. Initial notes/tags allowed only on create. */
+export const logTradeSchema = z.object({
   date: z.string().describe("YYYY-MM-DD"),
   symbol: z.string(),
   side: tradeSideSchema,
@@ -48,13 +47,22 @@ export const addTradeSchema = z.object({
   target: z.number(),
   rMultiple: z.number(),
   result: tradeResultSchema,
+  notes: z.string().optional().describe("Initial notes for a new trade only"),
+  tags: z.array(z.string()).optional().describe("Initial tags for a new trade only"),
   ...optionalTradeFields,
 });
 
-export const updateTradeSchema = z.object({
-  id: z.string(),
+/**
+ * Partial field update. Never touches notes/tags — use annotate_trade for those.
+ * Exact id required; no silent retargeting.
+ */
+export const patchTradeSchema = z.object({
+  id: z.string().describe("Exact trade id from find_trade / query_trades / log_trade"),
   date: z.string().optional(),
-  symbol: z.string().optional(),
+  symbol: z
+    .string()
+    .optional()
+    .describe("Only for correcting typos on the SAME pair — refused if pair differs"),
   side: tradeSideSchema.optional(),
   setup: z.string().optional(),
   entry: z.number().optional(),
@@ -62,16 +70,107 @@ export const updateTradeSchema = z.object({
   target: z.number().optional(),
   rMultiple: z.number().optional(),
   result: tradeResultSchema.optional(),
-  appendNote: z
-    .string()
-    .optional()
-    .describe("Append to existing notes instead of replacing"),
-  appendTags: z
-    .array(z.string())
-    .optional()
-    .describe("Merge these tags into the trade"),
   ...optionalTradeFields,
 });
+
+/**
+ * Notes/tags only. Append/add/remove by default; replace* only when user asks to overwrite.
+ * Empty strings / empty arrays are ignored so models that fill unused fields still succeed.
+ */
+export const annotateTradeSchema = z
+  .object({
+    id: z.string(),
+    appendNote: z
+      .string()
+      .optional()
+      .describe("Append to existing notes (preferred). Omit unused fields entirely — do not send empty strings."),
+    replaceNotes: z
+      .string()
+      .optional()
+      .describe("Overwrite notes entirely — only when user asks to rewrite/replace. Omit if unused."),
+    addTags: z
+      .array(z.string())
+      .optional()
+      .describe("Merge these tags into the trade. Omit or skip if unused."),
+    removeTags: z
+      .array(z.string())
+      .optional()
+      .describe("Remove these tags (case-insensitive). Omit if unused."),
+    replaceTags: z
+      .array(z.string())
+      .optional()
+      .describe("Replace the full tag list — only when user asks to overwrite tags. Omit if unused."),
+  })
+  .transform((v) => {
+    const appendNote = v.appendNote?.trim() ? v.appendNote : undefined;
+    const addTags = (v.addTags ?? []).map((t) => t.trim()).filter(Boolean);
+    const removeTags = (v.removeTags ?? []).map((t) => t.trim()).filter(Boolean);
+    const hasAdd = addTags.length > 0;
+    const hasRemove = removeTags.length > 0;
+    const hasReplaceNotesContent =
+      typeof v.replaceNotes === "string" && v.replaceNotes.trim() !== "";
+    const replaceTagsCleaned = (v.replaceTags ?? [])
+      .map((t) => t.trim())
+      .filter(Boolean);
+    const hasReplaceTagsContent = replaceTagsCleaned.length > 0;
+
+    const hasNoteContent = Boolean(appendNote) || hasReplaceNotesContent;
+    const hasTagContent = hasAdd || hasRemove || hasReplaceTagsContent;
+
+    // Empty replaceNotes is LLM filler unless it is the ONLY op (clear notes).
+    let replaceNotes: string | undefined;
+    if (hasReplaceNotesContent) {
+      replaceNotes = v.replaceNotes;
+    } else if (
+      v.replaceNotes !== undefined &&
+      v.replaceNotes.trim() === "" &&
+      !appendNote &&
+      !hasTagContent
+    ) {
+      replaceNotes = "";
+    }
+
+    // Empty replaceTags is LLM filler unless it is the ONLY op (clear tags).
+    let replaceTags: string[] | undefined;
+    if (hasReplaceTagsContent) {
+      replaceTags = replaceTagsCleaned;
+    } else if (
+      v.replaceTags !== undefined &&
+      replaceTagsCleaned.length === 0 &&
+      !hasAdd &&
+      !hasRemove &&
+      !hasNoteContent
+    ) {
+      replaceTags = [];
+    }
+
+    return {
+      id: v.id,
+      appendNote,
+      replaceNotes,
+      addTags: hasAdd ? addTags : undefined,
+      removeTags: hasRemove ? removeTags : undefined,
+      replaceTags,
+    };
+  })
+  .refine(
+    (v) =>
+      v.appendNote !== undefined ||
+      v.replaceNotes !== undefined ||
+      (v.addTags && v.addTags.length > 0) ||
+      (v.removeTags && v.removeTags.length > 0) ||
+      v.replaceTags !== undefined,
+    {
+      message:
+        "Provide at least one of: appendNote, replaceNotes, addTags, removeTags, replaceTags",
+    },
+  )
+  .refine((v) => !(v.appendNote !== undefined && v.replaceNotes !== undefined), {
+    message: "Use either appendNote or replaceNotes, not both",
+  })
+  .refine((v) => !(v.replaceTags !== undefined && (v.addTags?.length || v.removeTags?.length)), {
+    message: "Use replaceTags alone, or addTags/removeTags — not both styles",
+  });
 
 export const deleteTradeSchema = z
   .object({
@@ -195,20 +294,6 @@ export const getStatsSchema = tradeFilterSchema.extend({
   closedOnly: z.boolean().optional(),
 });
 
-export const bulkUpdateTradesSchema = z.object({
-  ids: z.array(z.string()).min(1).max(40),
-  patch: z.object({
-    setup: z.string().optional(),
-    session: z.string().optional(),
-    result: tradeResultSchema.optional(),
-    notes: z.string().optional(),
-    appendNote: z.string().optional(),
-    tags: z.array(z.string()).optional(),
-    appendTags: z.array(z.string()).optional(),
-    side: tradeSideSchema.optional(),
-  }),
-});
-
 export const compareToStrategySchema = z.object({
   ids: z.array(z.string()).optional(),
   symbol: z.string().optional(),
@@ -221,12 +306,6 @@ export const compareToStrategySchema = z.object({
   text: z.string().optional(),
   tags: z.array(z.string()).optional(),
   limit: z.number().int().min(1).max(15).optional().default(5),
-});
-
-export const addTradeNoteSchema = z.object({
-  id: z.string(),
-  note: z.string().min(1),
-  tags: z.array(z.string()).optional(),
 });
 
 export const getStrategySchema = z.object({
@@ -268,10 +347,14 @@ export const findTradeSchema = z.object({
     .describe("How many ranked candidates to return"),
 });
 
-export type AddTradeInput = z.infer<typeof addTradeSchema>;
-export type UpdateTradeInput = z.infer<typeof updateTradeSchema>;
+export type LogTradeInput = z.infer<typeof logTradeSchema>;
+export type PatchTradeInput = z.infer<typeof patchTradeSchema>;
+export type AnnotateTradeInput = z.infer<typeof annotateTradeSchema>;
 export type TradeFilterInput = z.infer<typeof tradeFilterSchema>;
 export type QueryTradesInput = z.infer<typeof queryTradesSchema>;
 export type GetStrategyInput = z.infer<typeof getStrategySchema>;
 export type GetTradeInput = z.infer<typeof getTradeSchema>;
 export type FindTradeInput = z.infer<typeof findTradeSchema>;
+
+/** @deprecated Use LogTradeInput */
+export type AddTradeInput = LogTradeInput;
