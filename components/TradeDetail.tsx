@@ -209,12 +209,23 @@ export function TradeDetail({
             </div>
           ) : null}
 
-          {trade.notes ? (
-            <div className="trade-detail__notes">
-              <p className="trade-detail__eyebrow">Notes</p>
-              <p>{trade.notes}</p>
+          {trade.tags?.length ? (
+            <div className="trade-detail__tags">
+              <p className="trade-detail__eyebrow">Tags</p>
+              <div className="trade-detail__tag-list">
+                {trade.tags.map((tag) => (
+                  <span className="trade-tag" key={tag}>
+                    {tag}
+                  </span>
+                ))}
+              </div>
             </div>
           ) : null}
+
+          <div className="trade-detail__notes">
+            <p className="trade-detail__eyebrow">Notes</p>
+            <p>{trade.notes?.trim() ? trade.notes : "No notes yet."}</p>
+          </div>
         </div>
 
         <footer className="trade-detail__actions">

@@ -505,6 +505,32 @@ textarea {
   margin: 0.4rem 0 0;
   color: var(--ink-soft);
   line-height: 1.45;
+  white-space: pre-wrap;
+}
+
+.trade-detail__tags {
+  margin-top: 1.15rem;
+}
+
+.trade-detail__tag-list,
+.trade-tag-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-top: 0.4rem;
+}
+
+.trade-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.2rem 0.55rem;
+  border-radius: 999px;
+  border: 1px solid rgba(13, 148, 136, 0.28);
+  background: rgba(13, 148, 136, 0.1);
+  color: var(--teal-deep);
+  font-size: 0.75rem;
+  font-family: var(--font-display);
+  letter-spacing: -0.02em;
 }
 
 .trade-detail__actions {

@@ -1,8 +1,5 @@
-import { generateText, type LanguageModel } from "ai";
 import type { ChartExtract, Strategy, Trade } from "@/lib/types";
 
-export const RECENT_HISTORY_COUNT = 6;
-export const HISTORY_FOLD_THRESHOLD = 2;
 export const RELEVANT_TRADES_LIMIT = 10;
 export const TRADE_INDEX_LIMIT = 80;
 export const MAX_REATTACH_SCREENSHOTS = 2;
@@ -44,7 +41,6 @@ export type ChatContextPack = {
   /** Pointer only — full strategy/trades are loaded via tools */
   tradeCount: number;
   strategyName: string | null;
-  conversationSummary: string;
   reattachedScreenshotCount: number;
   /** One-turn UI pin from trade detail → chat (not a persistent active trade). */
   referencedTradeId: string | null;
@@ -359,89 +355,15 @@ export function selectReattachedScreenshots(opts: {
   return real.slice(0, max);
 }
 
-/**
- * Fold older chat turns into a rolling summary. Keeps recent messages verbatim.
- */
-export async function foldConversationSummary(opts: {
-  model: LanguageModel;
-  existingSummary?: string;
-  olderMessages: HistoryMessage[];
-}): Promise<string> {
-  const older = opts.olderMessages
-    .filter((m) => m.role === "user" || m.role === "assistant")
-    .map((m) => ({
-      role: m.role as "user" | "assistant",
-      content: truncate(m.content || "", 500),
-    }))
-    .filter((m) => m.content.trim());
-
-  if (older.length < HISTORY_FOLD_THRESHOLD) {
-    return opts.existingSummary?.trim() ?? "";
-  }
-
-  const existing = opts.existingSummary?.trim() ?? "";
-
-  try {
-    const { text } = await generateText({
-      model: opts.model,
-      system:
-        "You maintain a compact rolling summary of a trading-journal chat. Output plain text only, 4–8 short lines max. Capture: trades discussed (symbol/side/ids if known), decisions made, pending questions, and coaching points. No markdown.",
-      prompt: [
-        existing ? `Existing summary:\n${existing}` : "No existing summary.",
-        "",
-        "New messages to fold in:",
-        ...older.map((m) => `${m.role.toUpperCase()}: ${m.content}`),
-        "",
-        "Return the updated summary only.",
-      ].join("\n"),
-      providerOptions: {
-        openai: { reasoningEffort: "none" },
-      },
-    });
-    if (text?.trim()) return truncate(text.trim(), 1200);
-  } catch (error) {
-    console.error("Conversation summary failed:", error);
-  }
-
-  const fallbackBits = older
-    .slice(-4)
-    .map((m) => `${m.role}: ${truncate(m.content, 120)}`);
-  return truncate(
-    [existing, ...fallbackBits].filter(Boolean).join("\n"),
-    1200,
-  );
-}
-
-export function splitHistoryForContext(
-  history: HistoryMessage[],
-  recentCount = RECENT_HISTORY_COUNT,
-) {
-  const cleaned = history.filter(
-    (m) =>
-      (m.role === "user" || m.role === "assistant") &&
-      typeof m.content === "string" &&
-      m.content.trim(),
-  );
-  if (cleaned.length <= recentCount) {
-    return { older: [] as HistoryMessage[], recent: cleaned };
-  }
-  return {
-    older: cleaned.slice(0, -recentCount),
-    recent: cleaned.slice(-recentCount),
-  };
-}
-
 export function buildChatContextPack(opts: {
   strategy: Strategy;
   trades: Trade[];
-  conversationSummary: string;
   reattachedScreenshotCount?: number;
   referencedTradeId?: string | null;
 }): ChatContextPack {
   return {
     tradeCount: opts.trades.length,
     strategyName: opts.strategy?.name ?? null,
-    conversationSummary: opts.conversationSummary,
     reattachedScreenshotCount: opts.reattachedScreenshotCount ?? 0,
     referencedTradeId: opts.referencedTradeId ?? null,
   };

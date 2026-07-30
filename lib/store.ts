@@ -26,12 +26,11 @@ function orderedColumns(ids: TradeColumnId[]): TradeColumnId[] {
 }
 
 const STORE_KEY = "tradeagent-store-v4";
-const MAX_PERSISTED_CHAT = 40;
 const MAX_SCREENSHOTS_PER_TRADE = 2;
 
-/** Slim chat for disk: keep text/meta, drop heavy image payloads + trim length. */
+/** Slim chat for disk: keep full text history, drop heavy image payloads only. */
 function persistableChat(chat: ChatMessage[]): ChatMessage[] {
-  return chat.slice(-MAX_PERSISTED_CHAT).map(({ images: _images, ...rest }) => rest);
+  return chat.map(({ images: _images, ...rest }) => rest);
 }
 
 /** Cap screenshot arrays so one trade can't dominate storage. */
@@ -171,9 +170,15 @@ export const useTradingStore = create<Store>()(
         set({
           trades: get().trades.map((t) => {
             if (t.id !== id) return t;
-            const merged = { ...t, ...patch };
-            if (merged.screenshots?.length) {
-              merged.screenshots = merged.screenshots
+            const clean: Partial<Trade> = {};
+            for (const [key, value] of Object.entries(patch)) {
+              if (value !== undefined) {
+                (clean as Record<string, unknown>)[key] = value;
+              }
+            }
+            const merged = { ...t, ...clean };
+            if (clean.screenshots) {
+              merged.screenshots = clean.screenshots
                 .filter((s) => s && s !== "pending")
                 .slice(0, MAX_SCREENSHOTS_PER_TRADE);
             }
@@ -223,7 +228,7 @@ export const useTradingStore = create<Store>()(
               charts: message.charts,
               createdAt: new Date().toISOString(),
             },
-          ].slice(-80),
+          ],
         }),
       clearChat: () =>
         set({ chat: [], chatSummary: "", chatReferencedTradeId: null }),
@@ -250,7 +255,18 @@ export const useTradingStore = create<Store>()(
           console.warn("[TradeAgent] rehydrate failed", error);
           clearLegacyLocalStorage();
         }
-        state?.setHydrated(true);
+        if (state) {
+          // Ensure newer default columns (tags/notes) appear for existing users
+          const current = new Set(state.visibleTradeColumns);
+          const missing = DEFAULT_VISIBLE_TRADE_COLUMNS.filter((id) => !current.has(id));
+          if (missing.length) {
+            state.visibleTradeColumns = orderedColumns([
+              ...state.visibleTradeColumns,
+              ...missing,
+            ]);
+          }
+          state.setHydrated(true);
+        }
       },
     },
   ),
@@ -295,9 +311,15 @@ export function applyChatActions(actions: ChatActionPayload) {
   ];
 
   for (const update of updateTrades) {
-    const { id, ...patch } = update;
+    const { id, ...rawPatch } = update;
     if (!id) continue;
     const existing = store.trades.find((t) => t.id === id);
+    const patch: Partial<Trade> = {};
+    for (const [key, value] of Object.entries(rawPatch)) {
+      if (value !== undefined) {
+        (patch as Record<string, unknown>)[key] = value;
+      }
+    }
     store.updateTrade(id, {
       ...patch,
       ...(screenshots?.length
@@ -305,7 +327,9 @@ export function applyChatActions(actions: ChatActionPayload) {
             screenshots: [
               ...(existing?.screenshots ?? []),
               ...screenshots,
-            ].slice(0, MAX_SCREENSHOTS_PER_TRADE),
+            ]
+              .filter((s) => s && s !== "pending")
+              .slice(0, MAX_SCREENSHOTS_PER_TRADE),
           }
         : {}),
     });

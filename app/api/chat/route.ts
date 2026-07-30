@@ -84,7 +84,6 @@ export async function POST(req: NextRequest) {
     strategy,
     stats = {},
     history = [],
-    chatSummary = "",
     referencedTradeId,
     apiKey: clientApiKey,
     model: clientModel,
@@ -96,7 +95,6 @@ export async function POST(req: NextRequest) {
     strategy: Strategy;
     stats: Record<string, number>;
     history: { role: string; content: string }[];
-    chatSummary?: string;
     referencedTradeId?: string;
     apiKey?: string;
     model?: string;
@@ -180,7 +178,6 @@ export async function POST(req: NextRequest) {
           trades: tradeList,
           stats,
           history,
-          chatSummary: typeof chatSummary === "string" ? chatSummary : "",
           userText,
           images: imageList,
           attachments,

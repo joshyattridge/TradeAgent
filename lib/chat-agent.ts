@@ -8,9 +8,7 @@ import {
 } from "ai";
 import {
   buildChatContextPack,
-  foldConversationSummary,
   selectReattachedScreenshots,
-  splitHistoryForContext,
   type ChatContextPack,
   type HistoryMessage,
 } from "@/lib/chat-context";
@@ -63,7 +61,6 @@ export type AgentStreamEvent =
       type: "done";
       reply: string;
       actions: ChatActions;
-      chatSummary: string;
       steps: number;
       reattachedScreenshotCount: number;
     }
@@ -281,6 +278,7 @@ Identifying which trade to update:
 - Exception this turn only: if a User-selected trade reference id is provided below, treat "this trade" / the open detail as that exact id — call get_trade / update_trade with it. Still use find_trade when the user clearly means a different row.
 - When the user asks to update a trade / fill details from a screenshot without a UI reference: extract levels from the image, call find_trade with those hints (symbol, side, entry, stop, target, exit, result, date, size, pnl, ticket text), then update_trade with bestMatchId (if confident) or the chosen candidate id.
 - Prefer find_trade over guessing. Same-symbol duplicates are normal; match on entry/SL/TP/exit/time/result.
+- When the user asks to update notes/tags/lessons: call add_trade_note or update_trade with appendNote/appendTags (or notes/tags). Confirm from the tool result that notes/tags are present before telling the user it is saved.
 
 Tool loop (Vercel AI SDK):
 - Tools execute immediately and return JSON results (ids, errors, stats, chart summaries).
@@ -322,12 +320,8 @@ Charts:
 Coaching:
 - ALWAYS write a real final reply. Never answer with only "Trade logged." / "Updated." / "On it."
 - After a save/update: 1 line what you saved + optional 1-line strategy check (use get_strategy / compare_to_strategy if needed).
-
-${
-  ctx.conversationSummary
-    ? `CONVERSATION SUMMARY (older turns):\n${ctx.conversationSummary}\n`
-    : ""
-}`;
+- The full prior chat is included in the messages — use it. Do not invent earlier decisions that were not said.
+`;
 }
 
 function isWeakReply(reply?: string | null) {
@@ -355,7 +349,6 @@ export async function* streamAgentLoop(opts: {
   trades: Trade[];
   stats: Record<string, number | undefined>;
   history: HistoryMessage[];
-  chatSummary?: string;
   userText: string;
   images: string[];
   attachments?: ChatAttachmentPayload[];
@@ -365,17 +358,6 @@ export async function* streamAgentLoop(opts: {
   const model = openai(opts.model);
 
   yield { type: "status", message: "Preparing context…" };
-
-  const { older, recent } = splitHistoryForContext(opts.history);
-  if (older.length >= 2) {
-    yield { type: "status", message: "Summarizing earlier chat…" };
-  }
-
-  const chatSummary = await foldConversationSummary({
-    model,
-    existingSummary: opts.chatSummary,
-    olderMessages: older,
-  });
 
   const attachments = Array.isArray(opts.attachments) ? opts.attachments : [];
   const imageFromAttachments = attachments
@@ -426,17 +408,24 @@ export async function* streamAgentLoop(opts: {
   const ctx = buildChatContextPack({
     strategy: session.strategy,
     trades: session.trades,
-    conversationSummary: chatSummary,
     reattachedScreenshotCount: reattached.length,
     referencedTradeId: opts.referencedTradeId ?? null,
   });
 
   const system = buildSystemPrompt(ctx);
 
-  const historyMessages: ModelMessage[] = recent.map((m) => ({
-    role: m.role as "user" | "assistant",
-    content: m.content,
-  }));
+  // Full verbatim chat — no summarization / truncation of prior turns
+  const historyMessages: ModelMessage[] = opts.history
+    .filter(
+      (m) =>
+        (m.role === "user" || m.role === "assistant") &&
+        typeof m.content === "string" &&
+        m.content.trim(),
+    )
+    .map((m) => ({
+      role: m.role as "user" | "assistant",
+      content: m.content,
+    }));
 
   const textBlock = [
     opts.userText,
@@ -618,7 +607,6 @@ export async function* streamAgentLoop(opts: {
     type: "done",
     reply: reply || "Done.",
     actions: session.toActions(),
-    chatSummary,
     steps,
     reattachedScreenshotCount: reattached.length,
   };

@@ -129,6 +129,18 @@ function cellValue(trade: Trade, column: TradeColumnId) {
       ) : (
         "—"
       );
+    case "tags":
+      return trade.tags?.length ? (
+        <span className="trade-tag-row">
+          {trade.tags.map((tag) => (
+            <span className="trade-tag" key={tag}>
+              {tag}
+            </span>
+          ))}
+        </span>
+      ) : (
+        "—"
+      );
     case "notes":
       return <span className="notes">{trade.notes ?? "—"}</span>;
   }
@@ -180,6 +192,8 @@ function sortValue(
       return trade.result;
     case "screenshots":
       return trade.screenshots?.length ?? 0;
+    case "tags":
+      return (trade.tags ?? []).join(", ").toLowerCase() || null;
     case "notes":
       return (trade.notes ?? "").toLowerCase() || null;
   }

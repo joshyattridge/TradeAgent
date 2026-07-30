@@ -19,7 +19,8 @@ export const TRADE_COLUMNS = [
   { id: "rMultiple", label: "R", defaultVisible: true },
   { id: "result", label: "Result", defaultVisible: true },
   { id: "screenshots", label: "Chart", defaultVisible: true },
-  { id: "notes", label: "Notes", defaultVisible: false },
+  { id: "tags", label: "Tags", defaultVisible: true },
+  { id: "notes", label: "Notes", defaultVisible: true },
 ] as const;
 
 export type TradeColumnId = (typeof TRADE_COLUMNS)[number]["id"];

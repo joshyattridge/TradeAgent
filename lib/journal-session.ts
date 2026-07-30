@@ -66,6 +66,20 @@ function appendNotes(existing: string | undefined, append?: string, replace?: st
   return `${existing.trim()}\n${append.trim()}`;
 }
 
+/** Merge partial trade patches, skipping undefined so later updates cannot wipe fields. */
+function mergeDefined<T extends Record<string, unknown>>(
+  base: T,
+  incoming: Partial<T>,
+): T {
+  const next = { ...base };
+  for (const [key, value] of Object.entries(incoming)) {
+    if (value !== undefined) {
+      (next as Record<string, unknown>)[key] = value;
+    }
+  }
+  return next;
+}
+
 function symbolsMatch(a?: string | null, b?: string | null) {
   if (!a || !b) return false;
   return normalizeSymbol(a) === normalizeSymbol(b);
@@ -304,7 +318,34 @@ export class JournalSession {
 
   toActions(): ChatActions {
     const addTrades = this.addTrades.map(stripScreenshots);
-    const updateTrades = [...this.updateTrades];
+    // Coalesce multiple patches per id; never let undefined overwrite earlier fields
+    const mergedById = new Map<string, { id: string } & Partial<Omit<Trade, "id">>>();
+    for (const update of this.updateTrades) {
+      const { id, ...rest } = update;
+      const prev = mergedById.get(id) ?? { id };
+      const { id: _prevId, ...prevRest } = prev;
+      void _prevId;
+      mergedById.set(id, { id, ...mergeDefined(prevRest, rest) });
+    }
+    // Prefer the live journal row for notes/tags so appends always ship to the client
+    const updateTrades = [...mergedById.values()].map((patch) => {
+      const live = this.trades.find((t) => t.id === patch.id);
+      if (!live) {
+        const { screenshots: _s, ...rest } = patch;
+        void _s;
+        return rest;
+      }
+      const { screenshots: _s, ...rest } = patch;
+      void _s;
+      return {
+        ...rest,
+        ...(live.notes !== undefined ? { notes: live.notes } : {}),
+        ...(live.tags?.length ? { tags: live.tags } : {}),
+        ...(live.setup ? { setup: live.setup } : {}),
+        ...(live.session ? { session: live.session } : {}),
+        ...(live.chartExtract ? { chartExtract: live.chartExtract } : {}),
+      };
+    });
     const deleteTradeIds = [...this.deleteTradeIds];
     const actions: ChatActions = {};
 
@@ -493,7 +534,10 @@ export class JournalSession {
       delete patch.symbol;
     }
 
-    patch.notes = appendNotes(existing.notes, appendNote, notes);
+    // Only touch notes when the model actually sent a note change
+    if (notes !== undefined || appendNote !== undefined) {
+      patch.notes = appendNotes(existing.notes, appendNote, notes);
+    }
     if (tags) patch.tags = tags;
     if (appendTags?.length) patch.tags = mergeTags(tags ?? existing.tags, appendTags);
     if (chartExtract) {
@@ -503,16 +547,13 @@ export class JournalSession {
       });
     }
 
+    // Never persist the "pending" screenshot marker into the action stream —
+    // the client attaches real images from this turn separately.
     const next: Trade = {
       ...existing,
       ...patch,
       id: targetId,
       symbol: existing.symbol,
-      ...(this.turnHasScreenshots
-        ? {
-            screenshots: [...(existing.screenshots ?? []), "pending"].slice(0, 4),
-          }
-        : {}),
     };
 
     this.trades = this.trades.map((t) => (t.id === targetId ? next : t));
@@ -527,6 +568,7 @@ export class JournalSession {
         ? `Redirected update from ${redirectedFrom} → ${targetId} because symbol ${existing.symbol} did not match the requested id's pair.`
         : undefined,
       stats: this.getStats(),
+      screenshotsPending: this.turnHasScreenshots,
     };
   }
 

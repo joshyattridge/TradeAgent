@@ -43,7 +43,6 @@ type StreamDonePayload = {
     charts?: ChartSpec[];
     chartRequests?: ChartRequest[];
   };
-  chatSummary?: string;
 };
 
 export function ChatWidget() {
@@ -61,6 +60,7 @@ export function ChatWidget() {
   const scroller = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const shellRef = useRef<HTMLElement>(null);
   const dragDepth = useRef(0);
 
   const trades = useTradingStore((s) => s.trades);
@@ -68,13 +68,11 @@ export function ChatWidget() {
   const chat = useTradingStore((s) => s.chat);
   const openaiApiKey = useTradingStore((s) => s.openaiApiKey);
   const openaiModel = useTradingStore((s) => s.openaiModel);
-  const chatSummary = useTradingStore((s) => s.chatSummary);
   const chatReferencedTradeId = useTradingStore((s) => s.chatReferencedTradeId);
   const setChatReferencedTradeId = useTradingStore(
     (s) => s.setChatReferencedTradeId,
   );
   const addChatMessage = useTradingStore((s) => s.addChatMessage);
-  const setChatSummary = useTradingStore((s) => s.setChatSummary);
   const clearChat = useTradingStore((s) => s.clearChat);
   const hydrated = useTradingStore((s) => s.hydrated);
 
@@ -95,6 +93,23 @@ export function ChatWidget() {
       setChatReferencedTradeId(null);
     }
   }, [chatReferencedTradeId, referencedTrade, setChatReferencedTradeId]);
+
+  useEffect(() => {
+    if (!expanded) return;
+
+    function onPointerDown(e: PointerEvent) {
+      const shell = shellRef.current;
+      const target = e.target;
+      if (!(target instanceof Node) || !shell) return;
+      if (shell.contains(target)) return;
+      // Keep open when interacting with native file picker / other OS UI
+      setExpanded(false);
+    }
+
+    // Capture phase so we close even if page stops propagation
+    document.addEventListener("pointerdown", onPointerDown, true);
+    return () => document.removeEventListener("pointerdown", onPointerDown, true);
+  }, [expanded]);
 
   useEffect(() => {
     if (!expanded) return;
@@ -202,10 +217,6 @@ export function ChatWidget() {
   }
 
   function applyDone(data: StreamDonePayload, images: string[]) {
-    if (typeof data.chatSummary === "string") {
-      setChatSummary(data.chatSummary);
-    }
-
     let charts: ChartSpec[] = [];
     if (data.actions) {
       const applied = applyChatActions({
@@ -312,11 +323,12 @@ export function ChatWidget() {
           stats: computeStats(trades),
           apiKey: openaiApiKey || undefined,
           model: openaiModel,
-          chatSummary,
-          history: chat.slice(-20).map((m) => ({
-            role: m.role,
-            content: m.content,
-          })),
+          history: chat
+            .filter((m) => m.role === "user" || m.role === "assistant")
+            .map((m) => ({
+              role: m.role,
+              content: m.content,
+            })),
         }),
       });
 
@@ -325,9 +337,6 @@ export function ChatWidget() {
       // Non-stream JSON fallback (auth errors, etc.)
       if (!contentType.includes("ndjson")) {
         const data = await res.json();
-        if (typeof data.chatSummary === "string") {
-          setChatSummary(data.chatSummary);
-        }
         addChatMessage({
           role: "assistant",
           content:
@@ -367,7 +376,6 @@ export function ChatWidget() {
             detail?: string;
             reply?: string;
             actions?: StreamDonePayload["actions"];
-            chatSummary?: string;
           };
           try {
             event = JSON.parse(trimmed);
@@ -418,7 +426,6 @@ export function ChatWidget() {
               {
                 reply: event.reply?.trim() || "Done.",
                 actions: event.actions,
-                chatSummary: event.chatSummary,
               },
               images,
             );
@@ -483,6 +490,7 @@ export function ChatWidget() {
       className={`chat-dock${expanded ? " is-expanded" : ""}${dragOver ? " is-dragover" : ""}`}
     >
       <section
+        ref={shellRef}
         className="chat-shell"
         aria-label="TradeAgent chat"
         onDragEnter={onDragEnter}
