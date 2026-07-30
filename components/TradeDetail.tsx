@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
-import { Trash2, X } from "lucide-react";
+import { MessageSquare, Trash2, X } from "lucide-react";
 import { useTradingStore } from "@/lib/store";
 import type { Trade } from "@/lib/types";
 import {
@@ -49,6 +49,9 @@ export function TradeDetail({
   onClose: () => void;
 }) {
   const deleteTrade = useTradingStore((s) => s.deleteTrade);
+  const setChatReferencedTradeId = useTradingStore(
+    (s) => s.setChatReferencedTradeId,
+  );
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [mounted, setMounted] = useState(false);
 
@@ -85,6 +88,11 @@ export function TradeDetail({
       return;
     }
     deleteTrade(trade.id);
+    onClose();
+  }
+
+  function onReferenceInChat() {
+    setChatReferencedTradeId(trade.id);
     onClose();
   }
 
@@ -226,10 +234,20 @@ export function TradeDetail({
               </button>
             </>
           ) : (
-            <button type="button" className="danger-btn" onClick={onDelete}>
-              <Trash2 size={14} />
-              Delete trade
-            </button>
+            <>
+              <button
+                type="button"
+                className="ghost-btn trade-detail__ref-btn"
+                onClick={onReferenceInChat}
+              >
+                <MessageSquare size={14} />
+                Reference in chat
+              </button>
+              <button type="button" className="danger-btn" onClick={onDelete}>
+                <Trash2 size={14} />
+                Delete trade
+              </button>
+            </>
           )}
         </footer>
       </aside>

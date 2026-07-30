@@ -1,14 +1,27 @@
 "use client";
 
-import { FormEvent, useEffect, useRef, useState } from "react";
-import { Eraser, ImagePlus, Send, X } from "lucide-react";
+import { FormEvent, useEffect, useRef, useState, type DragEvent } from "react";
+import { Eraser, FileText, Paperclip, Send, X } from "lucide-react";
 import { ChartRenderer } from "@/components/ChartRenderer";
-import { fileToChatImage } from "@/lib/images";
+import {
+  attachmentMeta,
+  fileToChatAttachment,
+  MAX_CHAT_ATTACHMENTS,
+  toAttachmentPayload,
+  type ChatAttachment,
+} from "@/lib/chat-attachments";
 import { applyChatActions, useTradingStore } from "@/lib/store";
 import { buildChartFromRequest, computeStats } from "@/lib/stats";
-import type { ChartRequest, ChartSpec } from "@/lib/types";
+import { formatTradeDate } from "@/lib/trade-format";
+import type { ChartRequest, ChartSpec, Trade } from "@/lib/types";
 
-const MAX_IMAGES = 4;
+function tradeRefLabel(trade: Trade) {
+  return `${trade.symbol} ${trade.side} · ${formatTradeDate(trade.date)}`;
+}
+
+function buildReferencedTradePrefix(trade: Trade) {
+  return `[Referenced trade: ${trade.symbol} ${trade.side} · ${trade.date} · id=${trade.id}]`;
+}
 
 type ToolStatus = {
   toolCallId: string;
@@ -36,7 +49,11 @@ type StreamDonePayload = {
 export function ChatWidget() {
   const [expanded, setExpanded] = useState(false);
   const [input, setInput] = useState("");
-  const [pendingImages, setPendingImages] = useState<string[]>([]);
+  const [pendingAttachments, setPendingAttachments] = useState<ChatAttachment[]>(
+    [],
+  );
+  const [attachError, setAttachError] = useState<string | null>(null);
+  const [dragOver, setDragOver] = useState(false);
   const [loading, setLoading] = useState(false);
   const [statusMessage, setStatusMessage] = useState("Thinking…");
   const [streamingText, setStreamingText] = useState("");
@@ -44,6 +61,7 @@ export function ChatWidget() {
   const scroller = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const dragDepth = useRef(0);
 
   const trades = useTradingStore((s) => s.trades);
   const strategy = useTradingStore((s) => s.strategy);
@@ -51,10 +69,32 @@ export function ChatWidget() {
   const openaiApiKey = useTradingStore((s) => s.openaiApiKey);
   const openaiModel = useTradingStore((s) => s.openaiModel);
   const chatSummary = useTradingStore((s) => s.chatSummary);
+  const chatReferencedTradeId = useTradingStore((s) => s.chatReferencedTradeId);
+  const setChatReferencedTradeId = useTradingStore(
+    (s) => s.setChatReferencedTradeId,
+  );
   const addChatMessage = useTradingStore((s) => s.addChatMessage);
   const setChatSummary = useTradingStore((s) => s.setChatSummary);
   const clearChat = useTradingStore((s) => s.clearChat);
   const hydrated = useTradingStore((s) => s.hydrated);
+
+  const referencedTrade = chatReferencedTradeId
+    ? trades.find((t) => t.id === chatReferencedTradeId)
+    : undefined;
+
+  useEffect(() => {
+    if (!chatReferencedTradeId) return;
+    setExpanded(true);
+    const t = window.setTimeout(() => inputRef.current?.focus(), 50);
+    return () => window.clearTimeout(t);
+  }, [chatReferencedTradeId]);
+
+  useEffect(() => {
+    // Drop stale pins if the trade was removed elsewhere
+    if (chatReferencedTradeId && !referencedTrade) {
+      setChatReferencedTradeId(null);
+    }
+  }, [chatReferencedTradeId, referencedTrade, setChatReferencedTradeId]);
 
   useEffect(() => {
     if (!expanded) return;
@@ -66,31 +106,83 @@ export function ChatWidget() {
     chat,
     expanded,
     loading,
-    pendingImages,
+    pendingAttachments,
     streamingText,
     toolStatuses,
     statusMessage,
   ]);
 
   async function addFiles(files: FileList | File[]) {
-    const list = [...files].filter((f) => f.type.startsWith("image/"));
+    const list = [...files];
     if (!list.length) return;
 
-    const room = MAX_IMAGES - pendingImages.length;
-    if (room <= 0) return;
+    const room = MAX_CHAT_ATTACHMENTS - pendingAttachments.length;
+    if (room <= 0) {
+      setAttachError(`Max ${MAX_CHAT_ATTACHMENTS} attachments per message`);
+      return;
+    }
 
-    const next: string[] = [];
+    const next: ChatAttachment[] = [];
+    const errors: string[] = [];
     for (const file of list.slice(0, room)) {
       try {
-        next.push(await fileToChatImage(file));
-      } catch {
-        // skip bad files
+        next.push(await fileToChatAttachment(file));
+      } catch (err) {
+        errors.push(
+          err instanceof Error ? err.message : `Could not attach ${file.name}`,
+        );
       }
     }
     if (next.length) {
-      setPendingImages((prev) => [...prev, ...next].slice(0, MAX_IMAGES));
+      setPendingAttachments((prev) =>
+        [...prev, ...next].slice(0, MAX_CHAT_ATTACHMENTS),
+      );
       setExpanded(true);
     }
+    setAttachError(errors[0] ?? null);
+  }
+
+  function removeAttachment(id: string) {
+    setPendingAttachments((prev) => prev.filter((a) => a.id !== id));
+    setAttachError(null);
+  }
+
+  function hasFileDrag(e: DragEvent) {
+    return [...e.dataTransfer.types].includes("Files");
+  }
+
+  function onDragEnter(e: DragEvent) {
+    if (!hasFileDrag(e) || loading) return;
+    e.preventDefault();
+    e.stopPropagation();
+    dragDepth.current += 1;
+    setDragOver(true);
+    setExpanded(true);
+  }
+
+  function onDragOver(e: DragEvent) {
+    if (!hasFileDrag(e) || loading) return;
+    e.preventDefault();
+    e.stopPropagation();
+    e.dataTransfer.dropEffect = "copy";
+  }
+
+  function onDragLeave(e: DragEvent) {
+    if (!hasFileDrag(e)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    dragDepth.current = Math.max(0, dragDepth.current - 1);
+    if (dragDepth.current === 0) setDragOver(false);
+  }
+
+  function onDrop(e: DragEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    dragDepth.current = 0;
+    setDragOver(false);
+    if (loading) return;
+    const files = e.dataTransfer.files;
+    if (files?.length) void addFiles(files);
   }
 
   function resetStreamUi() {
@@ -151,16 +243,42 @@ export function ChatWidget() {
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
     const text = input.trim();
-    const images = pendingImages;
-    if ((!text && !images.length) || loading) return;
+    const attachments = pendingAttachments;
+    const images = attachments
+      .filter((a): a is Extract<ChatAttachment, { kind: "image" }> => a.kind === "image")
+      .map((a) => a.dataUrl);
+    const fileMeta = attachments
+      .filter((a) => a.kind !== "image")
+      .map(attachmentMeta);
+    const refTrade = referencedTrade;
+    if ((!text && !attachments.length && !refTrade) || loading) return;
+
+    const refPrefix = refTrade ? buildReferencedTradePrefix(refTrade) : "";
+    const bodyText =
+      text ||
+      (refTrade
+        ? "Regarding this trade."
+        : attachments.length
+          ? "Review the attached file(s)."
+          : "");
+    const displayText = refTrade
+      ? `Referenced: ${tradeRefLabel(refTrade)}\n${bodyText}`
+      : bodyText;
+    const apiMessage = refPrefix
+      ? `${refPrefix}\n${bodyText}`
+      : bodyText ||
+        "Review the attached file(s) / image(s) in the context of my trading journal and strategy.";
 
     setInput("");
-    setPendingImages([]);
+    setPendingAttachments([]);
+    setAttachError(null);
+    setChatReferencedTradeId(null);
     setExpanded(true);
     addChatMessage({
       role: "user",
-      content: text || (images.length ? "Analyze this chart / image." : ""),
+      content: displayText,
       images: images.length ? images : undefined,
+      files: fileMeta.length ? fileMeta : undefined,
     });
     setLoading(true);
     resetStreamUi();
@@ -173,19 +291,19 @@ export function ChatWidget() {
           Accept: "application/x-ndjson",
         },
         body: JSON.stringify({
-          message:
-            text ||
-            "Analyze this chart / image in the context of my strategy and trade log.",
+          message: apiMessage,
           images,
+          attachments: attachments.map(toAttachmentPayload),
+          referencedTradeId: refTrade?.id,
           trades: trades.map((t) => {
-            // Keep screenshots only for symbols named in this message (reattach)
-            const named =
-              text &&
-              new RegExp(
-                `\\b${t.symbol.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`,
-                "i",
-              ).test(text);
-            if (named) return t;
+            const keepShots =
+              t.id === refTrade?.id ||
+              (text &&
+                new RegExp(
+                  `\\b${t.symbol.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`,
+                  "i",
+                ).test(text));
+            if (keepShots) return t;
             const next = { ...t };
             delete next.screenshots;
             return next;
@@ -350,11 +468,30 @@ export function ChatWidget() {
 
   if (!hydrated) return null;
 
-  const canSend = !loading && (Boolean(input.trim()) || pendingImages.length > 0);
+  const canSend =
+    !loading &&
+    (Boolean(input.trim()) ||
+      pendingAttachments.length > 0 ||
+      Boolean(referencedTrade));
 
   return (
-    <div className={`chat-dock${expanded ? " is-expanded" : ""}`}>
-      <section className="chat-shell" aria-label="TradeAgent chat">
+    <div
+      className={`chat-dock${expanded ? " is-expanded" : ""}${dragOver ? " is-dragover" : ""}`}
+    >
+      <section
+        className="chat-shell"
+        aria-label="TradeAgent chat"
+        onDragEnter={onDragEnter}
+        onDragOver={onDragOver}
+        onDragLeave={onDragLeave}
+        onDrop={onDrop}
+      >
+        {dragOver ? (
+          <div className="chat-drop-overlay" aria-hidden="true">
+            Drop files to attach
+          </div>
+        ) : null}
+
         {expanded ? (
           <div className="chat-panel__messages" ref={scroller}>
             <div className="chat-float-actions">
@@ -363,7 +500,8 @@ export function ChatWidget() {
                 className="chat-float-btn"
                 onClick={() => {
                   clearChat();
-                  setPendingImages([]);
+                  setPendingAttachments([]);
+                  setAttachError(null);
                   setExpanded(false);
                 }}
                 aria-label="Clear chat"
@@ -396,6 +534,20 @@ export function ChatWidget() {
                         src={src}
                         alt="Uploaded chart"
                       />
+                    ))}
+                  </div>
+                ) : null}
+                {message.files?.length ? (
+                  <div className="chat-bubble__files">
+                    {message.files.map((file, i) => (
+                      <span
+                        className="chat-file-chip"
+                        key={`${message.id}-file-${i}`}
+                        title={file.mime}
+                      >
+                        <FileText size={12} />
+                        {file.name}
+                      </span>
                     ))}
                   </div>
                 ) : null}
@@ -442,26 +594,65 @@ export function ChatWidget() {
           </div>
         ) : null}
 
-        {pendingImages.length ? (
+        {attachError ? (
+          <p className="chat-attach-error" role="status">
+            {attachError}
+          </p>
+        ) : null}
+
+        {pendingAttachments.length || referencedTrade ? (
           <div className="chat-attach-preview">
-            {pendingImages.map((src, i) => (
-              <div className="chat-attach-preview__item" key={`pending-${i}`}>
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={src} alt={`Attachment ${i + 1}`} />
+            {referencedTrade ? (
+              <div
+                className="chat-trade-ref"
+                title={`Trade id ${referencedTrade.id}`}
+              >
+                <span className="chat-trade-ref__label">
+                  {tradeRefLabel(referencedTrade)}
+                </span>
                 <button
                   type="button"
                   className="chat-attach-preview__remove"
-                  onClick={() =>
-                    setPendingImages((prev) =>
-                      prev.filter((_, idx) => idx !== i),
-                    )
-                  }
-                  aria-label="Remove image"
+                  onClick={() => setChatReferencedTradeId(null)}
+                  aria-label="Remove trade reference"
                 >
                   <X size={12} />
                 </button>
               </div>
-            ))}
+            ) : null}
+            {pendingAttachments.map((att) =>
+              att.kind === "image" ? (
+                <div className="chat-attach-preview__item" key={att.id}>
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={att.dataUrl} alt={att.name} title={att.name} />
+                  <button
+                    type="button"
+                    className="chat-attach-preview__remove"
+                    onClick={() => removeAttachment(att.id)}
+                    aria-label={`Remove ${att.name}`}
+                  >
+                    <X size={12} />
+                  </button>
+                </div>
+              ) : (
+                <div
+                  className="chat-file-chip chat-file-chip--pending"
+                  key={att.id}
+                  title={att.mime}
+                >
+                  <FileText size={12} />
+                  <span>{att.name}</span>
+                  <button
+                    type="button"
+                    className="chat-attach-preview__remove"
+                    onClick={() => removeAttachment(att.id)}
+                    aria-label={`Remove ${att.name}`}
+                  >
+                    <X size={12} />
+                  </button>
+                </div>
+              ),
+            )}
           </div>
         ) : null}
 
@@ -469,9 +660,7 @@ export function ChatWidget() {
           className="chat-bar"
           onSubmit={onSubmit}
           onPaste={(e) => {
-            const files = [...e.clipboardData.files].filter((f) =>
-              f.type.startsWith("image/"),
-            );
+            const files = [...e.clipboardData.files];
             if (files.length) {
               e.preventDefault();
               void addFiles(files);
@@ -481,7 +670,6 @@ export function ChatWidget() {
           <input
             ref={fileRef}
             type="file"
-            accept="image/*"
             multiple
             hidden
             onChange={(e) => {
@@ -493,14 +681,22 @@ export function ChatWidget() {
             type="button"
             className="attach-btn"
             onClick={() => {
-              if (chat.length > 0 || pendingImages.length) setExpanded(true);
+              if (
+                chat.length > 0 ||
+                pendingAttachments.length ||
+                referencedTrade
+              ) {
+                setExpanded(true);
+              }
               fileRef.current?.click();
             }}
-            aria-label="Upload image"
-            title="Upload chart image"
-            disabled={loading || pendingImages.length >= MAX_IMAGES}
+            aria-label="Attach file"
+            title="Attach CSV, PDF, image, or text file"
+            disabled={
+              loading || pendingAttachments.length >= MAX_CHAT_ATTACHMENTS
+            }
           >
-            <ImagePlus size={16} />
+            <Paperclip size={16} />
           </button>
           <input
             ref={inputRef}
@@ -508,9 +704,35 @@ export function ChatWidget() {
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onFocus={() => {
-              if (chat.length > 0 || pendingImages.length) setExpanded(true);
+              if (
+                chat.length > 0 ||
+                pendingAttachments.length ||
+                referencedTrade
+              ) {
+                setExpanded(true);
+              }
             }}
-            placeholder="Ask TradeAgent — or drop a chart screenshot…"
+            onDragOver={(e) => {
+              if (hasFileDrag(e)) {
+                e.preventDefault();
+                e.dataTransfer.dropEffect = "copy";
+              }
+            }}
+            onDrop={(e) => {
+              if (!hasFileDrag(e)) return;
+              e.preventDefault();
+              e.stopPropagation();
+              dragDepth.current = 0;
+              setDragOver(false);
+              if (loading) return;
+              const files = e.dataTransfer.files;
+              if (files?.length) void addFiles(files);
+            }}
+            placeholder={
+              referencedTrade
+                ? "Ask about this trade…"
+                : "Ask TradeAgent — attach charts, CSV, PDF…"
+            }
             aria-label="Message TradeAgent"
           />
           <button

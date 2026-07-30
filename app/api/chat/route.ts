@@ -3,9 +3,13 @@ import {
   streamAgentLoop,
   type AgentStreamEvent,
 } from "@/lib/chat-agent";
+import type { ChatAttachmentPayload } from "@/lib/chat-attachments";
 import type { Strategy, Trade } from "@/lib/types";
 
 export const runtime = "nodejs";
+
+const MAX_ATTACHMENTS = 6;
+const MAX_TEXT_CHARS = 120_000;
 
 function stripTradeScreenshots(trade: Trade): Trade {
   const next = { ...trade };
@@ -17,29 +21,88 @@ function encodeEvent(event: AgentStreamEvent) {
   return `${JSON.stringify(event)}\n`;
 }
 
+function sanitizeAttachments(raw: unknown): ChatAttachmentPayload[] {
+  if (!Array.isArray(raw)) return [];
+  const out: ChatAttachmentPayload[] = [];
+
+  for (const item of raw.slice(0, MAX_ATTACHMENTS)) {
+    if (!item || typeof item !== "object") continue;
+    const a = item as Record<string, unknown>;
+    const name =
+      typeof a.name === "string" && a.name.trim()
+        ? a.name.trim().slice(0, 200)
+        : "attachment";
+
+    if (a.kind === "image" && typeof a.dataUrl === "string") {
+      if (!a.dataUrl.startsWith("data:image/")) continue;
+      if (a.dataUrl.length > 8_000_000) continue;
+      out.push({
+        kind: "image",
+        name,
+        dataUrl: a.dataUrl,
+        mime: typeof a.mime === "string" ? a.mime : undefined,
+      });
+      continue;
+    }
+
+    if (a.kind === "text" && typeof a.text === "string") {
+      const text =
+        a.text.length > MAX_TEXT_CHARS
+          ? `${a.text.slice(0, MAX_TEXT_CHARS)}\n\n[…truncated]`
+          : a.text;
+      if (!text.trim()) continue;
+      out.push({
+        kind: "text",
+        name,
+        text,
+        mime: typeof a.mime === "string" ? a.mime : undefined,
+      });
+      continue;
+    }
+
+    if (a.kind === "file" && typeof a.dataUrl === "string") {
+      if (!a.dataUrl.startsWith("data:")) continue;
+      if (a.dataUrl.length > 8_000_000) continue;
+      const mime =
+        typeof a.mime === "string" && a.mime.trim()
+          ? a.mime.trim()
+          : "application/pdf";
+      out.push({ kind: "file", name, dataUrl: a.dataUrl, mime });
+    }
+  }
+
+  return out;
+}
+
 export async function POST(req: NextRequest) {
   const body = await req.json();
   const {
     message,
     images = [],
+    attachments: rawAttachments,
     trades = [],
     strategy,
     stats = {},
     history = [],
     chatSummary = "",
+    referencedTradeId,
     apiKey: clientApiKey,
     model: clientModel,
   }: {
     message: string;
     images?: string[];
+    attachments?: unknown;
     trades: Trade[];
     strategy: Strategy;
     stats: Record<string, number>;
     history: { role: string; content: string }[];
     chatSummary?: string;
+    referencedTradeId?: string;
     apiKey?: string;
     model?: string;
   } = body;
+
+  const attachments = sanitizeAttachments(rawAttachments);
 
   const imageList = Array.isArray(images)
     ? images
@@ -50,7 +113,9 @@ export async function POST(req: NextRequest) {
         .slice(0, 4)
     : [];
 
-  if (!message?.trim() && !imageList.length) {
+  const hasAttachments = attachments.length > 0 || imageList.length > 0;
+
+  if (!message?.trim() && !hasAttachments) {
     return NextResponse.json({ error: "Empty message" }, { status: 400 });
   }
 
@@ -81,9 +146,11 @@ export async function POST(req: NextRequest) {
 
   const userText =
     message?.trim() ||
-    "Review this chart / image against my strategy. Tell me what fits, what doesn't, and what's missing.";
+    (hasAttachments
+      ? "Review the attached file(s) / image(s) in the context of my trading journal and strategy."
+      : "Review this chart / image against my strategy. Tell me what fits, what doesn't, and what's missing.");
 
-  // Keep screenshots only for symbols named in the message (for optional reattach)
+  // Keep screenshots for symbols named in the message, or the UI-referenced trade
   const tradeList = Array.isArray(trades)
     ? trades.map((t) => {
         const named =
@@ -92,7 +159,9 @@ export async function POST(req: NextRequest) {
             `\\b${t.symbol.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`,
             "i",
           ).test(message);
-        return named ? t : stripTradeScreenshots(t);
+        const referenced =
+          typeof referencedTradeId === "string" && t.id === referencedTradeId;
+        return named || referenced ? t : stripTradeScreenshots(t);
       })
     : [];
 
@@ -114,6 +183,9 @@ export async function POST(req: NextRequest) {
           chatSummary: typeof chatSummary === "string" ? chatSummary : "",
           userText,
           images: imageList,
+          attachments,
+          referencedTradeId:
+            typeof referencedTradeId === "string" ? referencedTradeId : undefined,
         })) {
           push(event);
         }

@@ -15,6 +15,11 @@ import {
   type HistoryMessage,
 } from "@/lib/chat-context";
 import {
+  formatAttachedFilesPrompt,
+  parseDataUrl,
+  type ChatAttachmentPayload,
+} from "@/lib/chat-attachments";
+import {
   addTradeNoteSchema,
   addTradeSchema,
   bulkUpdateTradesSchema,
@@ -272,8 +277,9 @@ On-demand context (IMPORTANT):
 - Never invent trades, stats, or strategy rules from memory.
 
 Identifying which trade to update:
-- There is NO active trade. Multiple trades (even same symbol) can exist at once.
-- When the user asks to update a trade / fill details from a screenshot: extract levels from the image, call find_trade with those hints (symbol, side, entry, stop, target, exit, result, date, size, pnl, ticket text), then update_trade with bestMatchId if confident — otherwise pick the best candidate by comparing levels or ask which id.
+- There is NO persistent active trade. Multiple trades (even same symbol) can exist at once.
+- Exception this turn only: if a User-selected trade reference id is provided below, treat "this trade" / the open detail as that exact id — call get_trade / update_trade with it. Still use find_trade when the user clearly means a different row.
+- When the user asks to update a trade / fill details from a screenshot without a UI reference: extract levels from the image, call find_trade with those hints (symbol, side, entry, stop, target, exit, result, date, size, pnl, ticket text), then update_trade with bestMatchId (if confident) or the chosen candidate id.
 - Prefer find_trade over guessing. Same-symbol duplicates are normal; match on entry/SL/TP/exit/time/result.
 
 Tool loop (Vercel AI SDK):
@@ -293,13 +299,18 @@ Missing info / screenshots:
 - Prefer screenshot values over asking the user to retype.
 - If ambiguous, suggest your best read and ask yes/no.
 - Reattached screenshots (if any this turn): ${ctx.reattachedScreenshotCount}. These belong to a trade uniquely named in the message.
+- Attached files (CSV/PDF/text exports) are part of the user message — use them as source data for logging, reviews, or imports.
 - Required when logging/closing: symbol, side, entry, SL, TP (or why missing), result, R and/or $ P&L.
 
 Hard rules for mutations:
 - If you say you logged/updated/deleted something, you MUST call the matching tool.
-- There is NO active/selected trade. Multiple open trades (and multiple of the same symbol) are normal.
+- There is NO persistent active/selected trade. Multiple open trades (and multiple of the same symbol) are normal.
 - Journal size: ${ctx.tradeCount} trades. Strategy name: ${ctx.strategyName ?? "unset"}.
-- Always resolve the target with find_trade (pass screenshot levels) or query_trades, then update_trade with that id.
+${
+  ctx.referencedTradeId
+    ? `- User-selected trade reference (this turn only): id=${ctx.referencedTradeId}. For "this trade" / coaching / updates on the referenced row, use get_trade and update_trade with that exact id. Do not invent another id.`
+    : "- Always resolve the target with find_trade (pass screenshot levels) or query_trades, then update_trade with that id."
+}
 - Trade identity is sacred: NEVER apply one symbol's fields onto another pair's row.
 - After add_trade, further details about THAT trade MUST use update_trade on the returned id.
 - Only use add_trade for a brand new position.
@@ -347,6 +358,8 @@ export async function* streamAgentLoop(opts: {
   chatSummary?: string;
   userText: string;
   images: string[];
+  attachments?: ChatAttachmentPayload[];
+  referencedTradeId?: string;
 }): AsyncGenerator<AgentStreamEvent> {
   const openai = createOpenAI({ apiKey: opts.apiKey });
   const model = openai(opts.model);
@@ -364,9 +377,28 @@ export async function* streamAgentLoop(opts: {
     olderMessages: older,
   });
 
+  const attachments = Array.isArray(opts.attachments) ? opts.attachments : [];
+  const imageFromAttachments = attachments
+    .filter(
+      (a): a is Extract<ChatAttachmentPayload, { kind: "image" }> =>
+        a.kind === "image" && typeof a.dataUrl === "string",
+    )
+    .map((a) => a.dataUrl);
+  const textAttachments = attachments.filter(
+    (a): a is Extract<ChatAttachmentPayload, { kind: "text" }> =>
+      a.kind === "text" && typeof a.text === "string" && a.text.length > 0,
+  );
+  const fileAttachments = attachments.filter(
+    (a): a is Extract<ChatAttachmentPayload, { kind: "file" }> =>
+      a.kind === "file" && typeof a.dataUrl === "string",
+  );
+
+  // Prefer unified attachments; keep legacy images[] for compatibility
+  const turnImages = [...opts.images, ...imageFromAttachments].slice(0, 6);
+
   const reattached = selectReattachedScreenshots({
     userMessage: opts.userText,
-    hasNewImages: opts.images.length > 0,
+    hasNewImages: turnImages.length > 0,
     trades: opts.trades,
   });
 
@@ -377,11 +409,18 @@ export async function* streamAgentLoop(opts: {
     };
   }
 
+  if (textAttachments.length || fileAttachments.length) {
+    yield {
+      type: "status",
+      message: `Reading ${textAttachments.length + fileAttachments.length} attached file${textAttachments.length + fileAttachments.length > 1 ? "s" : ""}…`,
+    };
+  }
+
   const session = new JournalSession({
     trades: opts.trades,
     strategy: opts.strategy,
     userMessage: opts.userText,
-    turnHasScreenshots: opts.images.length > 0 || reattached.length > 0,
+    turnHasScreenshots: turnImages.length > 0 || reattached.length > 0,
   });
 
   const ctx = buildChatContextPack({
@@ -389,6 +428,7 @@ export async function* streamAgentLoop(opts: {
     trades: session.trades,
     conversationSummary: chatSummary,
     reattachedScreenshotCount: reattached.length,
+    referencedTradeId: opts.referencedTradeId ?? null,
   });
 
   const system = buildSystemPrompt(ctx);
@@ -398,34 +438,61 @@ export async function* streamAgentLoop(opts: {
     content: m.content,
   }));
 
-  const imageParts = [
-    ...opts.images.map((url) => ({
-      type: "image" as const,
-      image: url,
-    })),
-    ...reattached.map((url) => ({
-      type: "image" as const,
-      image: url,
-    })),
-  ];
+  const textBlock = [
+    opts.userText,
+    formatAttachedFilesPrompt(
+      textAttachments.map((a) => ({ name: a.name, text: a.text })),
+    ),
+  ]
+    .filter(Boolean)
+    .join("\n\n");
 
-  const userMessage: ModelMessage =
-    imageParts.length > 0
-      ? {
-          role: "user",
-          content: [
-            { type: "text", text: opts.userText },
-            ...imageParts.map((p, i) => ({
-              type: "image" as const,
-              image: p.image,
-              providerOptions:
-                i >= opts.images.length
-                  ? { openai: { imageDetail: "low" as const } }
-                  : { openai: { imageDetail: "high" as const } },
-            })),
-          ],
-        }
-      : { role: "user", content: opts.userText };
+  const contentParts: Array<
+    | { type: "text"; text: string }
+    | {
+        type: "image";
+        image: string;
+        providerOptions?: { openai: { imageDetail: "low" | "high" } };
+      }
+    | { type: "file"; data: string; mediaType: string; filename?: string }
+  > = [{ type: "text", text: textBlock || opts.userText }];
+
+  turnImages.forEach((url, i) => {
+    contentParts.push({
+      type: "image",
+      image: url,
+      providerOptions: {
+        openai: { imageDetail: "high" },
+      },
+    });
+    void i;
+  });
+
+  reattached.forEach((url) => {
+    contentParts.push({
+      type: "image",
+      image: url,
+      providerOptions: {
+        openai: { imageDetail: "low" },
+      },
+    });
+  });
+
+  for (const file of fileAttachments) {
+    const parsed = parseDataUrl(file.dataUrl);
+    if (!parsed) continue;
+    contentParts.push({
+      type: "file",
+      data: parsed.base64,
+      mediaType: file.mime || parsed.mime || "application/pdf",
+      filename: file.name,
+    });
+  }
+
+  const hasRichParts = contentParts.length > 1;
+  const userMessage: ModelMessage = hasRichParts
+    ? { role: "user", content: contentParts }
+    : { role: "user", content: textBlock || opts.userText };
 
   yield { type: "status", message: "Thinking…" };
 

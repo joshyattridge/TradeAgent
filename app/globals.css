@@ -519,6 +519,13 @@ textarea {
   gap: 0.55rem;
 }
 
+.trade-detail__ref-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-right: auto;
+}
+
 .trade-detail__confirm {
   margin: 0;
   width: 100%;
@@ -811,6 +818,7 @@ textarea {
 }
 
 .chat-shell {
+  position: relative;
   width: 100%;
   display: flex;
   flex-direction: column;
@@ -821,6 +829,26 @@ textarea {
   backdrop-filter: blur(18px);
   box-shadow: var(--shadow);
   overflow: hidden;
+}
+
+.chat-dock.is-dragover .chat-shell {
+  border-color: rgba(13, 148, 136, 0.45);
+  box-shadow: 0 0 0 2px rgba(13, 148, 136, 0.18), var(--shadow);
+}
+
+.chat-drop-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+  background: rgba(248, 250, 249, 0.88);
+  color: var(--teal-deep);
+  font-family: var(--font-display);
+  font-size: 1.05rem;
+  letter-spacing: -0.02em;
+  border-radius: inherit;
 }
 
 .chat-dock.is-expanded .chat-shell {
@@ -979,11 +1007,80 @@ textarea {
   border-color: rgba(255, 253, 248, 0.2);
 }
 
+.chat-bubble__files {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-bottom: 0.45rem;
+}
+
+.chat-file-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  max-width: 14rem;
+  padding: 0.35rem 0.65rem;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: rgba(28, 25, 23, 0.04);
+  color: var(--ink-soft);
+  font-size: 0.78rem;
+  font-family: var(--font-display);
+  letter-spacing: -0.02em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-file-chip--pending {
+  position: relative;
+  padding-right: 1.55rem;
+  border-color: rgba(13, 148, 136, 0.28);
+  background: rgba(13, 148, 136, 0.08);
+  color: var(--teal-deep);
+}
+
+.chat-file-chip span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-attach-error {
+  margin: 0.45rem 0.9rem 0;
+  color: var(--coral);
+  font-size: 0.8rem;
+}
+
 .chat-attach-preview {
   display: flex;
   gap: 0.45rem;
   padding: 0.65rem 0.85rem 0;
   overflow-x: auto;
+  align-items: center;
+}
+
+.chat-trade-ref {
+  position: relative;
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.45rem 1.7rem 0.45rem 0.75rem;
+  border-radius: 999px;
+  border: 1px solid rgba(13, 148, 136, 0.28);
+  background: rgba(13, 148, 136, 0.1);
+  color: var(--teal-deep);
+  font-size: 0.82rem;
+  font-family: var(--font-display);
+  letter-spacing: -0.02em;
+  max-width: min(100%, 16rem);
+}
+
+.chat-trade-ref__label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .chat-attach-preview__item {

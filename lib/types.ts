@@ -143,11 +143,19 @@ export interface ChartRequest {
   data?: ChartPoint[];
 }
 
+export interface ChatAttachmentMeta {
+  name: string;
+  kind: "image" | "text" | "file";
+  mime: string;
+}
+
 export interface ChatMessage {
   id: string;
   role: "user" | "assistant" | "system";
   content: string;
   images?: string[];
+  /** Non-image attachments shown as chips (content already sent to the model). */
+  files?: ChatAttachmentMeta[];
   charts?: ChartSpec[];
   createdAt: string;
 }

@@ -29,11 +29,14 @@ interface Store {
   openaiApiKey: string;
   openaiModel: string;
   visibleTradeColumns: TradeColumnId[];
+  /** Composer-only trade pin for the next chat message (not a persistent active trade). */
+  chatReferencedTradeId: string | null;
   hydrated: boolean;
   setHydrated: (v: boolean) => void;
   setOpenAIApiKey: (key: string) => void;
   setOpenAIModel: (model: string) => void;
   setChatSummary: (summary: string) => void;
+  setChatReferencedTradeId: (id: string | null) => void;
   toggleTradeColumn: (id: TradeColumnId) => void;
   resetTradeColumns: () => void;
   addTrade: (trade: Omit<Trade, "id"> | Trade) => Trade;
@@ -65,11 +68,13 @@ export const useTradingStore = create<Store>()(
       openaiModel: DEFAULT_OPENAI_MODEL,
       chatSummary: "",
       visibleTradeColumns: DEFAULT_VISIBLE_TRADE_COLUMNS,
+      chatReferencedTradeId: null,
       hydrated: false,
       setHydrated: (v) => set({ hydrated: v }),
       setOpenAIApiKey: (key) => set({ openaiApiKey: key.trim() }),
       setOpenAIModel: (model) => set({ openaiModel: model }),
       setChatSummary: (summary) => set({ chatSummary: summary }),
+      setChatReferencedTradeId: (id) => set({ chatReferencedTradeId: id }),
       toggleTradeColumn: (id) => {
         const current = get().visibleTradeColumns;
         if (current.includes(id)) {
@@ -96,11 +101,17 @@ export const useTradingStore = create<Store>()(
       deleteTrade: (id) =>
         set({
           trades: get().trades.filter((t) => t.id !== id),
+          chatReferencedTradeId:
+            get().chatReferencedTradeId === id
+              ? null
+              : get().chatReferencedTradeId,
         }),
       deleteTrades: (ids) => {
         const remove = new Set(ids);
+        const ref = get().chatReferencedTradeId;
         set({
           trades: get().trades.filter((t) => !remove.has(t.id)),
+          chatReferencedTradeId: ref && remove.has(ref) ? null : ref,
         });
       },
       updateStrategy: (patch) =>
@@ -124,12 +135,14 @@ export const useTradingStore = create<Store>()(
               role: message.role,
               content: message.content,
               images: message.images,
+              files: message.files,
               charts: message.charts,
               createdAt: new Date().toISOString(),
             },
           ],
         }),
-      clearChat: () => set({ chat: [], chatSummary: "" }),
+      clearChat: () =>
+        set({ chat: [], chatSummary: "", chatReferencedTradeId: null }),
       resetDemoData: () =>
         set({
           trades: seedTrades,
