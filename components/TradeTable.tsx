@@ -130,20 +130,45 @@ function cellValue(trade: Trade, column: TradeColumnId) {
         "—"
       );
     case "tags":
-      return trade.tags?.length ? (
-        <span className="trade-tag-row">
-          {trade.tags.map((tag) => (
-            <span className="trade-tag" key={tag}>
-              {tag}
-            </span>
-          ))}
-        </span>
-      ) : (
-        "—"
-      );
+      return <ClampedTags tags={trade.tags} />;
     case "notes":
-      return <span className="notes">{trade.notes ?? "—"}</span>;
+      return <ClampedNotes notes={trade.notes} />;
   }
+}
+
+function ClampedNotes({ notes }: { notes?: string }) {
+  const text = notes?.trim();
+  if (!text) return <span className="notes notes--empty">—</span>;
+  return (
+    <span className="notes notes--clamp" title="Click row to read full notes">
+      {text}
+    </span>
+  );
+}
+
+function ClampedTags({ tags }: { tags?: string[] }) {
+  if (!tags?.length) return <span className="trade-tag-row trade-tag-row--empty">—</span>;
+  const visible = tags.slice(0, 2);
+  const overflow = tags.length - visible.length;
+  return (
+    <span
+      className="trade-tag-row trade-tag-row--clamp"
+      title={
+        overflow > 0
+          ? `${tags.join(", ")} — click row for all tags`
+          : "Click row for details"
+      }
+    >
+      {visible.map((tag) => (
+        <span className="trade-tag" key={tag}>
+          {tag}
+        </span>
+      ))}
+      {overflow > 0 ? (
+        <span className="trade-tag trade-tag--more">+{overflow}</span>
+      ) : null}
+    </span>
+  );
 }
 
 /** Comparable value for sorting a column. null = missing (sorted last). */
@@ -284,7 +309,7 @@ export function TradeTable({ trades }: { trades: Trade[] }) {
     <div className="trade-log">
       <div className="trade-log__toolbar">
         <p className="trade-log__hint">
-          Click a column header to sort · click a row for details
+          Click a column header to sort · click a row for full notes, tags, and details
         </p>
         <div className="trade-log__column-wrap">
           <button

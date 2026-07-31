@@ -270,10 +270,10 @@ textarea {
 
 .trade-table th,
 .trade-table td {
-  padding: 0.85rem 0.95rem;
+  padding: 0.7rem 0.95rem;
   text-align: left;
   border-bottom: 1px solid var(--line);
-  vertical-align: top;
+  vertical-align: middle;
 }
 
 .trade-table th {
@@ -520,6 +520,19 @@ textarea {
   margin-top: 0.4rem;
 }
 
+.trade-tag-row--clamp {
+  flex-wrap: nowrap;
+  margin-top: 0;
+  max-width: 14rem;
+  overflow: hidden;
+  align-items: center;
+}
+
+.trade-tag-row--empty {
+  margin-top: 0;
+  color: var(--muted);
+}
+
 .trade-tag {
   display: inline-flex;
   align-items: center;
@@ -531,6 +544,21 @@ textarea {
   font-size: 0.75rem;
   font-family: var(--font-display);
   letter-spacing: -0.02em;
+}
+
+.trade-tag-row--clamp .trade-tag {
+  max-width: 7rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.trade-tag--more {
+  flex-shrink: 0;
+  max-width: none;
+  border-style: dashed;
+  background: transparent;
+  color: var(--muted);
 }
 
 .trade-detail__actions {
@@ -696,8 +724,19 @@ textarea {
 }
 
 .notes {
-  max-width: 18rem;
+  display: block;
+  max-width: 16rem;
   color: var(--ink-soft);
+}
+
+.notes--clamp {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.notes--empty {
+  color: var(--muted);
 }
 
 .strategy-stack {
