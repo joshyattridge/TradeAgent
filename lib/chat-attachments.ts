@@ -56,7 +56,6 @@ function extOf(name: string) {
 }
 
 function looksLikeText(bytes: Uint8Array) {
-  if (!bytes.length) return true;
   const sample = bytes.subarray(0, Math.min(bytes.length, 4096));
   let weird = 0;
   for (const b of sample) {
@@ -85,7 +84,6 @@ function mimeFor(file: File, fallback: string) {
   if (ext === ".tsv") return "text/tab-separated-values";
   if (ext === ".json") return "application/json";
   if (ext === ".md" || ext === ".markdown") return "text/markdown";
-  if (ext === ".pdf") return "application/pdf";
   if (ext === ".txt" || ext === ".log") return "text/plain";
   return fallback;
 }
@@ -97,7 +95,7 @@ async function fileToDataUrl(file: File): Promise<string> {
       if (typeof reader.result === "string") resolve(reader.result);
       else reject(new Error("Could not read file"));
     };
-    reader.onerror = () => reject(reader.error ?? new Error("Could not read file"));
+    reader.onerror = () => reject(reader.error || new Error("Could not read file"));
     reader.readAsDataURL(file);
   });
 }
@@ -268,7 +266,7 @@ export function buildUserContentParts(opts: {
     parts.push({
       type: "file",
       data: parsed.base64,
-      mediaType: file.mime || parsed.mime || "application/pdf",
+      mediaType: file.mime || parsed.mime,
       filename: file.name,
     });
   }

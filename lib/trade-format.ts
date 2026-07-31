@@ -2,12 +2,12 @@ import { differenceInMinutes, format, isValid, parseISO } from "date-fns";
 import type { Trade } from "./types";
 
 function padTimePart(time: string): string {
-  const [h, m, s] = time.split(":");
-  const hh = (h ?? "0").padStart(2, "0");
-  const mm = (m ?? "00").padStart(2, "0");
-  if (s == null) return `${hh}:${mm}:00`;
-  const [sec, frac] = s.split(".");
-  const ss = (sec ?? "00").padStart(2, "0");
+  const segments = time.split(":");
+  const hh = segments[0]!.padStart(2, "0");
+  const mm = segments[1]!.padStart(2, "0");
+  if (segments.length < 3) return `${hh}:${mm}:00`;
+  const [sec, frac] = segments[2]!.split(".");
+  const ss = sec.padStart(2, "0");
   return frac != null ? `${hh}:${mm}:${ss}.${frac}` : `${hh}:${mm}:${ss}`;
 }
 

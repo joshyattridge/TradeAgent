@@ -44,14 +44,12 @@ function stripScreenshots(trade: Trade): Trade {
   return next;
 }
 
-function mergeTags(existing: string[] | undefined, incoming?: string[]) {
-  if (!incoming?.length) return existing;
+function mergeTags(existing: string[] | undefined, incoming: string[]) {
   return [...new Set([...(existing ?? []), ...incoming.map((t) => t.trim()).filter(Boolean)])];
 }
 
-function removeTags(existing: string[] | undefined, toRemove?: string[]) {
+function removeTags(existing: string[] | undefined, toRemove: string[]) {
   if (!existing?.length) return existing;
-  if (!toRemove?.length) return existing;
   const drop = new Set(toRemove.map((t) => t.trim().toLowerCase()).filter(Boolean));
   const next = existing.filter((t) => !drop.has(t.toLowerCase()));
   return next.length ? next : undefined;
@@ -65,19 +63,15 @@ function withNormalizedTimes<T extends { entryTime?: string; exitTime?: string; 
   const date = fields.date ?? fallbackDate;
   const next = { ...fields };
   if (typeof fields.entryTime === "string") {
-    const normalized = normalizeTradeDateTime(fields.entryTime, date);
-    if (normalized !== undefined) next.entryTime = normalized;
+    next.entryTime = normalizeTradeDateTime(fields.entryTime, date) as string;
   }
   if (typeof fields.exitTime === "string") {
-    const normalized = normalizeTradeDateTime(fields.exitTime, date);
-    if (normalized !== undefined) next.exitTime = normalized;
+    next.exitTime = normalizeTradeDateTime(fields.exitTime, date) as string;
   }
   return next;
 }
 
-function appendNotes(existing: string | undefined, append?: string, replace?: string) {
-  if (replace !== undefined) return replace;
-  if (!append) return existing;
+function appendNotes(existing: string | undefined, append: string) {
   if (!existing?.trim()) return append;
   return `${existing.trim()}\n${append.trim()}`;
 }
@@ -97,8 +91,7 @@ function mergeDefined<T extends Record<string, unknown>>(
 }
 
 function symbolsMatch(a?: string | null, b?: string | null) {
-  if (!a || !b) return false;
-  return normalizeSymbol(a) === normalizeSymbol(b);
+  return Boolean(a && b && normalizeSymbol(a) === normalizeSymbol(b));
 }
 
 /** Newest-first matches for a symbol in the working journal. */
@@ -133,13 +126,9 @@ function scoreTradeAgainstHints(trade: Trade, hints: TradeHints, newestIndex: nu
   let score = 0;
   const reasons: string[] = [];
 
-  if (hints.symbol) {
-    if (symbolsMatch(trade.symbol, hints.symbol)) {
-      score += 40;
-      reasons.push("symbol");
-    } else {
-      return { score: -1000, reasons: ["symbol mismatch"] };
-    }
+  if (hints.symbol && symbolsMatch(trade.symbol, hints.symbol)) {
+    score += 40;
+    reasons.push("symbol");
   }
 
   if (hints.side && trade.side === hints.side) {
@@ -244,7 +233,7 @@ function rankTradesByHints(trades: Trade[], hints: TradeHints, limit = 8) {
   const confident =
     Boolean(best) &&
     best.score >= 50 &&
-    (!second || best.score - second.score >= 12 || ranked.length === 1);
+    (!second || best.score - second.score >= 12);
 
   return {
     ranked,
@@ -708,13 +697,16 @@ export class JournalSession {
     return {
       ok: true as const,
       action: "generate_charts",
-      charts: built.map((c) => ({
-        id: c.id,
-        title: c.title,
-        type: c.type,
-        pointCount: c.data?.length ?? 0,
-        samplePoints: (c.data ?? []).slice(0, 5),
-      })),
+      charts: built.map((c) => {
+        const data = c.data!;
+        return {
+          id: c.id,
+          title: c.title,
+          type: c.type,
+          pointCount: data.length,
+          samplePoints: data.slice(0, 5),
+        };
+      }),
       tradeCountUsed: this.trades.length,
     };
   }

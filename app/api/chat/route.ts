@@ -82,11 +82,10 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  // Empty message is only allowed when attachments/images are present (guard above).
   const userText =
     message?.trim() ||
-    (hasAttachments
-      ? "Review the attached file(s) / image(s) in the context of my trading journal and strategy."
-      : "Review this chart / image against my strategy. Tell me what fits, what doesn't, and what's missing.");
+    "Review the attached file(s) / image(s) in the context of my trading journal and strategy.";
 
   // Full journal — keep trade screenshots; no stripping for token savings
   const tradeList = Array.isArray(trades) ? trades : [];

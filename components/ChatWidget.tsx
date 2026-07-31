@@ -146,7 +146,6 @@ export function ChatWidget() {
 
   async function addFiles(files: FileList | File[]) {
     const list = [...files];
-    if (!list.length) return;
 
     const room = MAX_CHAT_ATTACHMENTS - pendingAttachments.length;
     if (room <= 0) {
@@ -305,18 +304,11 @@ export function ChatWidget() {
     const refPrefix = refTrade ? buildReferencedTradePrefix(refTrade) : "";
     const bodyText =
       text ||
-      (refTrade
-        ? "Regarding this trade."
-        : attachments.length
-          ? "Review the attached file(s)."
-          : "");
+      (refTrade ? "Regarding this trade." : "Review the attached file(s).");
     const displayText = refTrade
       ? `Referenced: ${tradeRefLabel(refTrade)}\n${bodyText}`
       : bodyText;
-    const apiMessage = refPrefix
-      ? `${refPrefix}\n${bodyText}`
-      : bodyText ||
-        "Review the attached file(s) / image(s) in the context of my trading journal and strategy.";
+    const apiMessage = refPrefix ? `${refPrefix}\n${bodyText}` : bodyText;
 
     setInput("");
     setPendingAttachments([]);
@@ -386,13 +378,14 @@ export function ChatWidget() {
       const decoder = new TextDecoder();
       let buffer = "";
       let finished = false;
+      let accumulatedText = "";
 
       while (!finished) {
         const { done, value } = await reader.read();
         if (done) break;
         buffer += decoder.decode(value, { stream: true });
         const lines = buffer.split("\n");
-        buffer = lines.pop() ?? "";
+        buffer = lines.pop() || "";
 
         for (const line of lines) {
           const trimmed = line.trim();
@@ -419,6 +412,7 @@ export function ChatWidget() {
           if (event.type === "status" && event.message) {
             setStatusMessage(event.message);
           } else if (event.type === "text-delta" && event.text) {
+            accumulatedText += event.text;
             setStreamingText((prev) => prev + event.text!);
           } else if (
             event.type === "tool-start" &&
@@ -488,10 +482,10 @@ export function ChatWidget() {
         }
       }
 
-      if (!finished && streamingText.trim()) {
+      if (!finished && accumulatedText.trim()) {
         addChatMessage({
           role: "assistant",
-          content: streamingText.trim(),
+          content: accumulatedText.trim(),
         });
       }
     } catch {

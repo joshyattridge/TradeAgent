@@ -114,7 +114,7 @@ function toolResultDetail(output: unknown): { ok: boolean; detail?: string } {
     const t = obj.trade as { id?: string; symbol?: string };
     return {
       ok,
-      detail: t.symbol ? `${t.symbol} (${t.id})` : `${t.id ?? ""}`,
+      detail: t.symbol ? `${t.symbol} (${t.id})` : String(t.id ?? ""),
     };
   }
   if (obj.action === "delete_trade" && Array.isArray(obj.deletedIds)) {
@@ -129,13 +129,9 @@ function toolResultDetail(output: unknown): { ok: boolean; detail?: string } {
   if (obj.action === "get_stats" && obj.stats && typeof obj.stats === "object") {
     const s = obj.stats as { closedCount?: number; winRate?: number };
     if (typeof s.winRate === "number") {
-      const wr =
-        typeof s.winRate.toFixed === "function"
-          ? s.winRate.toFixed(0)
-          : String(s.winRate);
       return {
         ok,
-        detail: `${s.closedCount ?? "?"} closed, ${wr}% WR`,
+        detail: `${s.closedCount ?? "?"} closed, ${s.winRate.toFixed(0)}% WR`,
       };
     }
   }
@@ -153,10 +149,10 @@ function toolResultDetail(output: unknown): { ok: boolean; detail?: string } {
   }
   if (obj.action === "get_trade") {
     const t = obj.trade as { symbol?: string; id?: string } | undefined;
-    return {
-      ok,
-      detail: t?.symbol ? `${t.symbol} (${t.id})` : typeof obj.id === "string" ? obj.id : undefined,
-    };
+    if (t?.symbol) return { ok, detail: `${t.symbol} (${t.id})` };
+    if (typeof obj.id === "string") return { ok, detail: obj.id };
+    if (typeof t?.id === "string") return { ok, detail: t.id };
+    return { ok };
   }
   if (obj.action === "find_trade") {
     if (typeof obj.bestMatchId === "string") {
@@ -440,10 +436,7 @@ export async function* streamAgentLoop(opts: {
     ? { role: "user", content: contentParts }
     : {
         role: "user",
-        content:
-          contentParts[0]?.type === "text"
-            ? contentParts[0].text
-            : opts.userText,
+        content: (contentParts[0] as { type: "text"; text: string }).text,
       };
 
   yield { type: "status", message: "Thinking…" };
@@ -565,16 +558,16 @@ export async function* streamAgentLoop(opts: {
           detail: err,
         };
       } else if (part.type === "text-delta") {
+        const raw = part as { text?: unknown; delta?: unknown };
         const delta =
-          "text" in part && typeof part.text === "string"
-            ? part.text
-            : "delta" in part && typeof (part as { delta?: string }).delta === "string"
-              ? (part as { delta: string }).delta
+          typeof raw.text === "string"
+            ? raw.text
+            : typeof raw.delta === "string"
+              ? raw.delta
               : "";
-        if (delta) {
-          streamedText += delta;
-          yield { type: "text-delta", text: delta };
-        }
+        streamedText += delta;
+        if (!delta) continue;
+        yield { type: "text-delta", text: delta };
       } else if (part.type === "error") {
         const message =
           part.error instanceof Error
@@ -586,6 +579,7 @@ export async function* streamAgentLoop(opts: {
         };
         return;
       }
+      // Ignore other stream part types (finish, step-*, etc.)
     }
   } catch (error) {
     const message =
@@ -631,11 +625,11 @@ export async function* streamAgentLoop(opts: {
       "Which trade should I update? Name the symbol (and date/result if there are several).";
   }
 
-  agentMessages = ensureFinalAssistantText(agentMessages, reply || "Done.");
+  agentMessages = ensureFinalAssistantText(agentMessages, reply);
 
   yield {
     type: "done",
-    reply: reply || "Done.",
+    reply,
     actions: session.toActions(),
     steps,
     reattachedScreenshotCount: reattached.length,

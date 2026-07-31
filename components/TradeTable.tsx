@@ -178,7 +178,7 @@ function ClampedTags({ tags }: { tags?: string[] }) {
 }
 
 /** Comparable value for sorting a column. null = missing (sorted last). */
-function sortValue(
+export function sortValue(
   trade: Trade,
   column: TradeColumnId,
 ): string | number | null {
@@ -230,7 +230,7 @@ function sortValue(
   }
 }
 
-function compareSortValues(
+export function compareSortValues(
   a: string | number | null,
   b: string | number | null,
   dir: SortDir,

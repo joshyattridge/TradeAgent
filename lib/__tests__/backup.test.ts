@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   BACKUP_FORMAT,
   BACKUP_VERSION,
+  backupFilename,
   buildJournalBackup,
   mergeTrades,
   parseJournalBackup,
@@ -109,5 +110,180 @@ describe("journal backup", () => {
     expect(merged[0].notes).toBe("updated");
     expect(merged[0].rMultiple).toBe(2);
     expect(merged[2].symbol).toBe("XAUUSD");
+  });
+
+  it("builds backup filenames", () => {
+    expect(backupFilename()).toMatch(/^tradeagent-backup-/);
+  });
+
+  it("rejects wrong version and invalid strategy / exportedAt", () => {
+    const base = buildJournalBackup([sampleTrade()], seedStrategy);
+    expect(
+      parseJournalBackup({ ...base, version: 999 }).ok,
+    ).toBe(false);
+    expect(
+      parseJournalBackup({ ...base, exportedAt: 123 }).ok,
+    ).toBe(false);
+    expect(
+      parseJournalBackup({ ...base, strategy: null }).ok,
+    ).toBe(false);
+    expect(
+      parseJournalBackup({ ...base, strategy: { name: 1 } }).ok,
+    ).toBe(false);
+    expect(
+      parseJournalBackup({ ...base, trades: "nope" }).ok,
+    ).toBe(false);
+  });
+
+  it("rejects non-object backup root", () => {
+    expect(parseJournalBackup(42).ok).toBe(false);
+    if (parseJournalBackup(42).ok) return;
+    expect(parseJournalBackup(42).error).toMatch(/JSON object/i);
+
+    expect(parseJournalBackup([]).ok).toBe(false);
+    if (parseJournalBackup([]).ok) return;
+    expect(parseJournalBackup([]).error).toMatch(/JSON object/i);
+  });
+
+  it("rejects trade that is not an object", () => {
+    const base = buildJournalBackup([sampleTrade()], seedStrategy);
+    const parsed = parseJournalBackup({ ...base, trades: ["not-an-object"] });
+    expect(parsed.ok).toBe(false);
+    if (parsed.ok) return;
+    expect(parsed.error).toMatch(/Trade 1 must be an object/i);
+  });
+
+  it("rejects invalid required number fields", () => {
+    const cases: Array<[Partial<Trade>, RegExp]> = [
+      [{ entry: NaN }, /invalid entry/i],
+      [{ stop: "bad" as unknown as number }, /invalid stop/i],
+      [{ target: Infinity }, /invalid target/i],
+      [{ rMultiple: "bad" as unknown as number }, /invalid rMultiple/i],
+      [{ exit: "bad" as unknown as number }, /invalid exit/i],
+    ];
+    for (const [patch, pattern] of cases) {
+      const base = buildJournalBackup([sampleTrade()], seedStrategy);
+      const parsed = parseJournalBackup({
+        ...base,
+        trades: [{ ...sampleTrade(), ...patch }],
+      });
+      expect(parsed.ok, JSON.stringify(patch)).toBe(false);
+      if (parsed.ok) continue;
+      expect(parsed.error).toMatch(pattern);
+    }
+  });
+
+  it("rejects trades missing required string fields", () => {
+    const cases: Array<[Partial<Trade> & Record<string, unknown>, RegExp]> = [
+      [{ id: "" }, /missing a valid id/i],
+      [{ date: "" }, /missing a date/i],
+      [{ symbol: "" }, /missing a symbol/i],
+      [{ setup: 123 }, /missing a setup/i],
+      [{ result: "unknown" as Trade["result"] }, /invalid result/i],
+    ];
+    for (const [patch, pattern] of cases) {
+      const base = buildJournalBackup([sampleTrade()], seedStrategy);
+      const parsed = parseJournalBackup({
+        ...base,
+        trades: [{ ...sampleTrade(), ...patch }],
+      });
+      expect(parsed.ok, JSON.stringify(patch)).toBe(false);
+      if (parsed.ok) continue;
+      expect(parsed.error).toMatch(pattern);
+    }
+  });
+
+  it("rejects invalid optional trade fields one-by-one", () => {
+    const cases: Array<[Partial<Trade>, RegExp]> = [
+      [{ entryTime: 123 as unknown as string }, /invalid entryTime/i],
+      [{ exitTime: 123 as unknown as string }, /invalid exitTime/i],
+      [{ slPips: "bad" as unknown as number }, /invalid slPips/i],
+      [{ tpPips: "bad" as unknown as number }, /invalid tpPips/i],
+      [{ timeInTradeMinutes: "bad" as unknown as number }, /invalid timeInTradeMinutes/i],
+      [{ pnlUsd: "bad" as unknown as number }, /invalid pnlUsd/i],
+      [{ riskUsd: "bad" as unknown as number }, /invalid riskUsd/i],
+      [{ size: 123 as unknown as string }, /invalid size/i],
+      [{ feesUsd: "bad" as unknown as number }, /invalid feesUsd/i],
+      [{ notes: 123 as unknown as string }, /invalid notes/i],
+      [{ session: 123 as unknown as string }, /invalid session/i],
+      [{ tags: [1] as unknown as string[] }, /invalid tags/i],
+      [{ screenshots: ["ok", 2] as unknown as string[] }, /invalid screenshots/i],
+    ];
+    for (const [patch, pattern] of cases) {
+      const base = buildJournalBackup([sampleTrade()], seedStrategy);
+      const parsed = parseJournalBackup({
+        ...base,
+        trades: [{ ...sampleTrade(), ...patch }],
+      });
+      expect(parsed.ok, JSON.stringify(patch)).toBe(false);
+      if (parsed.ok) continue;
+      expect(parsed.error).toMatch(pattern);
+    }
+  });
+
+  it("strips legacy chartExtract on import", () => {
+    const base = buildJournalBackup([sampleTrade()], seedStrategy);
+    const withLegacy = {
+      ...base,
+      trades: [
+        {
+          ...sampleTrade(),
+          chartExtract: { foo: "bar" },
+        },
+      ],
+    };
+    const parsed = parseJournalBackup(JSON.stringify(withLegacy));
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    expect(parsed.backup.trades[0]).toEqual(sampleTrade());
+    expect(parsed.backup.trades[0]).not.toHaveProperty("chartExtract");
+  });
+
+  it("rejects markdown strategy missing updatedAt", () => {
+    const base = buildJournalBackup([sampleTrade()], seedStrategy);
+    const parsed = parseJournalBackup({
+      ...base,
+      strategy: { markdown: "# Plan\n", name: "Plan" },
+    });
+    expect(parsed.ok).toBe(false);
+    if (parsed.ok) return;
+    expect(parsed.error).toMatch(/updatedAt/i);
+  });
+
+  it("defaults markdown strategy name when missing or blank", () => {
+    const base = buildJournalBackup([sampleTrade()], seedStrategy);
+    for (const strategy of [
+      { markdown: "# Plan\n", updatedAt: "2026-07-01T00:00:00.000Z" },
+      { markdown: "# Plan\n", name: "  ", updatedAt: "2026-07-01T00:00:00.000Z" },
+    ]) {
+      const parsed = parseJournalBackup({ ...base, strategy });
+      expect(parsed.ok).toBe(true);
+      if (!parsed.ok) continue;
+      expect(parsed.backup.strategy.name).toBe("Trading strategy");
+    }
+  });
+
+  it("rejects legacy strategy missing array fields", () => {
+    const base = buildJournalBackup([sampleTrade()], seedStrategy);
+    const legacy = {
+      name: "Legacy",
+      summary: "s",
+      edge: "e",
+      approach: "a",
+      updatedAt: "2026-07-01T00:00:00.000Z",
+      timeframes: [{ role: "Bias", tf: "Daily", job: "Direction" }],
+      rules: [{ title: "Bias", body: "Need BOS" }],
+      risk: [{ title: "Risk", body: "1R max" }],
+      targets: [{ metric: "Win rate", value: "50%" }],
+    };
+    for (const key of ["timeframes", "rules", "risk", "targets"] as const) {
+      const parsed = parseJournalBackup({
+        ...base,
+        strategy: { ...legacy, [key]: "not-an-array" },
+      });
+      expect(parsed.ok, key).toBe(false);
+      if (parsed.ok) continue;
+      expect(parsed.error).toMatch(new RegExp(`Strategy\\.${key}`, "i"));
+    }
   });
 });

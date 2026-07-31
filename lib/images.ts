@@ -21,13 +21,6 @@ export async function fileToChatImage(
   ctx.drawImage(bitmap, 0, 0, width, height);
   bitmap.close();
 
-  // Prefer JPEG for photos/charts; keep PNG for transparency-heavy assets
-  const mime =
-    file.type === "image/png" || file.type === "image/webp"
-      ? "image/jpeg"
-      : file.type.startsWith("image/")
-        ? "image/jpeg"
-        : "image/jpeg";
-
-  return canvas.toDataURL(mime, quality);
+  // Compress uploaded chat images to JPEG for vision payloads
+  return canvas.toDataURL("image/jpeg", quality);
 }

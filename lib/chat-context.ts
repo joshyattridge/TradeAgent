@@ -218,7 +218,6 @@ function scoreTrade(
   if (opts.wantsOpen && trade.result === "open") score += 20;
 
   for (const token of opts.queryTokens) {
-    if (token.length < 3) continue;
     if (hay.includes(token) || trade.id.toLowerCase().includes(token)) {
       score += 6;
     }

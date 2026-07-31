@@ -37,10 +37,10 @@ function normalizeTradeTimes<T extends Partial<Trade>>(
   const date = patch.date ?? fallbackDate;
   const next = { ...patch };
   if (typeof patch.entryTime === "string" && patch.entryTime.trim()) {
-    next.entryTime = normalizeTradeDateTime(patch.entryTime, date) ?? patch.entryTime;
+    next.entryTime = normalizeTradeDateTime(patch.entryTime, date)!;
   }
   if (typeof patch.exitTime === "string" && patch.exitTime.trim()) {
-    next.exitTime = normalizeTradeDateTime(patch.exitTime, date) ?? patch.exitTime;
+    next.exitTime = normalizeTradeDateTime(patch.exitTime, date)!;
   }
   return next;
 }
@@ -138,14 +138,14 @@ const migratingStorage = {
           };
           version?: number;
         };
-        if (parsed?.state?.trades) {
+        if (parsed?.state?.trades?.length) {
           parsed.state.trades = parsed.state.trades.map((t) => {
             const next = { ...t };
             delete next.screenshots;
             return next;
           });
         }
-        if (parsed?.state?.chat) {
+        if (parsed?.state?.chat?.length) {
           parsed.state.chat = persistableChat(parsed.state.chat).map(
             ({ charts: _c, ...rest }) => rest,
           );

@@ -25,7 +25,6 @@ export default function StrategyPage() {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(strategy.markdown);
   const [dirty, setDirty] = useState(false);
-  const [saving, setSaving] = useState(false);
   const [imageError, setImageError] = useState<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -61,7 +60,6 @@ export default function StrategyPage() {
   }
 
   function save() {
-    setSaving(true);
     const markdown = draft;
     replaceStrategy({
       name: strategyNameFromMarkdown(markdown, strategy.name),
@@ -69,7 +67,6 @@ export default function StrategyPage() {
       updatedAt: new Date().toISOString(),
     });
     setDirty(false);
-    setSaving(false);
     setEditing(false);
   }
 
@@ -89,9 +86,8 @@ export default function StrategyPage() {
       onDraftChange(next.markdown);
       requestAnimationFrame(() => {
         const ta = textareaRef.current;
-        if (!ta) return;
-        ta.focus();
-        ta.setSelectionRange(next.cursor, next.cursor);
+        ta?.focus();
+        ta?.setSelectionRange(next.cursor, next.cursor);
       });
     } catch (err) {
       setImageError(err instanceof Error ? err.message : "Could not add image");
@@ -139,9 +135,9 @@ export default function StrategyPage() {
                 type="button"
                 className="primary-btn"
                 onClick={save}
-                disabled={!dirty || saving}
+                disabled={!dirty}
               >
-                {saving ? "Saving…" : "Save"}
+                Save
               </button>
             </>
           ) : (

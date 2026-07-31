@@ -245,8 +245,7 @@ export function expandHistoryToModelMessages(
           ? { role: "user", content: parts }
           : {
               role: "user",
-              content:
-                parts[0]?.type === "text" ? parts[0].text : m.content || "",
+              content: (parts[0] as { type: "text"; text: string }).text,
             },
       );
       continue;

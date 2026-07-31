@@ -1,8 +1,9 @@
 import "fake-indexeddb/auto";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   buildChatProposal,
   chartOnlyActions,
+  formatTradeFieldValue,
   gatedActionsSlice,
   hasGatedJournalWrites,
   lineDiff,
@@ -41,8 +42,64 @@ const emptyChart: ChartSpec = {
   data: [{ label: "Jul 1", value: 1 }],
 };
 
+describe("formatTradeFieldValue", () => {
+  it("formats null, empty, tags, screenshots, times, money, and numbers", () => {
+    const base = sampleTrade();
+    expect(formatTradeFieldValue(base, "notes")).toBe("Clean");
+    expect(formatTradeFieldValue({ ...base, notes: undefined }, "notes")).toBe("—");
+    expect(formatTradeFieldValue({ ...base, notes: "" }, "notes")).toBe("—");
+
+    expect(formatTradeFieldValue({ ...base, tags: [] }, "tags")).toBe("—");
+    expect(formatTradeFieldValue({ ...base, tags: ["A+", "London"] }, "tags")).toBe(
+      "A+, London",
+    );
+
+    expect(
+      formatTradeFieldValue({ ...base, screenshots: undefined }, "screenshots"),
+    ).toBe("—");
+    expect(formatTradeFieldValue({ ...base, screenshots: [] }, "screenshots")).toBe(
+      "—",
+    );
+    expect(
+      formatTradeFieldValue({ ...base, screenshots: ["data:image/jpeg;base64,a"] }, "screenshots"),
+    ).toBe("1 image");
+    expect(
+      formatTradeFieldValue(
+        { ...base, screenshots: ["data:image/jpeg;base64,a", "data:image/jpeg;base64,b"] },
+        "screenshots",
+      ),
+    ).toBe("2 images");
+
+    expect(
+      formatTradeFieldValue(
+        { ...base, entryTime: "2026-07-30T15:46:09" },
+        "entryTime",
+      ),
+    ).toMatch(/Jul 30, 2026 15:46:09/);
+    expect(
+      formatTradeFieldValue(
+        { ...base, exitTime: "2026-07-30T16:10:00" },
+        "exitTime",
+      ),
+    ).toMatch(/Jul 30, 2026 16:10:00/);
+
+    expect(formatTradeFieldValue({ ...base, rMultiple: 1.5 }, "rMultiple")).toBe("+1.50R");
+    expect(formatTradeFieldValue({ ...base, rMultiple: -0.75 }, "rMultiple")).toBe("-0.75R");
+
+    expect(formatTradeFieldValue({ ...base, pnlUsd: 210.5 }, "pnlUsd")).toBe("+$210.50");
+    expect(formatTradeFieldValue({ ...base, pnlUsd: -50 }, "pnlUsd")).toBe("$-50.00");
+    expect(formatTradeFieldValue({ ...base, riskUsd: 100 }, "riskUsd")).toBe("$100.00");
+    expect(formatTradeFieldValue({ ...base, feesUsd: 2.25 }, "feesUsd")).toBe("$2.25");
+
+    expect(formatTradeFieldValue({ ...base, slPips: 29.3 }, "slPips")).toBe("29.3");
+    expect(formatTradeFieldValue({ ...base, side: "long" }, "side")).toBe("long");
+  });
+});
+
 describe("chat proposals", () => {
   it("detects gated journal writes vs charts-only", () => {
+    expect(hasGatedJournalWrites(null)).toBe(false);
+    expect(hasGatedJournalWrites(undefined)).toBe(false);
     expect(hasGatedJournalWrites({})).toBe(false);
     expect(hasGatedJournalWrites({ charts: [emptyChart] })).toBe(false);
     expect(hasGatedJournalWrites({ addTrade: sampleTrade() })).toBe(true);
@@ -63,13 +120,15 @@ describe("chat proposals", () => {
   it("splits chart-only vs gated slices", () => {
     const actions = {
       addTrade: sampleTrade({ id: "new-1" }),
+      addTrades: [sampleTrade({ id: "new-2" })],
       charts: [emptyChart],
       updateStrategy: { markdown: "# Hi\n" },
     };
     expect(chartOnlyActions(actions)).toEqual({ charts: [emptyChart] });
     const gated = gatedActionsSlice(actions, ["data:image/jpeg;base64,xx"]);
     expect(gated.charts).toBeUndefined();
-    expect(gated.addTrade?.symbol).toBe("EURUSD");
+    expect(gated.addTrades).toHaveLength(1);
+    expect(gated.addTrade).toBeUndefined();
     expect(gated.updateStrategy?.markdown).toContain("# Hi");
     expect(gated.screenshots).toEqual(["data:image/jpeg;base64,xx"]);
   });
@@ -99,6 +158,19 @@ describe("chat proposals", () => {
     expect(planned.chartActions.charts).toHaveLength(1);
   });
 
+  it("planChatDone handles missing actions", () => {
+    expect(planChatDone({ actions: null, trades: [], strategy: seedStrategy })).toEqual({
+      chartActions: {},
+      proposal: null,
+    });
+    expect(
+      planChatDone({ actions: undefined, trades: [], strategy: seedStrategy }),
+    ).toEqual({
+      chartActions: {},
+      proposal: null,
+    });
+  });
+
   it("builds a new-trade proposal with screenshots", () => {
     const trade = sampleTrade({
       id: "new-1",
@@ -118,6 +190,19 @@ describe("chat proposals", () => {
       ]);
     }
     expect(proposal?.actions.screenshots).toEqual(["data:image/jpeg;base64,abc"]);
+  });
+
+  it("generates proposed id when add trade omits id", () => {
+    const { id: _id, ...withoutId } = sampleTrade({ id: "drop-me" });
+    const proposal = buildChatProposal({
+      actions: { addTrade: withoutId },
+      trades: [],
+      strategy: seedStrategy,
+    });
+    expect(proposal?.changes[0].kind).toBe("add");
+    if (proposal?.changes[0].kind === "add") {
+      expect(proposal.changes[0].trade.id).toMatch(/^proposed-/);
+    }
   });
 
   it("builds update before/after with changed keys only", () => {
@@ -184,9 +269,56 @@ describe("chat proposals", () => {
     expect(proposal?.summary).toMatch(/strategy/i);
   });
 
+  it("uses plural summary labels for multi-add/update/delete proposals", () => {
+    const trades = [
+      sampleTrade({ id: "a" }),
+      sampleTrade({ id: "b", symbol: "GBPUSD" }),
+      sampleTrade({ id: "c", symbol: "XAUUSD" }),
+      sampleTrade({ id: "d", symbol: "NAS100" }),
+    ];
+    const proposal = buildChatProposal({
+      actions: {
+        addTrades: [
+          sampleTrade({ id: "n1" }),
+          sampleTrade({ id: "n2", symbol: "NAS100" }),
+        ],
+        updateTrades: [
+          { id: "a", rMultiple: 2 },
+          { id: "b", notes: "patched" },
+        ],
+        deleteTradeIds: ["c", "d"],
+      },
+      trades,
+      strategy: seedStrategy,
+    });
+    expect(proposal?.summary).toBe("2 new trades · 2 updates · 2 deletes");
+  });
+
+  it("skips no-op strategy patch when markdown and name are unchanged", () => {
+    const proposal = buildChatProposal({
+      actions: {
+        updateStrategy: { updatedAt: seedStrategy.updatedAt },
+        updateTrade: { id: "t1", rMultiple: 2 },
+      },
+      trades: [sampleTrade()],
+      strategy: seedStrategy,
+    });
+    expect(proposal?.changes.map((c) => c.kind)).toEqual(["update"]);
+    expect(proposal?.summary).toMatch(/1 update$/);
+  });
+
   it("skips update when trade id is missing from journal", () => {
     const proposal = buildChatProposal({
       actions: { updateTrade: { id: "missing", rMultiple: 9 } },
+      trades: [sampleTrade()],
+      strategy: seedStrategy,
+    });
+    expect(proposal).toBeNull();
+  });
+
+  it("skips delete when trade id is missing from journal", () => {
+    const proposal = buildChatProposal({
+      actions: { deleteTradeIds: ["missing"] },
       trades: [sampleTrade()],
       strategy: seedStrategy,
     });
@@ -218,12 +350,87 @@ describe("chat proposals", () => {
       "a",
       "c",
     ]);
+
+    expect(lineDiff("a\nb\nc\nd", "a\nb")).toEqual([
+      { type: "same", text: "a" },
+      { type: "same", text: "b" },
+      { type: "remove", text: "c" },
+      { type: "remove", text: "d" },
+    ]);
+    expect(lineDiff("a\nb", "a\nb\nc\nd")).toEqual([
+      { type: "same", text: "a" },
+      { type: "same", text: "b" },
+      { type: "add", text: "c" },
+      { type: "add", text: "d" },
+    ]);
+    expect(lineDiff("a\r\nb", "a\nb")).toEqual([
+      { type: "same", text: "a" },
+      { type: "same", text: "b" },
+    ]);
   });
 
-  it("mergeTradePatch and changedTradeKeys ignore unchanged fields", () => {
-    const before = sampleTrade();
-    const after = mergeTradePatch(before, { rMultiple: 3 });
-    expect(changedTradeKeys(before, after)).toEqual(["rMultiple"]);
+  it("mergeTradePatch normalizes entry/exit times and skips undefined patch keys", () => {
+    const before = sampleTrade({ entryTime: undefined, exitTime: undefined });
+    const after = mergeTradePatch(before, {
+      rMultiple: 3,
+      entryTime: "15:46:09",
+      exitTime: "16:10:00",
+      notes: undefined,
+      date: null as unknown as string,
+    });
+    expect(after.rMultiple).toBe(3);
+    expect(after.entryTime).toBe(`${before.date}T15:46:09`);
+    expect(after.exitTime).toBe(`${before.date}T16:10:00`);
+    expect(after.notes).toBe("Clean");
+  });
+
+  it("mergeTradePatch keeps raw times when normalization returns undefined", async () => {
+    const tradeFormat = await import("@/lib/trade-format");
+    const normalizeSpy = vi
+      .spyOn(tradeFormat, "normalizeTradeDateTime")
+      .mockReturnValue(undefined);
+    const before = sampleTrade({ entryTime: undefined, exitTime: undefined });
+    const after = mergeTradePatch(before, {
+      entryTime: "15:46:09",
+      exitTime: "16:10:00",
+    });
+    expect(after.entryTime).toBe("15:46:09");
+    expect(after.exitTime).toBe("16:10:00");
+    normalizeSpy.mockRestore();
+  });
+
+  it("changedTradeKeys compares arrays, nulls, and mismatched types", () => {
+    const before = sampleTrade({ tags: ["A+"], notes: undefined });
+    expect(changedTradeKeys(before, { ...before, tags: ["A+"] })).toEqual([]);
+    expect(changedTradeKeys(before, { ...before, tags: ["B"] })).toEqual(["tags"]);
+    expect(changedTradeKeys(before, { ...before, notes: "New" })).toEqual(["notes"]);
+    expect(
+      changedTradeKeys(
+        { ...before, notes: null as unknown as undefined },
+        { ...before, notes: undefined },
+      ),
+    ).toEqual([]);
+    expect(
+      changedTradeKeys(
+        { ...before, slPips: 10 },
+        { ...before, slPips: "10" as unknown as number },
+      ),
+    ).toEqual(["slPips"]);
+
+    const circular: Record<string, unknown> = { self: null };
+    circular.self = circular;
+    expect(
+      changedTradeKeys(
+        { ...before, tags: circular as unknown as string[] },
+        { ...before, tags: circular as unknown as string[] },
+      ),
+    ).toEqual([]);
+    expect(
+      changedTradeKeys(
+        { ...before, tags: circular as unknown as string[] },
+        { ...before, tags: { also: circular } as unknown as string[] },
+      ),
+    ).toEqual(["tags"]);
   });
 
   it("simulates refine: newer proposal replaces older suggestion content", () => {
@@ -526,6 +733,17 @@ describe("pending proposal accept / reject store flow", () => {
     });
     expect(resolved.nextProposal).not.toBeNull();
     expect(resolved.clearPending).toBe(false);
+  });
+
+  it("resolvePendingProposalUpdate handles missing actions", () => {
+    const resolved = resolvePendingProposalUpdate({
+      actions: null,
+      trades: useTradingStore.getState().trades,
+      strategy: useTradingStore.getState().strategy,
+    });
+    expect(resolved.nextProposal).toBeNull();
+    expect(resolved.clearPending).toBe(false);
+    expect(resolved.chartActions).toEqual({});
   });
 
   it("refine omitting timestamps replaces pending with remaining field diffs only", () => {

@@ -124,10 +124,11 @@ export default function SettingsPage() {
     }
 
     importJournal(backup.trades, backup.strategy, importMode);
+    const tradeWord = backup.trades.length === 1 ? "trade" : "trades";
     setBackupStatus(
       importMode === "replace"
-        ? `Restored ${backup.trades.length} trade${backup.trades.length === 1 ? "" : "s"} and strategy.`
-        : `Merged ${backup.trades.length} trade${backup.trades.length === 1 ? "" : "s"} and updated strategy.`,
+        ? `Restored ${backup.trades.length} ${tradeWord} and strategy.`
+        : `Merged ${backup.trades.length} ${tradeWord} and updated strategy.`,
     );
     if (fileInputRef.current) fileInputRef.current.value = "";
   }

@@ -59,7 +59,7 @@ export function applyShortStrategyMarkdown(
       const after = current.slice(end).replace(/^\s*/, "\n\n");
       const markdown = `${before}${trimmed}${after}`.replace(/\n{3,}/g, "\n\n");
       return {
-        markdown: markdown.endsWith("\n") ? markdown : `${markdown}\n`,
+        markdown: `${markdown.replace(/\n+$/, "")}\n`,
         mode: `section replace (${title})`,
       };
     }

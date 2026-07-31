@@ -246,7 +246,7 @@ function summarize(changes: ProposalChange[]): string {
   if (updates) parts.push(`${updates} update${updates > 1 ? "s" : ""}`);
   if (deletes) parts.push(`${deletes} delete${deletes > 1 ? "s" : ""}`);
   if (strategy) parts.push("strategy edit");
-  return parts.join(" · ") || "Proposed changes";
+  return parts.join(" · ");
 }
 
 /**

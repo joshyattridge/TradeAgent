@@ -1,0 +1,5 @@
+#!/usr/bin/env sh
+set -e
+
+echo "Running unit tests with 100% coverage gate..."
+npm run test:coverage

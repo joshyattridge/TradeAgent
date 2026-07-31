@@ -29,7 +29,7 @@ function TradeFieldRows({
           const shots = trade.screenshots?.filter((s) => s && s !== "pending") ?? [];
           return (
             <div className="proposal-field" key={key}>
-              <span>{TRADE_FIELD_LABELS[key] ?? key}</span>
+              <span>Screenshots</span>
               <strong className={`proposal-field__value proposal-field__value--${mode}`}>
                 {shots.length ? (
                   <span className="proposal-shots">
