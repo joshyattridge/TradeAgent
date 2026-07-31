@@ -10,7 +10,7 @@ import {
   toAttachmentPayload,
   type ChatAttachment,
 } from "@/lib/chat-attachments";
-import { planChatDone } from "@/lib/chat-proposals";
+import { resolvePendingProposalUpdate } from "@/lib/chat-proposals";
 import type { ChatAgentMessage } from "@/lib/chat-history";
 import { countToolsInAgentMessages } from "@/lib/chat-history";
 import { applyChatActions, useTradingStore } from "@/lib/store";
@@ -250,7 +250,7 @@ export function ChatWidget() {
 
     if (rawActions) {
       const state = useTradingStore.getState();
-      const planned = planChatDone({
+      const resolved = resolvePendingProposalUpdate({
         actions: rawActions,
         trades: state.trades,
         strategy: state.strategy,
@@ -258,8 +258,8 @@ export function ChatWidget() {
       });
 
       // Charts apply immediately; journal writes need Accept/Reject.
-      if (planned.chartActions.charts?.length) {
-        const applied = applyChatActions(planned.chartActions);
+      if (resolved.chartActions.charts?.length) {
+        const applied = applyChatActions(resolved.chartActions);
         charts = applied.charts;
       }
 
@@ -269,8 +269,13 @@ export function ChatWidget() {
         );
       }
 
-      if (planned.proposal) {
-        setPendingProposal(planned.proposal);
+      if (resolved.nextProposal) {
+        // Always replace + reopen — refinements must not require Reject first.
+        setPendingProposal(resolved.nextProposal);
+      } else if (resolved.clearPending) {
+        // Mutation tools ran but nothing differs from the live journal
+        // (e.g. "ignore times" left nothing to change) — drop the stale panel.
+        setPendingProposal(null);
       }
     }
 

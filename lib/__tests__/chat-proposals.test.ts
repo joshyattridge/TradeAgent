@@ -10,6 +10,7 @@ import {
   mergeTradePatch,
   changedTradeKeys,
   planChatDone,
+  resolvePendingProposalUpdate,
 } from "@/lib/chat-proposals";
 import { seedStrategy } from "@/lib/seed-data";
 import { applyChatActions, useTradingStore } from "@/lib/store";
@@ -476,6 +477,113 @@ describe("pending proposal accept / reject store flow", () => {
 
     useTradingStore.getState().acceptPendingProposal();
     expect(useTradingStore.getState().trades[0].rMultiple).toBe(4);
+  });
+
+  it("replacing a proposal reopens the review panel after it was hidden", () => {
+    const first = buildChatProposal({
+      actions: { updateTrade: { id: "t1", rMultiple: 2 } },
+      trades: useTradingStore.getState().trades,
+      strategy: useTradingStore.getState().strategy,
+    });
+    useTradingStore.getState().setPendingProposal(first);
+    useTradingStore.getState().closeProposalReview();
+    expect(useTradingStore.getState().proposalReviewOpen).toBe(false);
+
+    const second = buildChatProposal({
+      actions: { updateTrade: { id: "t1", pnlUsd: 50 } },
+      trades: useTradingStore.getState().trades,
+      strategy: useTradingStore.getState().strategy,
+    });
+    useTradingStore.getState().setPendingProposal(second);
+    expect(useTradingStore.getState().proposalReviewOpen).toBe(true);
+    expect(useTradingStore.getState().pendingProposal?.id).toBe(second?.id);
+  });
+
+  it("resolvePendingProposalUpdate clears stale pending when tools ran but no diffs", () => {
+    const trades = useTradingStore.getState().trades;
+    const first = buildChatProposal({
+      actions: { updateTrade: { id: "t1", entryTime: "2026-07-30T15:46:09" } },
+      trades,
+      strategy: useTradingStore.getState().strategy,
+    });
+    useTradingStore.getState().setPendingProposal(first);
+
+    // Same rMultiple as live journal → no net change
+    const resolved = resolvePendingProposalUpdate({
+      actions: { updateTrade: { id: "t1", rMultiple: trades[0].rMultiple } },
+      trades,
+      strategy: useTradingStore.getState().strategy,
+    });
+    expect(resolved.nextProposal).toBeNull();
+    expect(resolved.clearPending).toBe(true);
+  });
+
+  it("resolvePendingProposalUpdate replaces with a new proposal when diffs exist", () => {
+    const resolved = resolvePendingProposalUpdate({
+      actions: { updateTrade: { id: "t1", rMultiple: 9 } },
+      trades: useTradingStore.getState().trades,
+      strategy: useTradingStore.getState().strategy,
+    });
+    expect(resolved.nextProposal).not.toBeNull();
+    expect(resolved.clearPending).toBe(false);
+  });
+
+  it("refine omitting timestamps replaces pending with remaining field diffs only", () => {
+    const trades = [
+      sampleTrade({
+        id: "t1",
+        entryTime: "2026-07-30T15:46:09",
+        exitTime: "2026-07-30T16:10:00",
+        rMultiple: 1.95,
+        slPips: 29.3,
+      }),
+    ];
+    useTradingStore.setState({ trades });
+
+    const withTimes = resolvePendingProposalUpdate({
+      actions: {
+        updateTrade: {
+          id: "t1",
+          entryTime: "2026-07-30T15:46:09Z",
+          exitTime: "2026-07-30T16:10:00Z",
+          rMultiple: 1.97,
+          slPips: 29.7,
+        },
+      },
+      trades,
+      strategy: useTradingStore.getState().strategy,
+    });
+    expect(withTimes.nextProposal).not.toBeNull();
+    useTradingStore.getState().setPendingProposal(withTimes.nextProposal);
+    useTradingStore.getState().closeProposalReview();
+
+    // User: "ignore entry/exit times" — only non-time fields remain
+    const refined = resolvePendingProposalUpdate({
+      actions: {
+        updateTrade: {
+          id: "t1",
+          rMultiple: 1.97,
+          slPips: 29.7,
+        },
+      },
+      trades,
+      strategy: useTradingStore.getState().strategy,
+    });
+    expect(refined.clearPending).toBe(false);
+    expect(refined.nextProposal).not.toBeNull();
+    const keys =
+      refined.nextProposal!.changes[0].kind === "update"
+        ? refined.nextProposal!.changes[0].changedKeys
+        : [];
+    expect(keys).toEqual(expect.arrayContaining(["rMultiple", "slPips"]));
+    expect(keys).not.toContain("entryTime");
+    expect(keys).not.toContain("exitTime");
+
+    useTradingStore.getState().setPendingProposal(refined.nextProposal);
+    expect(useTradingStore.getState().proposalReviewOpen).toBe(true);
+    expect(useTradingStore.getState().pendingProposal?.id).toBe(
+      refined.nextProposal?.id,
+    );
   });
 
   it("clearChat drops pending proposal", () => {

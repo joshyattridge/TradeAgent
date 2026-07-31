@@ -189,7 +189,9 @@ export const useTradingStore = create<Store>()(
       setPendingProposal: (proposal) =>
         set({
           pendingProposal: proposal,
-          proposalReviewOpen: Boolean(proposal),
+          // Always reopen when a proposal is set/replaced so refinements show
+          // even if the user had hidden the previous panel.
+          proposalReviewOpen: proposal != null,
         }),
       openProposalReview: () => {
         if (get().pendingProposal) set({ proposalReviewOpen: true });

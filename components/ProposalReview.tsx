@@ -189,13 +189,14 @@ export function ProposalReview() {
   useEffect(() => {
     if (!open || !proposal) return;
     function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") reject();
+      // Hide panel only — do not Reject. User may still refine via chat.
+      if (e.key === "Escape") close();
     }
     window.addEventListener("keydown", onKey);
     return () => {
       window.removeEventListener("keydown", onKey);
     };
-  }, [open, proposal, reject]);
+  }, [open, proposal, close]);
 
   if (!mounted || !proposal || !open) return null;
 
@@ -206,6 +207,7 @@ export function ProposalReview() {
       role="presentation"
     >
       <aside
+        key={proposal.id}
         className="proposal-panel"
         role="dialog"
         aria-modal="false"
@@ -228,10 +230,11 @@ export function ProposalReview() {
         </header>
 
         <div className="proposal-refine-banner" role="note">
-          <strong>Chat stays open</strong>
+          <strong>Just keep chatting</strong>
           <span>
-            Type below to tweak this suggestion (e.g. “make it 2R”) — then Accept
-            when it looks right.
+            Tell TradeAgent what to change (e.g. “ignore the times”, “make it
+            2R”) — the proposal updates automatically. Accept when it looks
+            right. No need to Reject first.
           </span>
         </div>
 

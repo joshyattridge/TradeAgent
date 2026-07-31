@@ -176,6 +176,35 @@ export function planChatDone(opts: {
   };
 }
 
+/**
+ * Decide how a chat turn should update the pending proposal panel.
+ * - New diffs → replace/open proposal
+ * - Mutation tools ran but no net diffs vs live journal → clear stale pending
+ *   (e.g. refine said "ignore times" and nothing else needs changing)
+ */
+export function resolvePendingProposalUpdate(opts: {
+  actions: ChatActionPayload | null | undefined;
+  trades: Trade[];
+  strategy: Strategy;
+  screenshots?: string[];
+}): {
+  chartActions: ChatActionPayload;
+  nextProposal: ChatProposal | null;
+  clearPending: boolean;
+} {
+  const planned = planChatDone(opts);
+  const gated = hasGatedJournalWrites(
+    opts.actions
+      ? gatedActionsSlice(opts.actions, opts.screenshots)
+      : null,
+  );
+  return {
+    chartActions: planned.chartActions,
+    nextProposal: planned.proposal,
+    clearPending: Boolean(gated && !planned.proposal),
+  };
+}
+
 /** Journal write slice + screenshots for the proposal Accept path. */
 export function gatedActionsSlice(
   actions: ChatActionPayload,
