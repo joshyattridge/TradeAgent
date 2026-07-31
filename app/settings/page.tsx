@@ -1,7 +1,14 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import {
+  backupFilename,
+  buildJournalBackup,
+  parseJournalBackup,
+  serializeJournalBackup,
+  type ImportMode,
+} from "@/lib/backup";
 import {
   CUSTOM_MODEL_OPTION,
   DEFAULT_OPENAI_MODEL,
@@ -16,14 +23,22 @@ export default function SettingsPage() {
   const hydrated = useTradingStore((s) => s.hydrated);
   const savedKey = useTradingStore((s) => s.openaiApiKey);
   const savedModel = useTradingStore((s) => s.openaiModel);
+  const trades = useTradingStore((s) => s.trades);
+  const strategy = useTradingStore((s) => s.strategy);
   const setOpenAIApiKey = useTradingStore((s) => s.setOpenAIApiKey);
   const setOpenAIModel = useTradingStore((s) => s.setOpenAIModel);
+  const importJournal = useTradingStore((s) => s.importJournal);
 
   const [apiKey, setApiKey] = useState("");
   const [selection, setSelection] = useState<string>(DEFAULT_OPENAI_MODEL);
   const [customModel, setCustomModel] = useState("");
   const [showKey, setShowKey] = useState(false);
   const [saved, setSaved] = useState(false);
+
+  const [importMode, setImportMode] = useState<ImportMode>("replace");
+  const [backupStatus, setBackupStatus] = useState<string | null>(null);
+  const [backupError, setBackupError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (!hydrated) return;
@@ -61,6 +76,60 @@ export default function SettingsPage() {
     setOpenAIApiKey("");
     setSaved(true);
     window.setTimeout(() => setSaved(false), 1800);
+  }
+
+  function onExportBackup() {
+    setBackupError(null);
+    const backup = buildJournalBackup(trades, strategy);
+    const blob = new Blob([serializeJournalBackup(backup)], {
+      type: "application/json",
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = backupFilename(new Date(backup.exportedAt));
+    a.click();
+    URL.revokeObjectURL(url);
+    setBackupStatus(
+      `Downloaded backup with ${trades.length} trade${trades.length === 1 ? "" : "s"} + strategy.`,
+    );
+  }
+
+  async function onImportFile(file: File) {
+    setBackupError(null);
+    setBackupStatus(null);
+
+    let text: string;
+    try {
+      text = await file.text();
+    } catch {
+      setBackupError("Could not read that file.");
+      return;
+    }
+
+    const parsed = parseJournalBackup(text);
+    if (!parsed.ok) {
+      setBackupError(parsed.error);
+      return;
+    }
+
+    const { backup } = parsed;
+    if (importMode === "replace") {
+      const ok = window.confirm(
+        `Replace your current journal with this backup?\n\n` +
+          `${backup.trades.length} trade${backup.trades.length === 1 ? "" : "s"} + strategy from ${backup.exportedAt.slice(0, 10)}.\n\n` +
+          `Your current trades and strategy will be overwritten. Chat and API key are unchanged.`,
+      );
+      if (!ok) return;
+    }
+
+    importJournal(backup.trades, backup.strategy, importMode);
+    setBackupStatus(
+      importMode === "replace"
+        ? `Restored ${backup.trades.length} trade${backup.trades.length === 1 ? "" : "s"} and strategy.`
+        : `Merged ${backup.trades.length} trade${backup.trades.length === 1 ? "" : "s"} and updated strategy.`,
+    );
+    if (fileInputRef.current) fileInputRef.current.value = "";
   }
 
   if (!hydrated) {
@@ -180,6 +249,60 @@ export default function SettingsPage() {
           <Link href="/">“show my equity curve”</Link>.
         </p>
       </form>
+
+      <section className="settings-form panel settings-backup">
+        <h2>Backup &amp; restore</h2>
+        <p>
+          Download your trades and strategy as a JSON file, or restore from a
+          previous backup. Chat history and your API key are not included.
+        </p>
+
+        <div className="settings-actions">
+          <button type="button" className="primary-btn" onClick={onExportBackup}>
+            Download backup
+          </button>
+          <span className="field__hint">
+            {trades.length} trade{trades.length === 1 ? "" : "s"} · {strategy.name}
+          </span>
+        </div>
+
+        <label className="field">
+          <span className="field__label">Import mode</span>
+          <select
+            value={importMode}
+            onChange={(e) => setImportMode(e.target.value as ImportMode)}
+          >
+            <option value="replace">Replace — overwrite current trades &amp; strategy</option>
+            <option value="merge">
+              Merge — keep existing trades; same IDs update; add new ones
+            </option>
+          </select>
+          <span className="field__hint">
+            Strategy is always taken from the backup on import. Screenshots
+            embedded in trades are included when present.
+          </span>
+        </label>
+
+        <div className="settings-actions">
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="application/json,.json"
+            className="sr-only"
+            id="backup-import"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) void onImportFile(file);
+            }}
+          />
+          <label htmlFor="backup-import" className="ghost-btn settings-file-btn">
+            Choose backup file…
+          </label>
+        </div>
+
+        {backupStatus ? <p className="save-flash">{backupStatus}</p> : null}
+        {backupError ? <p className="settings-backup-error">{backupError}</p> : null}
+      </section>
     </div>
   );
 }

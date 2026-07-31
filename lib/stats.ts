@@ -4,14 +4,25 @@ import type {
   ChartPoint,
   ChartRequest,
   ChartSpec,
+  PerformanceUnit,
   Trade,
   TradeLabelField,
   TradeMetricField,
 } from "./types";
 import { getTimeInTradeMinutes } from "./trade-format";
 
+export type { PerformanceUnit };
+
 export function closedTrades(trades: Trade[]) {
   return trades.filter((t) => t.result !== "open");
+}
+
+function tradeUnitValue(trade: Trade, unit: PerformanceUnit): number {
+  return unit === "usd" ? (trade.pnlUsd ?? 0) : trade.rMultiple;
+}
+
+function roundUnit(value: number): number {
+  return Number(value.toFixed(2));
 }
 
 export function computeStats(trades: Trade[]) {
@@ -25,6 +36,7 @@ export function computeStats(trades: Trade[]) {
   const best = closed.reduce((m, t) => Math.max(m, t.rMultiple), 0);
   const worst = closed.reduce((m, t) => Math.min(m, t.rMultiple), 0);
   const totalPnlUsd = closed.reduce((sum, t) => sum + (t.pnlUsd ?? 0), 0);
+  const avgPnlUsd = closed.length ? totalPnlUsd / closed.length : 0;
   const durations = closed
     .map((t) => getTimeInTradeMinutes(t))
     .filter((m): m is number => typeof m === "number");
@@ -46,35 +58,37 @@ export function computeStats(trades: Trade[]) {
     best,
     worst,
     totalPnlUsd,
+    avgPnlUsd,
     avgTimeInTradeMinutes,
   };
 }
 
-export function equityCurve(trades: Trade[]) {
+export function equityCurve(trades: Trade[], unit: PerformanceUnit = "r") {
   const closed = [...closedTrades(trades)].sort((a, b) =>
     a.date.localeCompare(b.date),
   );
   let running = 0;
   return closed.map((t) => {
-    running += t.rMultiple;
+    const delta = tradeUnitValue(t, unit);
+    running += delta;
     return {
       label: format(parseISO(t.date), "MMM d"),
-      value: Number(running.toFixed(2)),
-      secondary: t.rMultiple,
+      value: roundUnit(running),
+      secondary: roundUnit(delta),
     };
   });
 }
 
-export function rByDay(trades: Trade[]) {
+export function rByDay(trades: Trade[], unit: PerformanceUnit = "r") {
   const map = new Map<string, number>();
   for (const t of closedTrades(trades)) {
-    map.set(t.date, (map.get(t.date) ?? 0) + t.rMultiple);
+    map.set(t.date, (map.get(t.date) ?? 0) + tradeUnitValue(t, unit));
   }
   return [...map.entries()]
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([date, value]) => ({
       label: format(parseISO(date), "MMM d"),
-      value: Number(value.toFixed(2)),
+      value: roundUnit(value),
     }));
 }
 
@@ -87,29 +101,29 @@ export function winLossBreakdown(trades: Trade[]) {
   ];
 }
 
-export function bySymbol(trades: Trade[]) {
+export function bySymbol(trades: Trade[], unit: PerformanceUnit = "r") {
   const map = new Map<string, number>();
   for (const t of closedTrades(trades)) {
-    map.set(t.symbol, (map.get(t.symbol) ?? 0) + t.rMultiple);
+    map.set(t.symbol, (map.get(t.symbol) ?? 0) + tradeUnitValue(t, unit));
   }
   return [...map.entries()]
     .sort((a, b) => b[1] - a[1])
     .map(([label, value]) => ({
       label,
-      value: Number(value.toFixed(2)),
+      value: roundUnit(value),
     }));
 }
 
-export function bySetup(trades: Trade[]) {
+export function bySetup(trades: Trade[], unit: PerformanceUnit = "r") {
   const map = new Map<string, number>();
   for (const t of closedTrades(trades)) {
-    map.set(t.setup, (map.get(t.setup) ?? 0) + t.rMultiple);
+    map.set(t.setup, (map.get(t.setup) ?? 0) + tradeUnitValue(t, unit));
   }
   return [...map.entries()]
     .sort((a, b) => b[1] - a[1])
     .map(([label, value]) => ({
       label,
-      value: Number(value.toFixed(2)),
+      value: roundUnit(value),
     }));
 }
 
@@ -213,24 +227,32 @@ export function buildChart(
   trades: Trade[],
   title?: string,
   customData?: ChartPoint[],
+  unit: PerformanceUnit = "r",
 ): ChartSpec {
   const id = `chart-${type}-${Date.now()}`;
+  const isUsd = unit === "usd";
   switch (type) {
     case "equity":
       return {
         id,
         type,
-        title: title ?? "Equity curve (R)",
-        description: "Cumulative R across closed trades",
-        data: equityCurve(trades),
+        title: title ?? (isUsd ? "Equity curve ($)" : "Equity curve (R)"),
+        description: isUsd
+          ? "Cumulative $ P&L across closed trades"
+          : "Cumulative R across closed trades",
+        yLabel: isUsd ? "$" : "R",
+        valueUnit: unit,
+        data: equityCurve(trades, unit),
       };
     case "rByDay":
       return {
         id,
         type,
-        title: title ?? "Daily R",
-        description: "Net R by day",
-        data: rByDay(trades),
+        title: title ?? (isUsd ? "Daily $" : "Daily R"),
+        description: isUsd ? "Net $ P&L by day" : "Net R by day",
+        yLabel: isUsd ? "$" : "R",
+        valueUnit: unit,
+        data: rByDay(trades, unit),
       };
     case "winLoss":
       return {
@@ -243,15 +265,19 @@ export function buildChart(
       return {
         id,
         type,
-        title: title ?? "R by symbol",
-        data: bySymbol(trades),
+        title: title ?? (isUsd ? "$ by symbol" : "R by symbol"),
+        yLabel: isUsd ? "$" : "R",
+        valueUnit: unit,
+        data: bySymbol(trades, unit),
       };
     case "bySetup":
       return {
         id,
         type,
-        title: title ?? "R by setup",
-        data: bySetup(trades),
+        title: title ?? (isUsd ? "$ by setup" : "R by setup"),
+        yLabel: isUsd ? "$" : "R",
+        valueUnit: unit,
+        data: bySetup(trades, unit),
       };
     case "bar":
     case "line":

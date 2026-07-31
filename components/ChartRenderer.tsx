@@ -19,7 +19,7 @@ import {
   YAxis,
   ZAxis,
 } from "recharts";
-import type { ChartPoint, ChartSpec } from "@/lib/types";
+import type { ChartPoint, ChartSpec, PerformanceUnit } from "@/lib/types";
 
 const TEAL = "#0d9488";
 const CORAL = "#e11d48";
@@ -42,6 +42,20 @@ function axisTick() {
 
 function pointColor(value: number) {
   return value >= 0 ? TEAL : CORAL;
+}
+
+function formatChartValue(value: unknown, unit?: PerformanceUnit): string {
+  const n = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(n)) return String(value ?? "");
+  if (unit === "usd") {
+    const sign = n > 0 ? "+" : "";
+    return `${sign}$${n.toFixed(Math.abs(n) >= 100 ? 0 : 2)}`;
+  }
+  if (unit === "r") {
+    const sign = n > 0 ? "+" : "";
+    return `${sign}${n.toFixed(2)}R`;
+  }
+  return String(n);
 }
 
 function ScatterBody({ chart, data }: { chart: ChartSpec; data: ChartPoint[] }) {
@@ -139,7 +153,8 @@ function LineBody({ chart, data }: { chart: ChartSpec; data: ChartPoint[] }) {
           tick={axisTick()}
           axisLine={false}
           tickLine={false}
-          width={40}
+          width={chart.valueUnit === "usd" ? 52 : 40}
+          tickFormatter={(v) => formatChartValue(v, chart.valueUnit)}
           label={
             chart.yLabel
               ? {
@@ -152,7 +167,10 @@ function LineBody({ chart, data }: { chart: ChartSpec; data: ChartPoint[] }) {
               : undefined
           }
         />
-        <Tooltip contentStyle={tooltipStyle()} />
+        <Tooltip
+          contentStyle={tooltipStyle()}
+          formatter={(value) => [formatChartValue(value, chart.valueUnit), chart.yLabel ?? "Value"]}
+        />
         <Line
           type="monotone"
           dataKey="value"
@@ -166,14 +184,23 @@ function LineBody({ chart, data }: { chart: ChartSpec; data: ChartPoint[] }) {
   );
 }
 
-function BarBody({ data }: { data: ChartPoint[] }) {
+function BarBody({ chart, data }: { chart: ChartSpec; data: ChartPoint[] }) {
   return (
     <ResponsiveContainer width="100%" height={220}>
       <BarChart data={data}>
         <CartesianGrid stroke={GRID} vertical={false} />
         <XAxis dataKey="label" tick={axisTick()} axisLine={false} tickLine={false} />
-        <YAxis tick={axisTick()} axisLine={false} tickLine={false} width={36} />
-        <Tooltip contentStyle={tooltipStyle()} />
+        <YAxis
+          tick={axisTick()}
+          axisLine={false}
+          tickLine={false}
+          width={chart.valueUnit === "usd" ? 52 : 36}
+          tickFormatter={(v) => formatChartValue(v, chart.valueUnit)}
+        />
+        <Tooltip
+          contentStyle={tooltipStyle()}
+          formatter={(value) => [formatChartValue(value, chart.valueUnit), chart.yLabel ?? "Value"]}
+        />
         <Bar dataKey="value" radius={[8, 8, 0, 0]}>
           {data.map((entry) => (
             <Cell key={entry.label} fill={pointColor(entry.value)} />
@@ -246,9 +273,16 @@ export function ChartRenderer({ chart }: { chart: ChartSpec }) {
                   tick={axisTick()}
                   axisLine={false}
                   tickLine={false}
-                  width={36}
+                  width={chart.valueUnit === "usd" ? 52 : 36}
+                  tickFormatter={(v) => formatChartValue(v, chart.valueUnit)}
                 />
-                <Tooltip contentStyle={tooltipStyle()} />
+                <Tooltip
+                  contentStyle={tooltipStyle()}
+                  formatter={(value) => [
+                    formatChartValue(value, chart.valueUnit),
+                    chart.yLabel ?? "Value",
+                  ]}
+                />
                 <Area
                   type="monotone"
                   dataKey="value"
@@ -262,7 +296,7 @@ export function ChartRenderer({ chart }: { chart: ChartSpec }) {
         ) : chart.type === "scatter" ? (
           <ScatterBody chart={chart} data={data} />
         ) : (
-          <BarBody data={data} />
+          <BarBody chart={chart} data={data} />
         )}
       </div>
     </div>

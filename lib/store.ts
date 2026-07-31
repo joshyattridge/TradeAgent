@@ -2,6 +2,7 @@
 
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
+import { mergeTrades, type ImportMode } from "./backup";
 import {
   clearLegacyLocalStorage,
   idbStorage,
@@ -69,6 +70,12 @@ interface Store {
   deleteTrades: (ids: string[]) => void;
   updateStrategy: (patch: Partial<Strategy>) => void;
   replaceStrategy: (strategy: Strategy) => void;
+  /** Restore trades + strategy from a backup file. */
+  importJournal: (
+    trades: Trade[],
+    strategy: Strategy,
+    mode: ImportMode,
+  ) => void;
   addChatMessage: (message: Omit<ChatMessage, "id" | "createdAt"> & { id?: string }) => void;
   clearChat: () => void;
   resetDemoData: () => void;
@@ -213,6 +220,22 @@ export const useTradingStore = create<Store>()(
         set({
           strategy: { ...strategy, updatedAt: new Date().toISOString() },
         }),
+      importJournal: (trades, strategy, mode) => {
+        const nextTrades =
+          mode === "replace"
+            ? persistableTrades(trades)
+            : persistableTrades(mergeTrades(get().trades, trades));
+        const ref = get().chatReferencedTradeId;
+        set({
+          trades: nextTrades,
+          strategy: {
+            ...strategy,
+            updatedAt: strategy.updatedAt || new Date().toISOString(),
+          },
+          chatReferencedTradeId:
+            ref && nextTrades.some((t) => t.id === ref) ? ref : null,
+        });
+      },
       addChatMessage: (message) =>
         set({
           chat: [

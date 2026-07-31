@@ -107,6 +107,8 @@ export interface ChartPoint {
   y?: number;
 }
 
+export type PerformanceUnit = "r" | "usd";
+
 export interface ChartSpec {
   id: string;
   title: string;
@@ -114,6 +116,8 @@ export interface ChartSpec {
   description?: string;
   xLabel?: string;
   yLabel?: string;
+  /** How to format series values in axes / tooltips */
+  valueUnit?: PerformanceUnit;
   data?: ChartPoint[];
 }
 
