@@ -3,6 +3,7 @@
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 import { mergeTrades, type ImportMode } from "./backup";
+import type { ChatActionPayload, ChatProposal } from "./chat-proposals";
 import {
   clearLegacyLocalStorage,
   idbStorage,
@@ -57,12 +58,21 @@ interface Store {
   visibleTradeColumns: TradeColumnId[];
   /** Composer-only trade pin for the next chat message (not a persistent active trade). */
   chatReferencedTradeId: string | null;
+  /** Chat journal writes waiting for Accept/Reject (not persisted). */
+  pendingProposal: ChatProposal | null;
+  /** Whether the proposal review panel is visible. */
+  proposalReviewOpen: boolean;
   hydrated: boolean;
   setHydrated: (v: boolean) => void;
   setOpenAIApiKey: (key: string) => void;
   setOpenAIModel: (model: string) => void;
   setChatSummary: (summary: string) => void;
   setChatReferencedTradeId: (id: string | null) => void;
+  setPendingProposal: (proposal: ChatProposal | null) => void;
+  openProposalReview: () => void;
+  closeProposalReview: () => void;
+  acceptPendingProposal: () => void;
+  rejectPendingProposal: () => void;
   toggleTradeColumn: (id: TradeColumnId) => void;
   resetTradeColumns: () => void;
   addTrade: (trade: Omit<Trade, "id"> | Trade) => Trade;
@@ -145,12 +155,31 @@ export const useTradingStore = create<Store>()(
       chatSummary: "",
       visibleTradeColumns: DEFAULT_VISIBLE_TRADE_COLUMNS,
       chatReferencedTradeId: null,
+      pendingProposal: null,
+      proposalReviewOpen: false,
       hydrated: false,
       setHydrated: (v) => set({ hydrated: v }),
       setOpenAIApiKey: (key) => set({ openaiApiKey: key.trim() }),
       setOpenAIModel: (model) => set({ openaiModel: model }),
       setChatSummary: (summary) => set({ chatSummary: summary }),
       setChatReferencedTradeId: (id) => set({ chatReferencedTradeId: id }),
+      setPendingProposal: (proposal) =>
+        set({
+          pendingProposal: proposal,
+          proposalReviewOpen: Boolean(proposal),
+        }),
+      openProposalReview: () => {
+        if (get().pendingProposal) set({ proposalReviewOpen: true });
+      },
+      closeProposalReview: () => set({ proposalReviewOpen: false }),
+      acceptPendingProposal: () => {
+        const proposal = get().pendingProposal;
+        if (!proposal) return;
+        applyChatActions(proposal.actions);
+        set({ pendingProposal: null, proposalReviewOpen: false });
+      },
+      rejectPendingProposal: () =>
+        set({ pendingProposal: null, proposalReviewOpen: false }),
       toggleTradeColumn: (id) => {
         const current = get().visibleTradeColumns;
         if (current.includes(id)) {
@@ -263,7 +292,13 @@ export const useTradingStore = create<Store>()(
           ],
         }),
       clearChat: () =>
-        set({ chat: [], chatSummary: "", chatReferencedTradeId: null }),
+        set({
+          chat: [],
+          chatSummary: "",
+          chatReferencedTradeId: null,
+          pendingProposal: null,
+          proposalReviewOpen: false,
+        }),
       resetDemoData: () =>
         set({
           trades: seedTrades,
@@ -407,14 +442,4 @@ export function applyChatActions(actions: ChatActionPayload) {
   return { charts, notes, touchedTradeId };
 }
 
-export interface ChatActionPayload {
-  addTrade?: Omit<Trade, "id"> | Trade;
-  addTrades?: Array<Omit<Trade, "id"> | Trade>;
-  updateTrade?: { id: string } & Partial<Omit<Trade, "id">>;
-  updateTrades?: Array<{ id: string } & Partial<Omit<Trade, "id">>>;
-  deleteTradeIds?: string[];
-  updateStrategy?: Partial<Strategy>;
-  charts?: ChartSpec[];
-  /** Screenshots from the current chat turn to attach to a newly logged/updated trade */
-  screenshots?: string[];
-}
+export type { ChatActionPayload };

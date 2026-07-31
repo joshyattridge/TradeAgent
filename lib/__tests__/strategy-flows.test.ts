@@ -39,30 +39,50 @@ describe("strategy edit / backup / chat paths", () => {
     expect(result.strategy.markdown.length).toBeGreaterThan(200);
   });
 
-  it("chat can replace and append strategy markdown", () => {
+  it("chat can surgically edit and append strategy markdown", () => {
     const session = new JournalSession({
       trades: [],
       strategy: seedStrategy,
     });
 
     const replaced = session.updateStrategy({
-      markdown: "# New Plan\n\nOnly A+ setups.\n",
+      replacements: [
+        {
+          find: "# 1H Fair Value Gap Continuation",
+          replace: "# New Plan",
+        },
+      ],
     });
     expect(replaced.ok).toBe(true);
     expect(session.strategy.name).toBe("New Plan");
-    expect(session.strategy.markdown).toContain("Only A+ setups");
+    expect(session.strategy.markdown).toContain("## Rules");
 
     const appended = session.updateStrategy({
       appendMarkdown: "## New rule\n\nNo revenge trades.",
     });
     expect(appended.ok).toBe(true);
-    expect(session.strategy.markdown).toContain("Only A+ setups");
     expect(session.strategy.markdown).toContain("## New rule");
     expect(session.strategy.markdown).toContain("No revenge trades");
 
     const actions = session.toActions();
     expect(actions.updateStrategy?.markdown).toContain("No revenge trades");
     expect(actions.updateStrategy?.name).toBe("New Plan");
+  });
+
+  it("refuses short full-replace snippets from chat", () => {
+    const session = new JournalSession({
+      trades: [],
+      strategy: seedStrategy,
+    });
+    const beforeLen = session.strategy.markdown.length;
+    const res = session.updateStrategy({
+      markdown: "# New Plan\n\nOnly A+ setups.\n",
+    });
+    // Short payload is folded in (append) rather than wiping the plan
+    expect(res.ok).toBe(true);
+    expect(session.strategy.markdown).toContain("## Rules");
+    expect(session.strategy.markdown).toContain("Only A+ setups");
+    expect(session.strategy.markdown.length).toBeGreaterThan(beforeLen * 0.8);
   });
 
   it("store-style patch from chat applies onto current strategy", () => {

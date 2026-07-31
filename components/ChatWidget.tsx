@@ -10,6 +10,7 @@ import {
   toAttachmentPayload,
   type ChatAttachment,
 } from "@/lib/chat-attachments";
+import { planChatDone } from "@/lib/chat-proposals";
 import { applyChatActions, useTradingStore } from "@/lib/store";
 import { buildChartFromRequest, computeStats } from "@/lib/stats";
 import { formatTradeDate } from "@/lib/trade-format";
@@ -75,6 +76,9 @@ export function ChatWidget() {
   const addChatMessage = useTradingStore((s) => s.addChatMessage);
   const clearChat = useTradingStore((s) => s.clearChat);
   const hydrated = useTradingStore((s) => s.hydrated);
+  const pendingProposal = useTradingStore((s) => s.pendingProposal);
+  const setPendingProposal = useTradingStore((s) => s.setPendingProposal);
+  const openProposalReview = useTradingStore((s) => s.openProposalReview);
 
   const referencedTrade = chatReferencedTradeId
     ? trades.find((t) => t.id === chatReferencedTradeId)
@@ -218,29 +222,42 @@ export function ChatWidget() {
 
   function applyDone(data: StreamDonePayload, images: string[]) {
     let charts: ChartSpec[] = [];
-    if (data.actions) {
-      const applied = applyChatActions({
-        addTrade: data.actions.addTrade as never,
-        addTrades: data.actions.addTrades as never,
-        updateTrade: data.actions.updateTrade as never,
-        updateTrades: data.actions.updateTrades as never,
-        deleteTradeIds: data.actions.deleteTradeIds,
-        updateStrategy: data.actions.updateStrategy as never,
-        charts: data.actions.charts ?? [],
+    const rawActions = data.actions
+      ? {
+          addTrade: data.actions.addTrade as never,
+          addTrades: data.actions.addTrades as never,
+          updateTrade: data.actions.updateTrade as never,
+          updateTrades: data.actions.updateTrades as never,
+          deleteTradeIds: data.actions.deleteTradeIds,
+          updateStrategy: data.actions.updateStrategy as never,
+          charts: data.actions.charts ?? [],
+          screenshots: images.length ? images : undefined,
+        }
+      : null;
+
+    if (rawActions) {
+      const state = useTradingStore.getState();
+      const planned = planChatDone({
+        actions: rawActions,
+        trades: state.trades,
+        strategy: state.strategy,
         screenshots: images.length ? images : undefined,
       });
 
-      charts = applied.charts;
+      // Charts apply immediately; journal writes need Accept/Reject.
+      if (planned.chartActions.charts?.length) {
+        const applied = applyChatActions(planned.chartActions);
+        charts = applied.charts;
+      }
 
-      if (!charts.length && data.actions.chartRequests?.length) {
-        const tradesNow = useTradingStore.getState().trades;
+      if (!charts.length && data.actions?.chartRequests?.length) {
         charts = data.actions.chartRequests.map((req: ChartRequest) =>
-          buildChartFromRequest(req, tradesNow),
+          buildChartFromRequest(req, state.trades),
         );
       }
 
-      if (applied.notes.length && !data.reply?.trim()) {
-        data.reply = applied.notes.join(" ");
+      if (planned.proposal) {
+        setPendingProposal(planned.proposal);
       }
     }
 
@@ -604,6 +621,16 @@ export function ChatWidget() {
               </div>
             ) : null}
           </div>
+        ) : null}
+
+        {pendingProposal ? (
+          <button
+            type="button"
+            className="chat-proposal-chip"
+            onClick={() => openProposalReview()}
+          >
+            Review pending: {pendingProposal.summary}
+          </button>
         ) : null}
 
         {attachError ? (

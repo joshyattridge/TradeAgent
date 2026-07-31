@@ -25,6 +25,60 @@ export function strategyNameFromMarkdown(
   return title || fallback;
 }
 
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * When the model mistakenly sends a short markdown snippet as a full replace,
+ * fold it into the existing document instead of wiping the plan.
+ * - Matching `## Heading` → replace that section in place
+ * - Otherwise → append
+ */
+export function applyShortStrategyMarkdown(
+  current: string,
+  snippet: string,
+): { markdown: string; mode: string } {
+  const trimmed = snippet.trim();
+  if (!trimmed) {
+    return { markdown: current, mode: "noop" };
+  }
+
+  const h2 = trimmed.match(/^##\s+(.+?)\s*$/m);
+  if (h2) {
+    const title = h2[1].trim();
+    const headingRe = new RegExp(`^##\\s+${escapeRegExp(title)}\\s*$`, "im");
+    const match = headingRe.exec(current);
+    if (match && match.index != null) {
+      const start = match.index;
+      const afterHeading = current.slice(start + match[0].length);
+      const next = afterHeading.search(/\n##?\s+/);
+      const end =
+        next === -1 ? current.length : start + match[0].length + next;
+      const before = current.slice(0, start).replace(/\s*$/, "\n\n");
+      const after = current.slice(end).replace(/^\s*/, "\n\n");
+      const markdown = `${before}${trimmed}${after}`.replace(/\n{3,}/g, "\n\n");
+      return {
+        markdown: markdown.endsWith("\n") ? markdown : `${markdown}\n`,
+        mode: `section replace (${title})`,
+      };
+    }
+  }
+
+  const markdown = `${current.replace(/\s*$/, "")}\n\n${trimmed}\n`;
+  return { markdown, mode: "append (short markdown auto)" };
+}
+
+/** True when proposed markdown is suspiciously short vs the live strategy. */
+export function isShortStrategySnippet(
+  current: string,
+  proposed: string,
+): boolean {
+  const currentLen = current.trim().length;
+  const nextLen = proposed.trim().length;
+  return currentLen > 200 && nextLen < Math.max(120, currentLen * 0.5);
+}
+
 /** Convert an old structured strategy into a single markdown document. */
 export function legacyStrategyToMarkdown(legacy: LegacyStrategy): string {
   if (typeof legacy.markdown === "string" && legacy.markdown.trim()) {

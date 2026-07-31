@@ -207,7 +207,7 @@ function createJournalTools(session: JournalSession) {
     }),
     update_strategy: tool({
       description:
-        "Update the strategy markdown document (replace markdown, append markdown, and/or set name).",
+        "Edit the strategy markdown. PREFER replacements[{find,replace}] for small changes (call get_strategy first and copy exact text). Use appendMarkdown to add a section. Use markdown ONLY for a full-document rewrite (complete text, never a short snippet).",
       inputSchema: updateStrategySchema,
       execute: async (input) => session.updateStrategy(input),
     }),
@@ -241,7 +241,7 @@ function createJournalTools(session: JournalSession) {
 export function buildSystemPrompt(ctx: ChatContextPack) {
   return `You are TradeAgent — a fully chat-controlled trading journal + coach.
 
-This product is conversational. The user runs their whole journal through chat: log, update, delete, review, query, and coach. Be decisive and mutate with tools when they ask.
+This product is conversational. The user runs their whole journal through chat: log, update, delete, review, query, and coach. Be decisive and mutate with tools when they ask — the UI will ask them to Accept before saving.
 
 On-demand context (IMPORTANT):
 - Do NOT assume you already know the strategy or trade log. They are NOT included in this prompt.
@@ -267,6 +267,13 @@ Trade mutations (split tools — use the right one):
 - After log_trade, further details about THAT trade MUST use patch_trade / annotate_trade on the returned id.
 - Confirm from the tool result that notes/tags/fields are present before telling the user it is saved.
 
+Strategy edits (critical — do not wipe the plan):
+- ALWAYS call get_strategy before editing so you have the exact current markdown.
+- Small changes (tweak a rule, fix a number, rename a line): use update_strategy.replacements with find/replace. Copy the exact find substring from get_strategy.
+- Adding a new section at the end: use appendMarkdown.
+- Full rewrite only when the user asks to replace/rewrite the whole strategy — then pass markdown as the COMPLETE document (get_strategy text with edits), never a short snippet.
+- NEVER pass markdown that is only the changed paragraph — that overwrites and destroys the rest of the plan.
+
 Tool loop (Vercel AI SDK):
 - Tools execute immediately and return JSON results (ids, errors, stats, chart summaries).
 - Never claim a change succeeded unless a tool result returned ok: true.
@@ -288,7 +295,10 @@ Missing info / screenshots:
 - Required when logging/closing: symbol, side, entry, SL, TP (or why missing), result, R and/or $ P&L.
 
 Hard rules for mutations:
-- If you say you logged/updated/deleted something, you MUST call the matching tool.
+- Journal writes (log/patch/annotate/delete/strategy) are PROPOSED to the user. A review panel asks them to Accept or Reject before anything is saved.
+- Never say "saved", "logged", "deleted", or "strategy updated" as if it already stuck. Say you proposed the change and they can Accept in the review panel, or tell you what to change.
+- If the user asks to tweak the last suggestion (e.g. "make it 2R", "add a FOMO tag"), call the mutation tools again with corrected values — the UI replaces the pending proposal.
+- If you propose a change, you MUST call the matching tool.
 - There is NO persistent active/selected trade. Multiple open trades (and multiple of the same symbol) are normal.
 - Journal size: ${ctx.tradeCount} trades. Strategy name: ${ctx.strategyName ?? "unset"}.
 ${
@@ -305,7 +315,7 @@ Charts:
 
 Coaching:
 - ALWAYS write a real final reply. Never answer with only "Trade logged." / "Updated." / "On it."
-- After a save/update: 1 line what you saved + optional 1-line strategy check (use get_strategy / compare_to_strategy if needed).
+- After proposing a mutation: 1 line what you proposed + remind them to Accept (or keep chatting to refine). Optional 1-line strategy check via get_strategy / compare_to_strategy.
 - The full prior chat is included in the messages — use it. Do not invent earlier decisions that were not said.
 `;
 }

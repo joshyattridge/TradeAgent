@@ -12,6 +12,8 @@ import {
   markdownForChat,
   normalizeStrategy,
   strategyNameFromMarkdown,
+  applyShortStrategyMarkdown,
+  isShortStrategySnippet,
 } from "@/lib/strategy-md";
 import type {
   ChartExtract,
@@ -601,19 +603,73 @@ export class JournalSession {
     markdown?: string;
     appendMarkdown?: string;
     name?: string;
+    replacements?: Array<{ find: string; replace: string; replaceAll?: boolean }>;
   }) {
     const patch: Partial<Strategy> = {};
     let nextMarkdown = this.strategy.markdown;
+    const applied: string[] = [];
 
-    if (input.markdown !== undefined) {
-      nextMarkdown = input.markdown;
+    if (input.replacements?.length) {
+      for (const [index, item] of input.replacements.entries()) {
+        const find = item.find;
+        if (!find) {
+          return {
+            ok: false as const,
+            error: `replacements[${index}].find is empty`,
+          };
+        }
+        const occurrences = nextMarkdown.split(find).length - 1;
+        if (occurrences === 0) {
+          return {
+            ok: false as const,
+            error: `replacements[${index}] find text not found in strategy. Call get_strategy and copy the exact substring.`,
+            findPreview: find.slice(0, 120),
+          };
+        }
+        if (!item.replaceAll && occurrences > 1) {
+          return {
+            ok: false as const,
+            error: `replacements[${index}] find text matches ${occurrences} times — pass a longer unique snippet or set replaceAll: true.`,
+            findPreview: find.slice(0, 120),
+          };
+        }
+        nextMarkdown = item.replaceAll
+          ? nextMarkdown.split(find).join(item.replace)
+          : nextMarkdown.replace(find, item.replace);
+        applied.push(
+          item.replaceAll
+            ? `replaced all (${occurrences})`
+            : "replaced once",
+        );
+      }
       patch.markdown = nextMarkdown;
     }
+
+    if (input.markdown !== undefined) {
+      // Models often pass a short snippet as `markdown` (full replace). Fold it
+      // into the existing doc instead of wiping the plan.
+      if (isShortStrategySnippet(this.strategy.markdown, input.markdown)) {
+        const folded = applyShortStrategyMarkdown(
+          nextMarkdown,
+          input.markdown,
+        );
+        nextMarkdown = folded.markdown;
+        patch.markdown = nextMarkdown;
+        applied.push(folded.mode);
+      } else {
+        nextMarkdown = input.markdown;
+        patch.markdown = nextMarkdown;
+        applied.push("full replace");
+      }
+    }
+
     if (input.appendMarkdown?.trim()) {
       const append = input.appendMarkdown.trim();
       nextMarkdown = `${nextMarkdown.replace(/\s*$/, "")}\n\n${append}\n`;
       patch.markdown = nextMarkdown;
+      applied.push("append");
     }
+
     if (input.name?.trim()) {
       patch.name = input.name.trim();
     } else if (patch.markdown != null) {
@@ -642,6 +698,7 @@ export class JournalSession {
         updatedAt: this.strategy.updatedAt,
         markdownChars: this.strategy.markdown.length,
       },
+      applied,
     };
   }
 

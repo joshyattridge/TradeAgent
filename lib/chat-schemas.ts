@@ -182,14 +182,38 @@ export const deleteTradeSchema = z
   });
 
 export const updateStrategySchema = z.object({
-  markdown: z
-    .string()
+  replacements: z
+    .array(
+      z.object({
+        find: z
+          .string()
+          .min(1)
+          .describe(
+            "Exact text to find in the CURRENT strategy markdown (copy from get_strategy)",
+          ),
+        replace: z
+          .string()
+          .describe("Replacement text (use empty string to delete the found text)"),
+        replaceAll: z
+          .boolean()
+          .optional()
+          .describe("If true, replace every occurrence; default false (must be unique)"),
+      }),
+    )
     .optional()
-    .describe("Replace the full strategy markdown document"),
+    .describe(
+      "PREFERRED for small edits: surgical find/replace on the current markdown. Call get_strategy first.",
+    ),
   appendMarkdown: z
     .string()
     .optional()
-    .describe("Append markdown to the end of the strategy document"),
+    .describe("Append a new section to the end of the strategy document"),
+  markdown: z
+    .string()
+    .optional()
+    .describe(
+      "FULL document replace only — must be the entire strategy from get_strategy with edits applied. Never pass a short snippet here.",
+    ),
   name: z
     .string()
     .optional()

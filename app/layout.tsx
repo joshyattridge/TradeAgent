@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Instrument_Serif, Syne, IBM_Plex_Mono } from "next/font/google";
 import { Nav } from "@/components/Nav";
 import { ChatWidget } from "@/components/ChatWidget";
+import { ProposalReview } from "@/components/ProposalReview";
 import { Providers } from "@/components/Providers";
 import "./globals.css";
 
@@ -41,6 +42,7 @@ export default function RootLayout({
             <Nav />
             <main>{children}</main>
             <ChatWidget />
+            <ProposalReview />
           </div>
         </Providers>
       </body>
