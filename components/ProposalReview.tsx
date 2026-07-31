@@ -192,11 +192,8 @@ export function ProposalReview() {
       if (e.key === "Escape") reject();
     }
     window.addEventListener("keydown", onKey);
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
     return () => {
       window.removeEventListener("keydown", onKey);
-      document.body.style.overflow = prev;
     };
   }, [open, proposal, reject]);
 
@@ -211,7 +208,7 @@ export function ProposalReview() {
       <aside
         className="proposal-panel"
         role="dialog"
-        aria-modal="true"
+        aria-modal="false"
         aria-label="Review proposed journal changes"
         onClick={(e) => e.stopPropagation()}
       >
@@ -219,10 +216,6 @@ export function ProposalReview() {
           <div>
             <p className="proposal-panel__eyebrow">Review before saving</p>
             <h2>{proposal.summary}</h2>
-            <p className="proposal-panel__hint">
-              Accept to save, reject to discard, or keep chatting to refine this
-              suggestion.
-            </p>
           </div>
           <button
             type="button"
@@ -233,6 +226,14 @@ export function ProposalReview() {
             <X size={16} />
           </button>
         </header>
+
+        <div className="proposal-refine-banner" role="note">
+          <strong>Chat stays open</strong>
+          <span>
+            Type below to tweak this suggestion (e.g. “make it 2R”) — then Accept
+            when it looks right.
+          </span>
+        </div>
 
         <div className="proposal-panel__body">
           {proposal.changes.map((change, i) => (
@@ -250,13 +251,18 @@ export function ProposalReview() {
         </div>
 
         <footer className="proposal-panel__footer">
-          <button type="button" className="ghost-btn" onClick={() => reject()}>
-            Reject
-          </button>
-          <button type="button" className="primary-btn proposal-accept" onClick={() => accept()}>
-            <Check size={16} />
-            Accept
-          </button>
+          <p className="proposal-panel__footer-hint">
+            Or keep chatting under this panel to refine
+          </p>
+          <div className="proposal-panel__footer-actions">
+            <button type="button" className="ghost-btn" onClick={() => reject()}>
+              Reject
+            </button>
+            <button type="button" className="primary-btn proposal-accept" onClick={() => accept()}>
+              <Check size={16} />
+              Accept
+            </button>
+          </div>
         </footer>
       </aside>
     </div>,

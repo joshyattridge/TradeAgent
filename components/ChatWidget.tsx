@@ -85,6 +85,13 @@ export function ChatWidget() {
     : undefined;
 
   useEffect(() => {
+    if (!pendingProposal) return;
+    setExpanded(true);
+    const t = window.setTimeout(() => inputRef.current?.focus(), 80);
+    return () => window.clearTimeout(t);
+  }, [pendingProposal?.id]);
+
+  useEffect(() => {
     if (!chatReferencedTradeId) return;
     setExpanded(true);
     const t = window.setTimeout(() => inputRef.current?.focus(), 50);
@@ -504,7 +511,7 @@ export function ChatWidget() {
 
   return (
     <div
-      className={`chat-dock${expanded ? " is-expanded" : ""}${dragOver ? " is-dragover" : ""}`}
+      className={`chat-dock${expanded ? " is-expanded" : ""}${dragOver ? " is-dragover" : ""}${pendingProposal ? " chat-dock--proposal" : ""}`}
     >
       <section
         ref={shellRef}
@@ -629,7 +636,7 @@ export function ChatWidget() {
             className="chat-proposal-chip"
             onClick={() => openProposalReview()}
           >
-            Review pending: {pendingProposal.summary}
+            Pending review — keep typing here to refine, or open the diff
           </button>
         ) : null}
 
