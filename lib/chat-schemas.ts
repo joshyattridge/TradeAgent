@@ -11,13 +11,13 @@ const optionalTradeFields = {
     .string()
     .optional()
     .describe(
-      "Entry fill datetime as ISO-8601, e.g. 2026-07-30T14:52:45.000Z or 2026-07-30T15:52:45+01:00. Prefer offset/Z — not 'UTC+1' prose.",
+      "Entry datetime. Broker CSV/chart clocks without a timezone: YYYY-MM-DDTHH:mm:ss with NO Z (keep wall clock). Only use Z or +HH:MM when the source states a zone.",
     ),
   exitTime: z
     .string()
     .optional()
     .describe(
-      "Exit fill datetime as ISO-8601, e.g. 2026-07-30T15:44:26.000Z or with +01:00 offset. Prefer offset/Z — not 'UTC+1' prose.",
+      "Exit datetime. Broker CSV/chart clocks without a timezone: YYYY-MM-DDTHH:mm:ss with NO Z (keep wall clock). Only use Z or +HH:MM when the source states a zone.",
     ),
   timeInTradeMinutes: z.number().optional(),
   pnlUsd: z.number().optional(),

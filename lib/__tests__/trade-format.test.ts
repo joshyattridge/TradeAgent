@@ -38,11 +38,31 @@ describe("parse / format / normalize trade datetimes", () => {
     ).toMatch(/15:52|14:52/);
   });
 
-  it("normalizes to ISO for storage", () => {
-    const iso = normalizeTradeDateTime("2026-07-30 15:52:45 UTC+1");
-    expect(iso).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
-    // 15:52 +01:00 → 14:52 UTC
-    expect(iso).toBe("2026-07-30T14:52:45.000Z");
+  it("preserves timezone-naive CSV wall clocks without shifting via Z", () => {
+    expect(normalizeTradeDateTime("2026-07-30 15:46:09")).toBe(
+      "2026-07-30T15:46:09",
+    );
+    expect(normalizeTradeDateTime("2026-07-30T15:46:09")).toBe(
+      "2026-07-30T15:46:09",
+    );
+    // Mis-tagged Z would display +1h in UTC+1 — naive path must not invent Z
+    expect(normalizeTradeDateTime("2026-07-30 15:46:09")?.endsWith("Z")).toBe(
+      false,
+    );
+    expect(formatTradeDateTime("2026-07-30T15:46:09", undefined, "HH:mm")).toBe(
+      "15:46",
+    );
+  });
+
+  it("keeps explicit UTC+1 offset wall clock", () => {
+    expect(normalizeTradeDateTime("2026-07-30 15:52:45 UTC+1")).toBe(
+      "2026-07-30T15:52:45+01:00",
+    );
+  });
+
+  it("keeps explicit Z as a real UTC instant", () => {
+    const iso = normalizeTradeDateTime("2026-07-30T15:52:45Z");
+    expect(iso).toBe("2026-07-30T15:52:45.000Z");
   });
 
   it("formats date-only without inventing a clock time label pattern still ok", () => {

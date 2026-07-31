@@ -837,7 +837,7 @@ describe("combined workflows and overwrite safety", () => {
 });
 
 describe("LLM misuse / accidental wipe defenses", () => {
-  it("normalizes UTC+1 prose entry/exit times to ISO on patch", () => {
+  it("normalizes UTC+1 prose entry/exit times to offset ISO on patch", () => {
     const before = fullTrade({
       entryTime: "2026-07-30",
       exitTime: undefined,
@@ -852,9 +852,25 @@ describe("LLM misuse / accidental wipe defenses", () => {
     });
     expect(res.ok).toBe(true);
     const after = session.trades[0];
-    expect(after.entryTime).toBe("2026-07-30T14:52:45.000Z");
-    expect(after.exitTime).toBe("2026-07-30T15:44:26.000Z");
+    expect(after.entryTime).toBe("2026-07-30T15:52:45+01:00");
+    expect(after.exitTime).toBe("2026-07-30T16:44:26+01:00");
     expect(after.timeInTradeMinutes).toBe(51);
+  });
+
+  it("preserves naive CSV clocks on patch without adding an hour via Z", () => {
+    const before = fullTrade({
+      entryTime: "2026-07-30T15:46:09.000Z",
+      exitTime: "2026-07-30T16:40:00.000Z",
+    });
+    const session = makeSession([before]);
+    const res = session.patchTrade({
+      id: before.id,
+      entryTime: "2026-07-30T15:46:09",
+      exitTime: "2026-07-30T16:40:00",
+    });
+    expect(res.ok).toBe(true);
+    expect(session.trades[0].entryTime).toBe("2026-07-30T15:46:09");
+    expect(session.trades[0].exitTime).toBe("2026-07-30T16:40:00");
   });
 
   it("empty-string filler on patch does not wipe session/setup/size", () => {

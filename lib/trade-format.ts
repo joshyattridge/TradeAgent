@@ -109,22 +109,57 @@ export function parseTradeDateTime(
 }
 
 /**
- * Normalize a trade datetime to ISO-8601 UTC for storage.
- * Returns undefined for empty input; returns original trim if unparseable.
+ * True when the string carries an explicit zone (Z, ±HH:MM, or UTC/GMT prose).
+ * Broker CSV clocks without a zone must NOT be treated as UTC.
+ */
+export function hasExplicitTimezone(raw: string): boolean {
+  const v = coerceDateTimeString(raw.trim());
+  if (/(?:UTC|GMT)\s*$/i.test(raw.trim())) return true;
+  if (/(?:UTC|GMT)\s*[+-]/i.test(raw.trim())) return true;
+  return /([zZ]|[+-]\d{2}:\d{2})$/.test(v) || /([+-]\d{4})$/.test(v);
+}
+
+/**
+ * Normalize a trade datetime for storage.
+ * Timezone-naive values (typical broker CSV / chart clocks) keep the same
+ * wall-clock HH:mm:ss — never shift them via UTC `Z`.
+ * Explicit offsets/Z are preserved as real instants.
  */
 export function normalizeTradeDateTime(
   raw?: string,
   fallbackDate?: string,
 ): string | undefined {
   if (!raw?.trim()) return undefined;
-  const d = parseTradeDateTime(raw, fallbackDate);
-  if (!d) return raw.trim();
-  // Time-only without a calendar date — keep as HH:mm:ss so callers can attach date later
-  if (/^\d{1,2}:\d{2}(?::\d{2})?$/.test(raw.trim()) && !fallbackDate) {
-    const m = raw.trim().match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?$/);
-    if (!m) return raw.trim();
-    return `${m[1].padStart(2, "0")}:${m[2]}:${(m[3] ?? "00").padStart(2, "0")}`;
+  const trimmed = raw.trim();
+
+  // Time-only — keep clock; attach calendar date when we have one
+  const timeOnly = trimmed.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?$/);
+  if (timeOnly) {
+    const hh = timeOnly[1].padStart(2, "0");
+    const mm = timeOnly[2];
+    const ss = (timeOnly[3] ?? "00").padStart(2, "0");
+    if (fallbackDate) return `${fallbackDate}T${hh}:${mm}:${ss}`;
+    return `${hh}:${mm}:${ss}`;
   }
+
+  const coerced = coerceDateTimeString(trimmed);
+  const d = parseTradeDateTime(trimmed, fallbackDate);
+  if (!d) return trimmed;
+
+  // Naive local / CSV clock — preserve displayed wall time, no Z shift
+  if (!hasExplicitTimezone(trimmed)) {
+    return format(d, "yyyy-MM-dd'T'HH:mm:ss");
+  }
+
+  // Explicit numeric offset — keep wall clock + that offset
+  const withOffset = coerced.match(
+    /^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2}:\d{2})([+-]\d{2}:\d{2})$/,
+  );
+  if (withOffset) {
+    return `${withOffset[1]}T${withOffset[2]}${withOffset[3]}`;
+  }
+
+  // Explicit Z / UTC — real instant
   return d.toISOString();
 }
 
