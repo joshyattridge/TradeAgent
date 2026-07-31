@@ -39,6 +39,35 @@ describe("journal backup", () => {
     expect(parsed.backup.version).toBe(BACKUP_VERSION);
     expect(parsed.backup.trades).toEqual(trades);
     expect(parsed.backup.strategy.name).toBe(seedStrategy.name);
+    expect(parsed.backup.strategy.markdown).toContain("# 1H Fair Value Gap Continuation");
+  });
+
+  it("migrates legacy structured strategy on import", () => {
+    const backup = {
+      format: BACKUP_FORMAT,
+      version: BACKUP_VERSION,
+      exportedAt: "2026-07-01T00:00:00.000Z",
+      trades: [sampleTrade()],
+      strategy: {
+        name: "Legacy Plan",
+        version: "1.0",
+        summary: "Old summary",
+        edge: "Trade the open",
+        approach: "Checklist first",
+        timeframes: [{ role: "Bias", tf: "Daily", job: "Direction" }],
+        rules: [{ title: "Bias", body: "Need BOS" }],
+        risk: [{ title: "Risk", body: "1R max" }],
+        targets: [{ metric: "Win rate", value: "50%" }],
+        updatedAt: "2026-07-01T00:00:00.000Z",
+      },
+    };
+    const parsed = parseJournalBackup(JSON.stringify(backup));
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    expect(parsed.backup.strategy.name).toBe("Legacy Plan");
+    expect(parsed.backup.strategy.markdown).toContain("# Legacy Plan");
+    expect(parsed.backup.strategy.markdown).toContain("## Edge");
+    expect(parsed.backup.strategy.markdown).toContain("Need BOS");
   });
 
   it("rejects invalid JSON and wrong format", () => {

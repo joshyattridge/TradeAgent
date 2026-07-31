@@ -10,6 +10,7 @@ import {
 } from "./idb-storage";
 import { DEFAULT_OPENAI_MODEL } from "./models";
 import { seedStrategy, seedTrades } from "./seed-data";
+import { normalizeStrategy, strategyNameFromMarkdown } from "./strategy-md";
 import {
   DEFAULT_VISIBLE_TRADE_COLUMNS,
   TRADE_COLUMNS,
@@ -208,17 +209,24 @@ export const useTradingStore = create<Store>()(
           chatReferencedTradeId: ref && remove.has(ref) ? null : ref,
         });
       },
-      updateStrategy: (patch) =>
-        set({
-          strategy: {
-            ...get().strategy,
-            ...patch,
-            updatedAt: new Date().toISOString(),
-          },
-        }),
+      updateStrategy: (patch) => {
+        const current = get().strategy;
+        const merged = normalizeStrategy({
+          ...current,
+          ...patch,
+          updatedAt: new Date().toISOString(),
+        });
+        if (patch.markdown != null && patch.name == null) {
+          merged.name = strategyNameFromMarkdown(patch.markdown, current.name);
+        }
+        set({ strategy: merged });
+      },
       replaceStrategy: (strategy) =>
         set({
-          strategy: { ...strategy, updatedAt: new Date().toISOString() },
+          strategy: normalizeStrategy({
+            ...strategy,
+            updatedAt: new Date().toISOString(),
+          }),
         }),
       importJournal: (trades, strategy, mode) => {
         const nextTrades =
@@ -226,12 +234,13 @@ export const useTradingStore = create<Store>()(
             ? persistableTrades(trades)
             : persistableTrades(mergeTrades(get().trades, trades));
         const ref = get().chatReferencedTradeId;
+        const nextStrategy = normalizeStrategy({
+          ...strategy,
+          updatedAt: strategy.updatedAt || new Date().toISOString(),
+        });
         set({
           trades: nextTrades,
-          strategy: {
-            ...strategy,
-            updatedAt: strategy.updatedAt || new Date().toISOString(),
-          },
+          strategy: nextStrategy,
           chatReferencedTradeId:
             ref && nextTrades.some((t) => t.id === ref) ? ref : null,
         });
@@ -279,6 +288,8 @@ export const useTradingStore = create<Store>()(
           clearLegacyLocalStorage();
         }
         if (state) {
+          // Migrate legacy structured strategy → markdown document
+          state.strategy = normalizeStrategy(state.strategy);
           // Ensure newer default columns (tags/notes) appear for existing users
           const current = new Set(state.visibleTradeColumns);
           const missing = DEFAULT_VISIBLE_TRADE_COLUMNS.filter((id) => !current.has(id));

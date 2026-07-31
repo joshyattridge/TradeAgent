@@ -8,6 +8,11 @@ import type {
   QueryTradesInput,
   TradeFilterInput,
 } from "@/lib/chat-schemas";
+import {
+  markdownForChat,
+  normalizeStrategy,
+  strategyNameFromMarkdown,
+} from "@/lib/strategy-md";
 import type {
   ChartExtract,
   ChartRequest,
@@ -309,7 +314,7 @@ export class JournalSession {
     turnHasScreenshots?: boolean;
   }) {
     this.trades = opts.trades.map((t) => ({ ...t }));
-    this.strategy = { ...opts.strategy };
+    this.strategy = normalizeStrategy(opts.strategy);
     this.turnHasScreenshots = Boolean(opts.turnHasScreenshots);
   }
 
@@ -593,24 +598,28 @@ export class JournalSession {
   }
 
   updateStrategy(input: {
+    markdown?: string;
+    appendMarkdown?: string;
     name?: string;
-    version?: string;
-    summary?: string;
-    edge?: string;
-    approach?: string;
-    addRule?: { title: string; body: string };
-    addRisk?: { title: string; body: string };
   }) {
     const patch: Partial<Strategy> = {};
-    for (const key of ["name", "version", "summary", "edge", "approach"] as const) {
-      if (input[key] !== undefined) patch[key] = input[key];
+    let nextMarkdown = this.strategy.markdown;
+
+    if (input.markdown !== undefined) {
+      nextMarkdown = input.markdown;
+      patch.markdown = nextMarkdown;
     }
-    if (input.addRule) {
-      patch.rules = [...(this.strategy.rules ?? []), input.addRule];
+    if (input.appendMarkdown?.trim()) {
+      const append = input.appendMarkdown.trim();
+      nextMarkdown = `${nextMarkdown.replace(/\s*$/, "")}\n\n${append}\n`;
+      patch.markdown = nextMarkdown;
     }
-    if (input.addRisk) {
-      patch.risk = [...(this.strategy.risk ?? []), input.addRisk];
+    if (input.name?.trim()) {
+      patch.name = input.name.trim();
+    } else if (patch.markdown != null) {
+      patch.name = strategyNameFromMarkdown(nextMarkdown, this.strategy.name);
     }
+
     if (!Object.keys(patch).length) {
       return { ok: false as const, error: "update_strategy received no valid fields" };
     }
@@ -623,8 +632,6 @@ export class JournalSession {
     this.updateStrategyPatch = {
       ...(this.updateStrategyPatch ?? {}),
       ...patch,
-      ...(patch.rules ? { rules: this.strategy.rules } : {}),
-      ...(patch.risk ? { risk: this.strategy.risk } : {}),
     };
 
     return {
@@ -632,11 +639,8 @@ export class JournalSession {
       action: "update_strategy",
       strategy: {
         name: this.strategy.name,
-        version: this.strategy.version,
-        summary: this.strategy.summary,
-        rulesCount: this.strategy.rules?.length ?? 0,
-        riskCount: this.strategy.risk?.length ?? 0,
         updatedAt: this.strategy.updatedAt,
+        markdownChars: this.strategy.markdown.length,
       },
     };
   }
@@ -709,49 +713,18 @@ export class JournalSession {
     };
   }
 
-  getStrategy(section: "all" | "summary" | "rules" | "risk" | "targets" | "timeframes" = "all") {
+  getStrategy(_section: "all" | "summary" | "rules" | "risk" | "targets" | "timeframes" = "all") {
     const s = this.strategy;
-    if (section === "summary") {
-      return {
-        ok: true as const,
-        action: "get_strategy",
-        section,
-        strategy: {
-          name: s.name,
-          version: s.version,
-          summary: s.summary,
-          edge: s.edge,
-          approach: s.approach,
-        },
-      };
-    }
-    if (section === "rules") {
-      return { ok: true as const, action: "get_strategy", section, rules: s.rules };
-    }
-    if (section === "risk") {
-      return { ok: true as const, action: "get_strategy", section, risk: s.risk };
-    }
-    if (section === "targets") {
-      return {
-        ok: true as const,
-        action: "get_strategy",
-        section,
-        targets: s.targets,
-      };
-    }
-    if (section === "timeframes") {
-      return {
-        ok: true as const,
-        action: "get_strategy",
-        section,
-        timeframes: s.timeframes,
-      };
-    }
     return {
       ok: true as const,
       action: "get_strategy",
       section: "all" as const,
-      strategy: s,
+      strategy: {
+        name: s.name,
+        updatedAt: s.updatedAt,
+        markdown: markdownForChat(s.markdown),
+      },
+      note: "Full strategy markdown. Embedded images are placeholders here; open the Strategy page to view them.",
     };
   }
 
@@ -829,7 +802,6 @@ export class JournalSession {
       action: "compare_to_strategy",
       strategy: {
         name: this.strategy.name,
-        version: this.strategy.version,
       },
       comparisons,
     };
@@ -840,6 +812,7 @@ function compareTradeToStrategy(trade: Trade, strategy: Strategy) {
   const fits: string[] = [];
   const gaps: string[] = [];
   const unclear: string[] = [];
+  const plan = `${strategy.name}\n${strategy.markdown}`;
 
   if (trade.stop != null && trade.entry != null) {
     fits.push("Has defined entry and stop");
@@ -854,9 +827,7 @@ function compareTradeToStrategy(trade: Trade, strategy: Strategy) {
   }
 
   const sessionHay = `${trade.session ?? ""} ${trade.chartExtract?.sessionGuess ?? ""}`.toLowerCase();
-  const wantsSession = /london|new york|ny\b|asian/i.test(
-    `${strategy.edge} ${strategy.summary} ${strategy.rules.map((r) => r.body).join(" ")}`,
-  );
+  const wantsSession = /london|new york|ny\b|asian/i.test(plan);
   if (wantsSession) {
     if (/london|new york|\bny\b|asian/.test(sessionHay)) {
       fits.push(`Session noted: ${trade.session || trade.chartExtract?.sessionGuess}`);
@@ -866,12 +837,7 @@ function compareTradeToStrategy(trade: Trade, strategy: Strategy) {
   }
 
   const setupHay = `${trade.setup} ${(trade.tags ?? []).join(" ")} ${(trade.chartExtract?.setupTags ?? []).join(" ")}`.toLowerCase();
-  const strategySetupHints = strategy.rules
-    .map((r) => r.title)
-    .concat(strategy.name)
-    .join(" ")
-    .toLowerCase();
-  if (/fvg|fair value|order block|sweep|continuation/.test(strategySetupHints)) {
+  if (/fvg|fair value|order block|sweep|continuation/.test(plan.toLowerCase())) {
     if (/fvg|fair value|order block|sweep|continuation|poi|mss|bos/.test(setupHay)) {
       fits.push("Setup labeling aligns with strategy vocabulary");
     } else {
@@ -879,8 +845,7 @@ function compareTradeToStrategy(trade: Trade, strategy: Strategy) {
     }
   }
 
-  const rrHint = strategy.targets.find((t) => /r:?r|avg r/i.test(t.metric));
-  if (rrHint && /2/.test(rrHint.value) && trade.rMultiple < 0 && trade.result === "loss") {
+  if (/≥\s*2|>=\s*2|1:2|2r/i.test(plan) && trade.rMultiple < 0 && trade.result === "loss") {
     fits.push("Loss is journaled with R — reviewable against risk plan");
   }
   if (trade.result !== "open" && trade.rMultiple >= 2) {

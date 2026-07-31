@@ -1,3 +1,4 @@
+import { markdownForChat } from "@/lib/strategy-md";
 import type { ChartExtract, Strategy, Trade } from "@/lib/types";
 
 export const RELEVANT_TRADES_LIMIT = 10;
@@ -109,16 +110,8 @@ function truncate(text: string, max: number) {
 export function buildStrategyDigest(strategy: Strategy) {
   return {
     name: strategy.name,
-    version: strategy.version,
-    summary: truncate(strategy.summary, 320),
-    edge: truncate(strategy.edge, 280),
-    approach: truncate(strategy.approach, 280),
-    timeframes: strategy.timeframes.map(
-      (tf) => `${tf.role} ${tf.tf}: ${truncate(tf.job, 80)}`,
-    ),
-    rules: strategy.rules.map((r) => `${r.title}: ${truncate(r.body, 140)}`),
-    risk: strategy.risk.map((r) => `${r.title}: ${truncate(r.body, 120)}`),
-    targets: strategy.targets.map((t) => `${t.metric}: ${t.value}`),
+    updatedAt: strategy.updatedAt,
+    markdown: truncate(markdownForChat(strategy.markdown), 4000),
   };
 }
 

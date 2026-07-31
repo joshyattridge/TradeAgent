@@ -2,66 +2,75 @@ import type { Strategy, Trade } from "./types";
 
 export const seedStrategy: Strategy = {
   name: "1H Fair Value Gap Continuation",
-  version: "1.1",
-  summary:
-    "ICT / Smart Money continuation system. Daily/4H bias → 4H POI → liquidity sweep + 1H displacement → enter the 1H FVG at CE. Rules-based, not discretionary vibes.",
-  edge:
-    "Trade only 1H FVGs that form after a liquidity sweep + displacement, aligned with Daily/4H structure, in the correct premium/discount zone, during London or New York.",
-  timeframes: [
-    { role: "Macro", tf: "Weekly", job: "Major structure + weekly open / key levels" },
-    { role: "Bias", tf: "Daily", job: "Direction for the day/week via swings + BOS" },
-    { role: "Zone", tf: "4H", job: "Whitelist POI only: FVG, Order Block, or overlap" },
-    { role: "Entry", tf: "1H", job: "FVG after sweep + displacement; enter at CE" },
-  ],
-  rules: [
-    {
-      title: "Daily bias",
-      body: "Bullish needs HH + HL + bullish BOS. Bearish needs LH + LL + bearish BOS. Mixed structure = no trade.",
-    },
-    {
-      title: "Premium / Discount",
-      body: "Longs only from discount. Shorts only from premium. At EQ (±0.05%) = no trade.",
-    },
-    {
-      title: "4H POI whitelist",
-      body: "Only unmitigated 4H FVG, 4H Order Block, or overlap. No random S/R or trendlines.",
-    },
-    {
-      title: "Liquidity sweep",
-      body: "SSL sweep for longs / BSL sweep for shorts into the POI, then reclaim close within 6 one-hour candles.",
-    },
-    {
-      title: "1H displacement + FVG",
-      body: "C2 body ≥ 1.5× avg of prior 10 bodies, correct direction, creates valid FVG, and prints 1H MSS.",
-    },
-    {
-      title: "Entry model",
-      body: "Primary: limit at CE of the fresh/first-touch 1H FVG. Invalid if body closes through far edge.",
-    },
-  ],
-  risk: [
-    {
-      title: "Risk per trade",
-      body: "Risk a fixed R. Stop beyond invalidation of the FVG / sweep structure.",
-    },
-    {
-      title: "Weekly volume",
-      body: "Max 2–6 quality trades per week. Skip third-touch FVGs and revenge re-entries at the same POI.",
-    },
-    {
-      title: "Drawdown soft stop",
-      body: "Soft stop at −6R / month. If expectancy dies over 30+ closed trades, stop and review rules.",
-    },
-  ],
-  targets: [
-    { metric: "Win rate", value: "40–55%" },
-    { metric: "Avg R:R", value: "≥ 1:2.0" },
-    { metric: "Expectancy", value: "≥ +0.35R / trade" },
-    { metric: "Max trades / week", value: "2–6" },
-    { metric: "Max DD", value: "−6R / month soft stop" },
-  ],
-  approach:
-    "Before every trade: lock Daily bias → confirm PD zone → wait for whitelist 4H POI → require sweep + 1H displacement + MSS → enter CE of the 1H FVG → manage to ≥2R or structure target. If any checklist item fails, stand down.",
+  markdown: `# 1H Fair Value Gap Continuation
+
+*Version 1.1*
+
+ICT / Smart Money continuation system. Daily/4H bias → 4H POI → liquidity sweep + 1H displacement → enter the 1H FVG at CE. Rules-based, not discretionary vibes.
+
+## Edge
+
+Trade only 1H FVGs that form after a liquidity sweep + displacement, aligned with Daily/4H structure, in the correct premium/discount zone, during London or New York.
+
+## Approach
+
+Before every trade: lock Daily bias → confirm PD zone → wait for whitelist 4H POI → require sweep + 1H displacement + MSS → enter CE of the 1H FVG → manage to ≥2R or structure target. If any checklist item fails, stand down.
+
+## Timeframes
+
+- **Macro (Weekly):** Major structure + weekly open / key levels
+- **Bias (Daily):** Direction for the day/week via swings + BOS
+- **Zone (4H):** Whitelist POI only: FVG, Order Block, or overlap
+- **Entry (1H):** FVG after sweep + displacement; enter at CE
+
+## Rules
+
+### Daily bias
+
+Bullish needs HH + HL + bullish BOS. Bearish needs LH + LL + bearish BOS. Mixed structure = no trade.
+
+### Premium / Discount
+
+Longs only from discount. Shorts only from premium. At EQ (±0.05%) = no trade.
+
+### 4H POI whitelist
+
+Only unmitigated 4H FVG, 4H Order Block, or overlap. No random S/R or trendlines.
+
+### Liquidity sweep
+
+SSL sweep for longs / BSL sweep for shorts into the POI, then reclaim close within 6 one-hour candles.
+
+### 1H displacement + FVG
+
+C2 body ≥ 1.5× avg of prior 10 bodies, correct direction, creates valid FVG, and prints 1H MSS.
+
+### Entry model
+
+Primary: limit at CE of the fresh/first-touch 1H FVG. Invalid if body closes through far edge.
+
+## Risk
+
+### Risk per trade
+
+Risk a fixed R. Stop beyond invalidation of the FVG / sweep structure.
+
+### Weekly volume
+
+Max 2–6 quality trades per week. Skip third-touch FVGs and revenge re-entries at the same POI.
+
+### Drawdown soft stop
+
+Soft stop at −6R / month. If expectancy dies over 30+ closed trades, stop and review rules.
+
+## Targets
+
+- **Win rate:** 40–55%
+- **Avg R:R:** ≥ 1:2.0
+- **Expectancy:** ≥ +0.35R / trade
+- **Max trades / week:** 2–6
+- **Max DD:** −6R / month soft stop
+`,
   updatedAt: new Date().toISOString(),
 };
 

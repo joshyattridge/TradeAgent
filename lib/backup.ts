@@ -1,4 +1,5 @@
 import type { Strategy, Trade, TradeResult, TradeSide } from "./types";
+import { normalizeStrategy } from "./strategy-md";
 
 export const BACKUP_FORMAT = "tradeagent-journal" as const;
 export const BACKUP_VERSION = 1 as const;
@@ -125,27 +126,36 @@ function parseTrade(raw: unknown, index: number): Trade | string {
 function parseStrategy(raw: unknown): Strategy | string {
   if (!isRecord(raw)) return "Strategy must be an object";
 
-  const requiredStrings = [
-    "name",
-    "version",
-    "summary",
-    "edge",
-    "approach",
-    "updatedAt",
-  ] as const;
-  for (const key of requiredStrings) {
-    if (typeof raw[key] !== "string") {
-      return `Strategy is missing a valid ${key}`;
+  // New markdown shape
+  if (typeof raw.markdown === "string") {
+    if (typeof raw.updatedAt !== "string" || !raw.updatedAt) {
+      return "Strategy is missing a valid updatedAt";
     }
+    const name =
+      typeof raw.name === "string" && raw.name.trim()
+        ? raw.name.trim()
+        : "Trading strategy";
+    return {
+      name,
+      markdown: raw.markdown,
+      updatedAt: raw.updatedAt,
+    };
   }
 
+  // Legacy structured shape → migrate to markdown
+  const requiredLegacy = ["name", "summary", "edge", "approach", "updatedAt"] as const;
+  for (const key of requiredLegacy) {
+    if (typeof raw[key] !== "string") {
+      return `Strategy is missing a valid ${key} (or markdown)`;
+    }
+  }
   for (const key of ["timeframes", "rules", "risk", "targets"] as const) {
     if (!Array.isArray(raw[key])) {
       return `Strategy.${key} must be an array`;
     }
   }
 
-  return raw as Strategy;
+  return normalizeStrategy(raw);
 }
 
 /** Build a portable backup of trades + strategy (no API key / chat). */

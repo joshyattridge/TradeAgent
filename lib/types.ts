@@ -60,15 +60,10 @@ export interface Trade {
 }
 
 export interface Strategy {
+  /** Display name (usually the first markdown H1) */
   name: string;
-  version: string;
-  summary: string;
-  edge: string;
-  timeframes: { role: string; tf: string; job: string }[];
-  rules: { title: string; body: string }[];
-  risk: { title: string; body: string }[];
-  targets: { metric: string; value: string }[];
-  approach: string;
+  /** Full strategy document as markdown (images may be data URLs) */
+  markdown: string;
   updatedAt: string;
 }
 

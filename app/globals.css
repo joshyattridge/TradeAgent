@@ -784,6 +784,195 @@ textarea {
   gap: 1rem;
 }
 
+.strategy-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  flex-wrap: wrap;
+}
+
+.strategy-meta {
+  display: flex;
+  gap: 0.55rem;
+  flex-wrap: wrap;
+  margin: -0.35rem 0 1rem;
+}
+
+.pill {
+  padding: 0.25rem 0.65rem;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  font-size: 0.75rem;
+  color: var(--ink-soft);
+  background: rgba(255, 253, 248, 0.7);
+}
+
+.pill--warn {
+  border-color: rgba(217, 119, 6, 0.35);
+  color: var(--amber);
+  background: rgba(217, 119, 6, 0.1);
+}
+
+.strategy-error {
+  margin: 0 0 0.85rem;
+  color: var(--coral);
+  font-size: 0.9rem;
+}
+
+.strategy-editor {
+  padding: 0.85rem 1rem 1rem;
+}
+
+.strategy-editor__textarea {
+  width: 100%;
+  min-height: min(70vh, 40rem);
+  resize: vertical;
+  border: 1px solid var(--line);
+  border-radius: calc(var(--radius) - 4px);
+  background: rgba(255, 253, 248, 0.95);
+  color: var(--ink);
+  padding: 1rem 1.05rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.92rem;
+  line-height: 1.55;
+}
+
+.strategy-editor__textarea:focus {
+  outline: 2px solid rgba(13, 148, 136, 0.35);
+  outline-offset: 1px;
+}
+
+.strategy-editor__hint {
+  margin: 0.65rem 0 0;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.strategy-editor__hint code {
+  font-size: 0.8rem;
+}
+
+.strategy-doc {
+  padding: 1.25rem 1.4rem 1.5rem;
+}
+
+.markdown-body {
+  color: var(--ink-soft);
+  font-size: 1.02rem;
+  line-height: 1.65;
+  max-width: 48rem;
+}
+
+.markdown-body > *:first-child {
+  margin-top: 0;
+}
+
+.markdown-body h1,
+.markdown-body h2,
+.markdown-body h3,
+.markdown-body h4 {
+  color: var(--ink);
+  font-family: var(--font-display);
+  letter-spacing: -0.03em;
+  line-height: 1.15;
+  margin: 1.6rem 0 0.65rem;
+}
+
+.markdown-body h1 {
+  font-size: clamp(1.9rem, 4vw, 2.6rem);
+  margin-top: 0;
+}
+
+.markdown-body h2 {
+  font-size: 1.45rem;
+  padding-bottom: 0.35rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.markdown-body h3 {
+  font-size: 1.15rem;
+}
+
+.markdown-body p,
+.markdown-body ul,
+.markdown-body ol,
+.markdown-body blockquote,
+.markdown-body pre {
+  margin: 0.75rem 0;
+}
+
+.markdown-body ul,
+.markdown-body ol {
+  padding-left: 1.35rem;
+}
+
+.markdown-body li + li {
+  margin-top: 0.3rem;
+}
+
+.markdown-body a {
+  color: var(--teal-deep);
+}
+
+.markdown-body strong {
+  color: var(--ink);
+}
+
+.markdown-body blockquote {
+  border-left: 3px solid rgba(13, 148, 136, 0.45);
+  padding-left: 0.9rem;
+  color: var(--muted);
+}
+
+.markdown-body code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.88em;
+  background: rgba(28, 25, 23, 0.06);
+  padding: 0.1rem 0.35rem;
+  border-radius: 6px;
+}
+
+.markdown-body pre {
+  overflow-x: auto;
+  background: rgba(28, 25, 23, 0.05);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 0.85rem 1rem;
+}
+
+.markdown-body pre code {
+  background: none;
+  padding: 0;
+}
+
+.markdown-body img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 1rem 0;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+}
+
+.markdown-body table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.95rem;
+  margin: 1rem 0;
+}
+
+.markdown-body th,
+.markdown-body td {
+  border: 1px solid var(--line);
+  padding: 0.45rem 0.65rem;
+  text-align: left;
+}
+
+.markdown-body th {
+  background: rgba(28, 25, 23, 0.04);
+  color: var(--ink);
+}
+
 .strategy-hero {
   padding: 1.4rem 1.5rem;
   border-radius: calc(var(--radius) + 4px);
@@ -798,15 +987,6 @@ textarea {
   gap: 0.6rem;
   flex-wrap: wrap;
   margin-bottom: 0.75rem;
-}
-
-.pill {
-  padding: 0.25rem 0.65rem;
-  border-radius: 999px;
-  border: 1px solid var(--line);
-  font-size: 0.75rem;
-  color: var(--ink-soft);
-  background: rgba(255, 253, 248, 0.7);
 }
 
 .strategy-hero h1 {
@@ -1429,9 +1609,20 @@ textarea {
   transition: transform 0.2s ease, background 0.2s ease;
 }
 
+.primary-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  transform: none;
+}
+
 .primary-btn:hover {
   transform: translateY(-1px);
   background: #292524;
+}
+
+.primary-btn:disabled:hover {
+  transform: none;
+  background: var(--ink);
 }
 
 .ghost-btn {

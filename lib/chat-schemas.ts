@@ -182,23 +182,18 @@ export const deleteTradeSchema = z
   });
 
 export const updateStrategySchema = z.object({
-  name: z.string().optional(),
-  version: z.string().optional(),
-  summary: z.string().optional(),
-  edge: z.string().optional(),
-  approach: z.string().optional(),
-  addRule: z
-    .object({
-      title: z.string(),
-      body: z.string(),
-    })
-    .optional(),
-  addRisk: z
-    .object({
-      title: z.string(),
-      body: z.string(),
-    })
-    .optional(),
+  markdown: z
+    .string()
+    .optional()
+    .describe("Replace the full strategy markdown document"),
+  appendMarkdown: z
+    .string()
+    .optional()
+    .describe("Append markdown to the end of the strategy document"),
+  name: z
+    .string()
+    .optional()
+    .describe("Optional display name override (defaults from first H1)"),
 });
 
 const metricField = z.enum([
@@ -309,11 +304,12 @@ export const compareToStrategySchema = z.object({
 });
 
 export const getStrategySchema = z.object({
+  // Kept for backwards-compatible tool calls; always returns the full markdown.
   section: z
     .enum(["all", "summary", "rules", "risk", "targets", "timeframes"])
     .optional()
     .default("all")
-    .describe("Which part of the strategy to return"),
+    .describe("Ignored — always returns the full strategy markdown"),
 });
 
 export const getTradeSchema = z.object({

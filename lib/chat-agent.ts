@@ -166,7 +166,7 @@ function createJournalTools(session: JournalSession) {
   return {
     get_strategy: tool({
       description:
-        "Read the user's trading strategy (summary, rules, risk, targets, or all). Call this when coaching or checking plan fit — strategy is NOT in the default prompt.",
+        "Read the user's full trading strategy markdown document. Call this when coaching or checking plan fit — strategy is NOT in the default prompt.",
       inputSchema: getStrategySchema,
       execute: async (input) => session.getStrategy(input.section ?? "all"),
     }),
@@ -206,7 +206,8 @@ function createJournalTools(session: JournalSession) {
       execute: async (input) => session.deleteTrade(input),
     }),
     update_strategy: tool({
-      description: "Patch strategy fields or append a rule/risk item.",
+      description:
+        "Update the strategy markdown document (replace markdown, append markdown, and/or set name).",
       inputSchema: updateStrategySchema,
       execute: async (input) => session.updateStrategy(input),
     }),
@@ -244,7 +245,7 @@ This product is conversational. The user runs their whole journal through chat: 
 
 On-demand context (IMPORTANT):
 - Do NOT assume you already know the strategy or trade log. They are NOT included in this prompt.
-- Call get_strategy when you need the plan/rules/risk (or before coaching against the strategy).
+- Call get_strategy when you need the full strategy markdown (or before coaching against the strategy).
 - Call query_trades / find_trade / get_trade / get_stats when you need history or to identify a row.
 - Before answering questions about "my trades", "entries", "closed trades", or journal size: ALWAYS call query_trades (omit result filter for the full book). Trust journal.total/open/closed from the tool result — never invent or reuse a count from earlier chat.
 - If the user says there are more trades than you returned, re-query with a higher limit and no result filter before answering again.
