@@ -36,19 +36,6 @@ function fullTrade(overrides: Partial<Trade> = {}): Trade {
     session: "London",
     tags: ["fvg", "london", "a+"],
     screenshots: ["data:image/png;base64,abc"],
-    chartExtract: {
-      levels: {
-        entry: 1.1682,
-        stop: 1.1658,
-        target: 1.173,
-        exit: 1.17,
-      },
-      setupTags: ["fvg", "sweep"],
-      bias: "bullish",
-      sessionGuess: "London",
-      notes: "chart note",
-      extractedAt: "2026-07-20T08:00:00.000Z",
-    },
     ...overrides,
   };
 }
@@ -78,12 +65,6 @@ function siblingTrade(): Trade {
     session: "New York",
     tags: ["ob", "ny"],
     screenshots: ["data:image/png;base64,sibling"],
-    chartExtract: {
-      levels: { entry: 195.5, stop: 196 },
-      bias: "bearish",
-      setupTags: ["ob"],
-      extractedAt: "2026-07-21T12:00:00.000Z",
-    },
   });
 }
 
@@ -179,11 +160,10 @@ describe("trade mutation schemas", () => {
       size: "0.5 lots",
       feesUsd: 1,
       session: "Asian",
-      chartExtract: { bias: "bearish", levels: { entry: 0.65 } },
     });
     expect(parsed.notes).toBe("initial");
     expect(parsed.tags).toEqual(["ny"]);
-    expect(parsed.chartExtract?.bias).toBe("bearish");
+    expect(parsed.session).toBe("Asian");
   });
 
   it("patchTradeSchema strips notes/tags so they cannot be overwritten via patch", () => {
@@ -286,11 +266,6 @@ describe("log_trade", () => {
       slPips: 100,
       tpPips: 200,
       entryTime: "2026-07-30T08:00:00.000Z",
-      chartExtract: {
-        levels: { entry: 2400, stop: 2390, target: 2420 },
-        bias: "bullish",
-        setupTags: ["fvg"],
-      },
     });
     expect(res.ok).toBe(true);
     expect(res.action).toBe("log_trade");
@@ -298,7 +273,7 @@ describe("log_trade", () => {
     expect(res.trade.notes).toBe("opened from screenshot");
     expect(res.trade.tags).toEqual(["gold"]);
     expect(res.trade.session).toBe("London");
-    expect(res.trade.chartExtract?.levels?.entry).toBe(2400);
+    expect(res.trade.entry).toBe(2400);
     expect(session.trades).toHaveLength(1);
   });
 
@@ -386,30 +361,6 @@ describe("patch_trade — per-field updates preserve everything else", () => {
     },
   );
 
-  it("updates chartExtract by merge without wiping prior extract or notes/tags", () => {
-    const before = fullTrade();
-    const session = makeSession([before, siblingTrade()]);
-    const res = session.patchTrade({
-      id: before.id,
-      chartExtract: {
-        levels: { exit: 1.172 },
-        sessionGuess: "New York",
-        setupTags: ["mss"],
-      },
-    });
-    expect(res.ok).toBe(true);
-    const after = session.trades.find((t) => t.id === before.id)!;
-    expect(after.chartExtract?.levels?.entry).toBe(1.1682);
-    expect(after.chartExtract?.levels?.stop).toBe(1.1658);
-    expect(after.chartExtract?.levels?.exit).toBe(1.172);
-    expect(after.chartExtract?.bias).toBe("bullish");
-    expect(after.chartExtract?.sessionGuess).toBe("New York");
-    expect(after.chartExtract?.setupTags).toEqual(["fvg", "sweep", "mss"]);
-    expect(after.notes).toBe(before.notes);
-    expect(after.tags).toEqual(before.tags);
-    expectUnchangedExcept(before, after, ["chartExtract"]);
-  });
-
   it("can close a trade with many outcome fields at once without touching notes/tags", () => {
     const before = fullTrade({
       result: "open",
@@ -441,7 +392,6 @@ describe("patch_trade — per-field updates preserve everything else", () => {
     expect(after.setup).toBe(before.setup);
     expect(after.entry).toBe(before.entry);
     expect(after.screenshots).toEqual(before.screenshots);
-    expect(after.chartExtract).toEqual(before.chartExtract);
   });
 
   it("fails on missing id with no silent redirect and leaves journal untouched", () => {
@@ -541,7 +491,6 @@ describe("annotate_trade — notes/tags only, never field overwrites", () => {
     "result",
     "session",
     "screenshots",
-    "chartExtract",
   ];
 
   function expectFieldsUntouched(before: Trade, after: Trade) {
@@ -816,7 +765,6 @@ describe("combined workflows and overwrite safety", () => {
       exit: 196,
       rMultiple: 2,
       pnlUsd: 200,
-      chartExtract: { levels: { entry: 195, exit: 196 }, bias: "bull" },
     });
     expect(patched.ok).toBe(true);
     expect(patched.trade.notes).toBe("opened");
@@ -836,7 +784,6 @@ describe("combined workflows and overwrite safety", () => {
     expect(annotated.trade.exit).toBe(196);
     expect(annotated.trade.entry).toBe(195);
     expect(annotated.trade.session).toBe("London");
-    expect(annotated.trade.chartExtract?.bias).toBe("bull");
   });
 
   it("patching trade A never mutates trade B fields", () => {
@@ -890,6 +837,26 @@ describe("combined workflows and overwrite safety", () => {
 });
 
 describe("LLM misuse / accidental wipe defenses", () => {
+  it("normalizes UTC+1 prose entry/exit times to ISO on patch", () => {
+    const before = fullTrade({
+      entryTime: "2026-07-30",
+      exitTime: undefined,
+      timeInTradeMinutes: undefined,
+    });
+    const session = makeSession([before]);
+    const res = session.patchTrade({
+      id: before.id,
+      entryTime: "2026-07-30 15:52:45 UTC+1",
+      exitTime: "2026-07-30 16:44:26 UTC+1",
+      timeInTradeMinutes: 51,
+    });
+    expect(res.ok).toBe(true);
+    const after = session.trades[0];
+    expect(after.entryTime).toBe("2026-07-30T14:52:45.000Z");
+    expect(after.exitTime).toBe("2026-07-30T15:44:26.000Z");
+    expect(after.timeInTradeMinutes).toBe(51);
+  });
+
   it("empty-string filler on patch does not wipe session/setup/size", () => {
     const before = fullTrade();
     const session = makeSession([before]);
@@ -950,22 +917,6 @@ describe("LLM misuse / accidental wipe defenses", () => {
     expect(Object.prototype.hasOwnProperty.call(update!, "screenshots")).toBe(
       false,
     );
-  });
-
-  it("chartExtract partial update does not wipe prior levels/bias/notes/tags", () => {
-    const before = fullTrade();
-    const session = makeSession([before]);
-    session.patchTrade({
-      id: before.id,
-      chartExtract: { levels: { exit: 1.171 }, setupTags: [] },
-    });
-    const after = session.trades[0];
-    expect(after.chartExtract?.levels?.entry).toBe(1.1682);
-    expect(after.chartExtract?.levels?.exit).toBe(1.171);
-    expect(after.chartExtract?.bias).toBe("bullish");
-    expect(after.chartExtract?.setupTags).toEqual(["fvg", "sweep"]);
-    expect(after.notes).toBe(before.notes);
-    expect(after.tags).toEqual(before.tags);
   });
 
   it("wrong-id patch cannot retarget via symbol/entry hints", () => {

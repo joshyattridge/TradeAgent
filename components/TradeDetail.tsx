@@ -6,11 +6,9 @@ import { MessageSquare, Trash2, X } from "lucide-react";
 import { useTradingStore } from "@/lib/store";
 import type { Trade } from "@/lib/types";
 import {
-  formatClock,
   formatDuration,
   formatPips,
   formatPnlUsd,
-  formatTradeDate,
   formatTradeDateTime,
   getSlPips,
   getTimeInTradeMinutes,
@@ -138,7 +136,6 @@ export function TradeDetail({
           </div>
 
           <div className="trade-detail__grid">
-            <Row label="Date">{formatTradeDate(trade.date)}</Row>
             <Row label="Session">{trade.session ?? "—"}</Row>
             <Row label="Setup" wide>
               {trade.setup}
@@ -183,12 +180,6 @@ export function TradeDetail({
             <Row label="Fees $">
               <span className="mono">
                 {trade.feesUsd != null ? `$${trade.feesUsd.toFixed(2)}` : "—"}
-              </span>
-            </Row>
-            <Row label="Clock" wide>
-              <span className="mono">
-                {formatClock(trade.entryTime, trade.date)} →{" "}
-                {formatClock(trade.exitTime, trade.date)}
               </span>
             </Row>
           </div>

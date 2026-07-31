@@ -1,5 +1,5 @@
 import { markdownForChat } from "@/lib/strategy-md";
-import type { ChartExtract, Strategy, Trade } from "@/lib/types";
+import type { Strategy, Trade } from "@/lib/types";
 
 export const RELEVANT_TRADES_LIMIT = 10;
 export const TRADE_INDEX_LIMIT = 80;
@@ -34,7 +34,6 @@ export type TradeSnapshot = {
   session?: string;
   notes?: string;
   tags?: string[];
-  chartExtract?: ChartExtract;
   hasScreenshots: boolean;
 };
 
@@ -72,7 +71,6 @@ export function tradeSnapshot(trade: Trade): TradeSnapshot {
     session: trade.session,
     notes: trade.notes,
     tags: trade.tags,
-    chartExtract: trade.chartExtract,
     hasScreenshots: Boolean(
       trade.screenshots?.some((s) => s && s !== "pending"),
     ),

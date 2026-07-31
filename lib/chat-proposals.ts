@@ -1,4 +1,5 @@
 import { normalizeStrategy, strategyNameFromMarkdown } from "@/lib/strategy-md";
+import { formatTradeDateTime, normalizeTradeDateTime } from "@/lib/trade-format";
 import type { ChartSpec, Strategy, Trade } from "@/lib/types";
 
 export interface ChatActionPayload {
@@ -69,7 +70,6 @@ const TRADE_COMPARE_KEYS: (keyof Trade)[] = [
   "session",
   "tags",
   "screenshots",
-  "chartExtract",
 ];
 
 function valuesEqual(a: unknown, b: unknown): boolean {
@@ -100,6 +100,15 @@ export function mergeTradePatch(
     if (value !== undefined) {
       (next as unknown as Record<string, unknown>)[key] = value;
     }
+  }
+  const date = next.date ?? before.date;
+  if (typeof next.entryTime === "string" && next.entryTime.trim()) {
+    next.entryTime =
+      normalizeTradeDateTime(next.entryTime, date) ?? next.entryTime;
+  }
+  if (typeof next.exitTime === "string" && next.exitTime.trim()) {
+    next.exitTime =
+      normalizeTradeDateTime(next.exitTime, date) ?? next.exitTime;
   }
   return next;
 }
@@ -369,7 +378,6 @@ export const TRADE_FIELD_LABELS: Partial<Record<keyof Trade, string>> = {
   session: "Session",
   tags: "Tags",
   screenshots: "Screenshots",
-  chartExtract: "Chart extract",
 };
 
 export function formatTradeFieldValue(
@@ -384,12 +392,8 @@ export function formatTradeFieldValue(
   if (key === "screenshots" && Array.isArray(value)) {
     return value.length ? `${value.length} image${value.length > 1 ? "s" : ""}` : "—";
   }
-  if (key === "chartExtract" && typeof value === "object") {
-    try {
-      return JSON.stringify(value);
-    } catch {
-      return "[extract]";
-    }
+  if ((key === "entryTime" || key === "exitTime") && typeof value === "string") {
+    return formatTradeDateTime(value, trade.date, "MMM d, yyyy HH:mm:ss");
   }
   if (key === "rMultiple" && typeof value === "number") {
     return `${value > 0 ? "+" : ""}${value.toFixed(2)}R`;

@@ -13,11 +13,14 @@ import {
 import { planChatDone } from "@/lib/chat-proposals";
 import { applyChatActions, useTradingStore } from "@/lib/store";
 import { buildChartFromRequest, computeStats } from "@/lib/stats";
-import { formatTradeDate } from "@/lib/trade-format";
+import { formatTradeDate, formatTradeDateTime } from "@/lib/trade-format";
 import type { ChartRequest, ChartSpec, Trade } from "@/lib/types";
 
 function tradeRefLabel(trade: Trade) {
-  return `${trade.symbol} ${trade.side} · ${formatTradeDate(trade.date)}`;
+  const when = trade.entryTime
+    ? formatTradeDateTime(trade.entryTime, trade.date)
+    : formatTradeDate(trade.date);
+  return `${trade.symbol} ${trade.side} · ${when}`;
 }
 
 function buildReferencedTradePrefix(trade: Trade) {

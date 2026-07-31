@@ -10,11 +10,11 @@ import {
 import { useTradingStore } from "@/lib/store";
 import type { Trade } from "@/lib/types";
 import {
-  formatClock,
   formatDuration,
   formatPips,
   formatPnlUsd,
   formatTradeDate,
+  formatTradeDateTime,
   getSlPips,
   getTimeInTradeMinutes,
   getTpPips,
@@ -83,11 +83,17 @@ function cellValue(trade: Trade, column: TradeColumnId) {
       return <span className="mono">{trade.exit ?? "—"}</span>;
     case "entryTime":
       return (
-        <span className="mono">{formatClock(trade.entryTime, trade.date)}</span>
+        <span className="mono">
+          {trade.entryTime
+            ? formatTradeDateTime(trade.entryTime, trade.date)
+            : formatTradeDate(trade.date)}
+        </span>
       );
     case "exitTime":
       return (
-        <span className="mono">{formatClock(trade.exitTime, trade.date)}</span>
+        <span className="mono">
+          {formatTradeDateTime(trade.exitTime, trade.date)}
+        </span>
       );
     case "timeInTrade":
       return (
@@ -262,7 +268,7 @@ export function TradeTable({ trades }: { trades: Trade[] }) {
   const resetTradeColumns = useTradingStore((s) => s.resetTradeColumns);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [columnsOpen, setColumnsOpen] = useState(false);
-  const [sortColumn, setSortColumn] = useState<TradeColumnId>("date");
+  const [sortColumn, setSortColumn] = useState<TradeColumnId>("entryTime");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
 
   const visible = useMemo(

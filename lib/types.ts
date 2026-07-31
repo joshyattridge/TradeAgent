@@ -1,21 +1,6 @@
 export type TradeSide = "long" | "short";
 export type TradeResult = "win" | "loss" | "breakeven" | "open";
 
-/** Structured values pulled from a chart screenshot for follow-up turns */
-export interface ChartExtract {
-  levels?: {
-    entry?: number;
-    stop?: number;
-    target?: number;
-    exit?: number;
-  };
-  setupTags?: string[];
-  bias?: string;
-  sessionGuess?: string;
-  notes?: string;
-  extractedAt?: string;
-}
-
 export interface Trade {
   id: string;
   /** Calendar date YYYY-MM-DD */
@@ -55,8 +40,6 @@ export interface Trade {
   tags?: string[];
   /** Chart screenshots / images attached when the trade was logged */
   screenshots?: string[];
-  /** Structured screenshot read — survives follow-ups without re-sending images */
-  chartExtract?: ChartExtract;
 }
 
 export interface Strategy {

@@ -1,6 +1,73 @@
 import { differenceInMinutes, format, isValid, parseISO } from "date-fns";
 import type { Trade } from "./types";
 
+function padTimePart(time: string): string {
+  const [h, m, s] = time.split(":");
+  const hh = (h ?? "0").padStart(2, "0");
+  const mm = (m ?? "00").padStart(2, "0");
+  if (s == null) return `${hh}:${mm}:00`;
+  const [sec, frac] = s.split(".");
+  const ss = (sec ?? "00").padStart(2, "0");
+  return frac != null ? `${hh}:${mm}:${ss}.${frac}` : `${hh}:${mm}:${ss}`;
+}
+
+/**
+ * Coerce common LLM / broker datetime strings into something parseISO can read.
+ * e.g. "2026-07-30 15:52:45 UTC+1" → "2026-07-30T15:52:45+01:00"
+ */
+export function coerceDateTimeString(raw: string): string {
+  let v = raw.trim();
+  if (!v) return v;
+
+  // "… UTC+1" / "UTC+01" / "GMT-5" / "UTC+01:00"
+  const withNamedOffset = v.match(
+    /^(\d{4}-\d{2}-\d{2})[ T](\d{1,2}:\d{2}(?::\d{2})?(?:\.\d+)?)\s*(?:UTC|GMT)\s*([+-])\s*(\d{1,2})(?::?(\d{2}))?\s*$/i,
+  );
+  if (withNamedOffset) {
+    const [, date, time, sign, oh, om] = withNamedOffset;
+    const offset = `${sign}${oh.padStart(2, "0")}:${(om ?? "00").padStart(2, "0")}`;
+    return `${date}T${padTimePart(time)}${offset}`;
+  }
+
+  // "… UTC" / "… GMT" → Z
+  const withUtcZ = v.match(
+    /^(\d{4}-\d{2}-\d{2})[ T](\d{1,2}:\d{2}(?::\d{2})?(?:\.\d+)?)\s*(?:UTC|GMT)\s*$/i,
+  );
+  if (withUtcZ) {
+    return `${withUtcZ[1]}T${padTimePart(withUtcZ[2])}Z`;
+  }
+
+  // "2026-07-30 15:52:45+01:00" (space before time, numeric offset)
+  const spaceWithOffset = v.match(
+    /^(\d{4}-\d{2}-\d{2}) (\d{1,2}:\d{2}(?::\d{2})?(?:\.\d+)?)(Z|[+-]\d{2}:?\d{2})$/i,
+  );
+  if (spaceWithOffset) {
+    let off = spaceWithOffset[3].toUpperCase();
+    if (/^[+-]\d{4}$/.test(off)) {
+      off = `${off.slice(0, 3)}:${off.slice(3)}`;
+    }
+    return `${spaceWithOffset[1]}T${padTimePart(spaceWithOffset[2])}${off}`;
+  }
+
+  // "2026-07-30 15:52:45" → T separator
+  const spaceSep = v.match(
+    /^(\d{4}-\d{2}-\d{2}) (\d{1,2}:\d{2}(?::\d{2})?(?:\.\d+)?)$/,
+  );
+  if (spaceSep) {
+    return `${spaceSep[1]}T${padTimePart(spaceSep[2])}`;
+  }
+
+  // Ensure T form has padded time
+  const isoish = v.match(
+    /^(\d{4}-\d{2}-\d{2})T(\d{1,2}:\d{2}(?::\d{2})?(?:\.\d+)?)(.*)$/i,
+  );
+  if (isoish) {
+    return `${isoish[1]}T${padTimePart(isoish[2])}${isoish[3]}`;
+  }
+
+  return v;
+}
+
 /**
  * Parse trade datetime fields that may be full ISO, date-only, or time-only
  * (e.g. "12:45:41" from a broker screenshot) combined with calendar date.
@@ -15,7 +82,7 @@ export function parseTradeDateTime(
     return isValid(d) ? d : null;
   }
 
-  const value = raw.trim();
+  const value = coerceDateTimeString(raw);
   const iso = parseISO(value);
   if (isValid(iso)) return iso;
 
@@ -41,6 +108,26 @@ export function parseTradeDateTime(
   return null;
 }
 
+/**
+ * Normalize a trade datetime to ISO-8601 UTC for storage.
+ * Returns undefined for empty input; returns original trim if unparseable.
+ */
+export function normalizeTradeDateTime(
+  raw?: string,
+  fallbackDate?: string,
+): string | undefined {
+  if (!raw?.trim()) return undefined;
+  const d = parseTradeDateTime(raw, fallbackDate);
+  if (!d) return raw.trim();
+  // Time-only without a calendar date — keep as HH:mm:ss so callers can attach date later
+  if (/^\d{1,2}:\d{2}(?::\d{2})?$/.test(raw.trim()) && !fallbackDate) {
+    const m = raw.trim().match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?$/);
+    if (!m) return raw.trim();
+    return `${m[1].padStart(2, "0")}:${m[2]}:${(m[3] ?? "00").padStart(2, "0")}`;
+  }
+  return d.toISOString();
+}
+
 export function formatTradeDateTime(
   raw?: string,
   fallbackDate?: string,
@@ -53,6 +140,8 @@ export function formatTradeDateTime(
   try {
     // Time-only without a calendar date — show clock only
     if (timeOnly && !fallbackDate) return format(d, "HH:mm");
+    // Date-only input should not pretend to have a real clock time
+    if (/^\d{4}-\d{2}-\d{2}$/.test(raw.trim())) return format(d, "MMM d, yyyy");
     return format(d, pattern);
   } catch {
     return "—";

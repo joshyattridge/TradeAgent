@@ -132,7 +132,7 @@ function ChangeBlock({ change }: { change: ProposalChange }) {
         </header>
         <TradeFieldRows
           trade={change.before}
-          keys={["date", "setup", "result", "rMultiple", "pnlUsd", "notes"]}
+          keys={["entryTime", "setup", "result", "rMultiple", "pnlUsd", "notes"]}
           mode="before"
         />
       </section>

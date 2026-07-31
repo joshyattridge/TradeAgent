@@ -172,7 +172,7 @@ function createJournalTools(session: JournalSession) {
     }),
     get_trade: tool({
       description:
-        "Fetch one trade by id (full snapshot including chartExtract). Get the id from find_trade or query_trades first.",
+        "Fetch one trade by id (full snapshot). Get the id from find_trade or query_trades first.",
       inputSchema: getTradeSchema,
       execute: async (input) => session.getTrade(input.id),
     }),
@@ -184,13 +184,13 @@ function createJournalTools(session: JournalSession) {
     }),
     log_trade: tool({
       description:
-        "Create a NEW trade only — never updates an existing row. Returns the new id; use patch_trade for field follow-ups and annotate_trade for notes/tags. When reading a screenshot, also fill chartExtract with levels/setupTags/bias/sessionGuess.",
+        "Create a NEW trade only — never updates an existing row. Returns the new id; use patch_trade for field follow-ups and annotate_trade for notes/tags. When reading a screenshot, extract levels into the normal trade fields (entry/stop/target/exit/session/setup).",
       inputSchema: logTradeSchema,
       execute: async (input) => session.logTrade(input),
     }),
     patch_trade: tool({
       description:
-        "Partial update of trade fields by exact id (levels, result, session, setup, PnL, chartExtract, etc). Does NOT touch notes or tags — use annotate_trade for those. Never guess ids; call find_trade / query_trades first. No silent retargeting.",
+        "Partial update of trade fields by exact id (levels, result, session, setup, PnL, etc). Does NOT touch notes or tags — use annotate_trade for those. Never guess ids; call find_trade / query_trades first. No silent retargeting.",
       inputSchema: patchTradeSchema,
       execute: async (input) => session.patchTrade(input),
     }),
@@ -261,7 +261,7 @@ Identifying which trade to update:
 
 Trade mutations (split tools — use the right one):
 - log_trade: brand-new position only. Never for follow-ups on an existing row.
-- patch_trade: field changes (levels, result, session, setup, PnL, chartExtract). Does NOT touch notes/tags.
+- patch_trade: field changes (levels, result, session, setup, PnL). Does NOT touch notes/tags.
 - annotate_trade: notes/tags only. Prefer appendNote + addTags/removeTags. Use replaceNotes/replaceTags only when the user asks to rewrite/overwrite.
 - delete_trade: remove by exact id. For multiple trades, call once with ids or call per trade — there is no bulk field-update tool.
 - After log_trade, further details about THAT trade MUST use patch_trade / annotate_trade on the returned id.
@@ -278,7 +278,8 @@ Tool loop (Vercel AI SDK):
 - Tools execute immediately and return JSON results (ids, errors, stats, chart summaries).
 - Never claim a change succeeded unless a tool result returned ok: true.
 - If a tool fails validation or execution, read the error/issues and retry with corrected args.
-- After screenshot reads, save chartExtract (levels, setupTags, bias, sessionGuess) on log_trade/patch_trade so follow-ups keep structured levels even without re-uploads.
+- Put screenshot-derived levels into normal trade fields (entry/stop/target/exit/session/setup). There is no separate chartExtract — when you need the image again, screenshots are reattached on named follow-ups.
+- entryTime / exitTime must be ISO-8601 (e.g. 2026-07-30T14:52:45.000Z or 2026-07-30T15:52:45+01:00). Do not write "UTC+1" prose — use +01:00.
 
 Voice:
 - SHORT and concise. Default to 2–5 short sentences max, or a tiny checklist.
@@ -308,7 +309,7 @@ ${
 }
 - Trade identity is sacred: NEVER apply one symbol's fields onto another pair's row.
 - Only use log_trade for a brand new position.
-- Screenshots on the current message attach automatically on log/patch — still call the tool and fill chartExtract.
+- Screenshots on the current message attach automatically on log/patch — still call the tool with extracted levels in normal fields.
 
 Charts:
 - Call generate_charts for visual analysis. Prefer field mappings over inventing data[].

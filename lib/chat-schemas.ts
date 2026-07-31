@@ -3,37 +3,28 @@ import { z } from "zod";
 export const tradeSideSchema = z.enum(["long", "short"]);
 export const tradeResultSchema = z.enum(["win", "loss", "breakeven", "open"]);
 
-export const chartExtractSchema = z
-  .object({
-    levels: z
-      .object({
-        entry: z.number().optional(),
-        stop: z.number().optional(),
-        target: z.number().optional(),
-        exit: z.number().optional(),
-      })
-      .optional(),
-    setupTags: z.array(z.string()).optional(),
-    bias: z.string().optional(),
-    sessionGuess: z.string().optional(),
-    notes: z.string().optional(),
-    extractedAt: z.string().optional(),
-  })
-  .optional();
-
 const optionalTradeFields = {
   exit: z.number().optional(),
   slPips: z.number().optional(),
   tpPips: z.number().optional(),
-  entryTime: z.string().optional(),
-  exitTime: z.string().optional(),
+  entryTime: z
+    .string()
+    .optional()
+    .describe(
+      "Entry fill datetime as ISO-8601, e.g. 2026-07-30T14:52:45.000Z or 2026-07-30T15:52:45+01:00. Prefer offset/Z — not 'UTC+1' prose.",
+    ),
+  exitTime: z
+    .string()
+    .optional()
+    .describe(
+      "Exit fill datetime as ISO-8601, e.g. 2026-07-30T15:44:26.000Z or with +01:00 offset. Prefer offset/Z — not 'UTC+1' prose.",
+    ),
   timeInTradeMinutes: z.number().optional(),
   pnlUsd: z.number().optional(),
   riskUsd: z.number().optional(),
   size: z.string().optional(),
   feesUsd: z.number().optional(),
   session: z.string().optional(),
-  chartExtract: chartExtractSchema,
 };
 
 /** Create a brand-new trade. Initial notes/tags allowed only on create. */

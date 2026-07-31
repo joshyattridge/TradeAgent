@@ -116,11 +116,11 @@ function parseTrade(raw: unknown, index: number): Trade | string {
   if (!isOptionalStringArray(raw.screenshots)) {
     return `Trade ${id} has invalid screenshots`;
   }
-  if (raw.chartExtract !== undefined && !isRecord(raw.chartExtract)) {
-    return `Trade ${id} has an invalid chartExtract`;
-  }
 
-  return raw as Trade;
+  // Drop legacy chartExtract from older backups — screenshots are re-sent when needed.
+  const { chartExtract: _legacyExtract, ...trade } = raw;
+  void _legacyExtract;
+  return trade as Trade;
 }
 
 function parseStrategy(raw: unknown): Strategy | string {

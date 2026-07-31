@@ -1,5 +1,5 @@
 export const TRADE_COLUMNS = [
-  { id: "date", label: "Date", defaultVisible: true },
+  { id: "entryTime", label: "Entry time", defaultVisible: true },
   { id: "symbol", label: "Symbol", defaultVisible: true },
   { id: "side", label: "Side", defaultVisible: true },
   { id: "setup", label: "Setup", defaultVisible: true },
@@ -11,7 +11,7 @@ export const TRADE_COLUMNS = [
   { id: "slPips", label: "SL pips", defaultVisible: false },
   { id: "tpPips", label: "TP pips", defaultVisible: false },
   { id: "exit", label: "Exit", defaultVisible: false },
-  { id: "entryTime", label: "Entry time", defaultVisible: false },
+  { id: "date", label: "Date", defaultVisible: false },
   { id: "exitTime", label: "Exit time", defaultVisible: false },
   { id: "timeInTrade", label: "Time in trade", defaultVisible: false },
   { id: "riskUsd", label: "Risk $", defaultVisible: false },

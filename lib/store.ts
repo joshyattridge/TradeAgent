@@ -17,6 +17,7 @@ import {
   TRADE_COLUMNS,
   type TradeColumnId,
 } from "./trade-columns";
+import { normalizeTradeDateTime } from "./trade-format";
 import type { ChatMessage, ChartSpec, Strategy, Trade } from "./types";
 
 function uid() {
@@ -28,6 +29,22 @@ function orderedColumns(ids: TradeColumnId[]): TradeColumnId[] {
   return TRADE_COLUMNS.map((c) => c.id).filter((id) => set.has(id));
 }
 
+/** Ensure entry/exit times are ISO before they hit the journal. */
+function normalizeTradeTimes<T extends Partial<Trade>>(
+  patch: T,
+  fallbackDate?: string,
+): T {
+  const date = patch.date ?? fallbackDate;
+  const next = { ...patch };
+  if (typeof patch.entryTime === "string" && patch.entryTime.trim()) {
+    next.entryTime = normalizeTradeDateTime(patch.entryTime, date) ?? patch.entryTime;
+  }
+  if (typeof patch.exitTime === "string" && patch.exitTime.trim()) {
+    next.exitTime = normalizeTradeDateTime(patch.exitTime, date) ?? patch.exitTime;
+  }
+  return next;
+}
+
 const STORE_KEY = "tradeagent-store-v4";
 const MAX_SCREENSHOTS_PER_TRADE = 2;
 
@@ -36,14 +53,20 @@ function persistableChat(chat: ChatMessage[]): ChatMessage[] {
   return chat.map(({ images: _images, ...rest }) => rest);
 }
 
-/** Cap screenshot arrays so one trade can't dominate storage. */
+/** Cap screenshot arrays so one trade can't dominate storage. Drop legacy chartExtract. */
 function persistableTrades(trades: Trade[]): Trade[] {
   return trades.map((t) => {
-    if (!t.screenshots?.length) return t;
-    const shots = t.screenshots
+    const { chartExtract: _legacy, ...rest } = t as Trade & {
+      chartExtract?: unknown;
+    };
+    void _legacy;
+    if (!rest.screenshots?.length) return rest;
+    const shots = rest.screenshots
       .filter((s) => typeof s === "string" && s !== "pending")
       .slice(0, MAX_SCREENSHOTS_PER_TRADE);
-    return shots.length ? { ...t, screenshots: shots } : { ...t, screenshots: undefined };
+    return shots.length
+      ? { ...rest, screenshots: shots }
+      : { ...rest, screenshots: undefined };
   });
 }
 
@@ -325,15 +348,20 @@ export const useTradingStore = create<Store>()(
         if (state) {
           // Migrate legacy structured strategy → markdown document
           state.strategy = normalizeStrategy(state.strategy);
+          // Drop legacy chartExtract; screenshots are reattached when needed
+          state.trades = persistableTrades(state.trades);
+          // Prefer entry time over calendar date in the logs table
+          let cols = state.visibleTradeColumns.filter((id) => id !== "date");
+          if (!cols.includes("entryTime")) {
+            cols = ["entryTime", ...cols];
+          }
           // Ensure newer default columns (tags/notes) appear for existing users
-          const current = new Set(state.visibleTradeColumns);
+          const current = new Set(cols);
           const missing = DEFAULT_VISIBLE_TRADE_COLUMNS.filter((id) => !current.has(id));
           if (missing.length) {
-            state.visibleTradeColumns = orderedColumns([
-              ...state.visibleTradeColumns,
-              ...missing,
-            ]);
+            cols = [...cols, ...missing];
           }
+          state.visibleTradeColumns = orderedColumns(cols);
           state.setHydrated(true);
         }
       },
@@ -357,14 +385,16 @@ export function applyChatActions(actions: ChatActionPayload) {
 
   let loggedNewTrade = false;
   for (const incoming of addTrades) {
-    const trade = store.addTrade({
-      ...incoming,
-      screenshots: screenshots?.length
-        ? [...(incoming.screenshots ?? []), ...screenshots]
-            .filter((s) => s !== "pending")
-            .slice(0, MAX_SCREENSHOTS_PER_TRADE)
-        : (incoming.screenshots ?? []).filter((s) => s !== "pending"),
-    });
+    const trade = store.addTrade(
+      normalizeTradeTimes({
+        ...incoming,
+        screenshots: screenshots?.length
+          ? [...(incoming.screenshots ?? []), ...screenshots]
+              .filter((s) => s !== "pending")
+              .slice(0, MAX_SCREENSHOTS_PER_TRADE)
+          : (incoming.screenshots ?? []).filter((s) => s !== "pending"),
+      }),
+    );
     loggedNewTrade = true;
     touchedTradeId = trade.id;
     notes.push(
@@ -384,13 +414,14 @@ export function applyChatActions(actions: ChatActionPayload) {
   for (const update of updateTrades) {
     const { id, ...rawPatch } = update;
     if (!id) continue;
+    const existing = store.trades.find((t) => t.id === id);
     const patch: Partial<Trade> = {};
     for (const [key, value] of Object.entries(rawPatch)) {
       if (value !== undefined) {
         (patch as Record<string, unknown>)[key] = value;
       }
     }
-    store.updateTrade(id, patch);
+    store.updateTrade(id, normalizeTradeTimes(patch, existing?.date));
     touchedTradeId = id;
     notes.push(`Updated trade ${id}.`);
   }

@@ -15,8 +15,8 @@ import {
   applyShortStrategyMarkdown,
   isShortStrategySnippet,
 } from "@/lib/strategy-md";
+import { normalizeTradeDateTime } from "@/lib/trade-format";
 import type {
-  ChartExtract,
   ChartRequest,
   ChartSpec,
   Strategy,
@@ -57,18 +57,22 @@ function removeTags(existing: string[] | undefined, toRemove?: string[]) {
   return next.length ? next : undefined;
 }
 
-function mergeChartExtract(
-  existing: ChartExtract | undefined,
-  incoming: ChartExtract | undefined,
-): ChartExtract | undefined {
-  if (!incoming) return existing;
-  return {
-    ...existing,
-    ...incoming,
-    levels: { ...existing?.levels, ...incoming.levels },
-    setupTags: mergeTags(existing?.setupTags, incoming.setupTags),
-    extractedAt: incoming.extractedAt ?? existing?.extractedAt ?? new Date().toISOString(),
-  };
+/** Normalize entry/exit times to ISO so UI clocks don't fall back to 00:00. */
+function withNormalizedTimes<T extends { entryTime?: string; exitTime?: string; date?: string }>(
+  fields: T,
+  fallbackDate?: string,
+): T {
+  const date = fields.date ?? fallbackDate;
+  const next = { ...fields };
+  if (typeof fields.entryTime === "string") {
+    const normalized = normalizeTradeDateTime(fields.entryTime, date);
+    if (normalized !== undefined) next.entryTime = normalized;
+  }
+  if (typeof fields.exitTime === "string") {
+    const normalized = normalizeTradeDateTime(fields.exitTime, date);
+    if (normalized !== undefined) next.exitTime = normalized;
+  }
+  return next;
 }
 
 function appendNotes(existing: string | undefined, append?: string, replace?: string) {
@@ -201,7 +205,7 @@ function scoreTradeAgainstHints(trade: Trade, hints: TradeHints, newestIndex: nu
   }
   if (hints.text) {
     const q = hints.text.toLowerCase();
-    const hay = `${trade.notes ?? ""} ${(trade.tags ?? []).join(" ")} ${trade.chartExtract?.notes ?? ""}`.toLowerCase();
+    const hay = `${trade.notes ?? ""} ${(trade.tags ?? []).join(" ")}`.toLowerCase();
     if (hay.includes(q)) {
       score += 28;
       reasons.push("text");
@@ -273,7 +277,7 @@ export function filterTrades(trades: Trade[], filter: TradeFilterInput): Trade[]
     }
     if (filter.text) {
       const q = filter.text.toLowerCase();
-      const hay = `${t.notes ?? ""} ${t.setup} ${t.symbol} ${(t.tags ?? []).join(" ")} ${t.chartExtract?.notes ?? ""}`.toLowerCase();
+      const hay = `${t.notes ?? ""} ${t.setup} ${t.symbol} ${(t.tags ?? []).join(" ")}`.toLowerCase();
       if (!hay.includes(q)) return false;
     }
     return true;
@@ -350,7 +354,6 @@ export class JournalSession {
       const touchedTags = Object.prototype.hasOwnProperty.call(patch, "tags");
       const touchedSetup = Object.prototype.hasOwnProperty.call(patch, "setup");
       const touchedSession = Object.prototype.hasOwnProperty.call(patch, "session");
-      const touchedChart = Object.prototype.hasOwnProperty.call(patch, "chartExtract");
 
       return {
         ...rest,
@@ -358,9 +361,6 @@ export class JournalSession {
         ...(touchedTags ? { tags: live.tags ?? [] } : {}),
         ...(touchedSetup ? { setup: live.setup } : {}),
         ...(touchedSession ? { session: live.session } : {}),
-        ...(touchedChart && live.chartExtract
-          ? { chartExtract: live.chartExtract }
-          : {}),
       };
     });
     const deleteTradeIds = [...this.deleteTradeIds];
@@ -386,14 +386,11 @@ export class JournalSession {
    * For follow-up details on a logged trade, use patch_trade / annotate_trade with the returned id.
    */
   logTrade(input: LogTradeInput) {
-    const chartExtract = input.chartExtract
-      ? {
-          ...input.chartExtract,
-          extractedAt:
-            input.chartExtract.extractedAt ?? new Date().toISOString(),
-        }
-      : undefined;
-
+    const times = withNormalizedTimes({
+      date: input.date,
+      entryTime: input.entryTime,
+      exitTime: input.exitTime,
+    });
     const trade: Trade = {
       id: uid(),
       date: input.date,
@@ -408,8 +405,8 @@ export class JournalSession {
       exit: input.exit,
       slPips: input.slPips,
       tpPips: input.tpPips,
-      entryTime: input.entryTime,
-      exitTime: input.exitTime,
+      entryTime: times.entryTime,
+      exitTime: times.exitTime,
       timeInTradeMinutes: input.timeInTradeMinutes,
       pnlUsd: input.pnlUsd,
       riskUsd: input.riskUsd,
@@ -418,7 +415,6 @@ export class JournalSession {
       notes: input.notes,
       session: input.session,
       tags: input.tags,
-      chartExtract,
       ...(this.turnHasScreenshots ? { screenshots: ["pending"] } : {}),
     };
 
@@ -455,7 +451,7 @@ export class JournalSession {
       };
     }
 
-    const { id: _id, chartExtract, symbol: _symbol, ...rest } = input;
+    const { id: _id, symbol: _symbol, ...rest } = input;
     void _id;
     void _symbol;
 
@@ -478,12 +474,11 @@ export class JournalSession {
       patch.symbol = existing.symbol;
     }
 
-    if (chartExtract) {
-      patch.chartExtract = mergeChartExtract(existing.chartExtract, {
-        ...chartExtract,
-        extractedAt: chartExtract.extractedAt ?? new Date().toISOString(),
-      });
-    }
+    const normalized = withNormalizedTimes(patch, existing.date);
+    Object.assign(patch, {
+      ...(normalized.entryTime !== undefined ? { entryTime: normalized.entryTime } : {}),
+      ...(normalized.exitTime !== undefined ? { exitTime: normalized.exitTime } : {}),
+    });
 
     if (Object.keys(patch).length === 0) {
       return {
@@ -883,17 +878,17 @@ function compareTradeToStrategy(trade: Trade, strategy: Strategy) {
     gaps.push("No take-profit / target set");
   }
 
-  const sessionHay = `${trade.session ?? ""} ${trade.chartExtract?.sessionGuess ?? ""}`.toLowerCase();
+  const sessionHay = `${trade.session ?? ""}`.toLowerCase();
   const wantsSession = /london|new york|ny\b|asian/i.test(plan);
   if (wantsSession) {
     if (/london|new york|\bny\b|asian/.test(sessionHay)) {
-      fits.push(`Session noted: ${trade.session || trade.chartExtract?.sessionGuess}`);
+      fits.push(`Session noted: ${trade.session}`);
     } else {
       gaps.push("Strategy prefers London/NY — session not recorded");
     }
   }
 
-  const setupHay = `${trade.setup} ${(trade.tags ?? []).join(" ")} ${(trade.chartExtract?.setupTags ?? []).join(" ")}`.toLowerCase();
+  const setupHay = `${trade.setup} ${(trade.tags ?? []).join(" ")}`.toLowerCase();
   if (/fvg|fair value|order block|sweep|continuation/.test(plan.toLowerCase())) {
     if (/fvg|fair value|order block|sweep|continuation|poi|mss|bos/.test(setupHay)) {
       fits.push("Setup labeling aligns with strategy vocabulary");
@@ -917,10 +912,10 @@ function compareTradeToStrategy(trade: Trade, strategy: Strategy) {
     fits.push("Size/risk field present");
   }
 
-  if (!trade.chartExtract && !(trade.screenshots?.length)) {
-    unclear.push("No screenshot extract or screenshots on file");
-  } else if (trade.chartExtract) {
-    fits.push("Has structured chartExtract for follow-ups");
+  if (!(trade.screenshots?.length)) {
+    unclear.push("No screenshots on file");
+  } else {
+    fits.push("Has screenshots for visual review");
   }
 
   return {
