@@ -1,9 +1,9 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  // Allow base64 chart screenshots / PDF attachments in chat requests
+  // Large chat history with images / CSV / PDF attachments
   experimental: {
-    proxyClientMaxBodySize: "20mb",
+    proxyClientMaxBodySize: "50mb",
   },
 };
 

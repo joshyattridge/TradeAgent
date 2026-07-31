@@ -11,6 +11,8 @@ import {
   type ChatAttachment,
 } from "@/lib/chat-attachments";
 import { planChatDone } from "@/lib/chat-proposals";
+import type { ChatAgentMessage } from "@/lib/chat-history";
+import { countToolsInAgentMessages } from "@/lib/chat-history";
 import { applyChatActions, useTradingStore } from "@/lib/store";
 import { buildChartFromRequest, computeStats } from "@/lib/stats";
 import { formatTradeDate, formatTradeDateTime } from "@/lib/trade-format";
@@ -47,6 +49,7 @@ type StreamDonePayload = {
     charts?: ChartSpec[];
     chartRequests?: ChartRequest[];
   };
+  agentMessages?: ChatAgentMessage[];
 };
 
 export function ChatWidget() {
@@ -275,6 +278,9 @@ export function ChatWidget() {
       role: "assistant",
       content: data.reply ?? "Done.",
       charts: charts.length ? charts : undefined,
+      agentMessages: data.agentMessages?.length
+        ? data.agentMessages
+        : undefined,
     });
   }
 
@@ -317,6 +323,9 @@ export function ChatWidget() {
       content: displayText,
       images: images.length ? images : undefined,
       files: fileMeta.length ? fileMeta : undefined,
+      attachments: attachments.length
+        ? attachments.map(toAttachmentPayload)
+        : undefined,
     });
     setLoading(true);
     resetStreamUi();
@@ -333,19 +342,7 @@ export function ChatWidget() {
           images,
           attachments: attachments.map(toAttachmentPayload),
           referencedTradeId: refTrade?.id,
-          trades: trades.map((t) => {
-            const keepShots =
-              t.id === refTrade?.id ||
-              (text &&
-                new RegExp(
-                  `\\b${t.symbol.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`,
-                  "i",
-                ).test(text));
-            if (keepShots) return t;
-            const next = { ...t };
-            delete next.screenshots;
-            return next;
-          }),
+          trades,
           strategy,
           stats: computeStats(trades),
           apiKey: openaiApiKey || undefined,
@@ -355,6 +352,9 @@ export function ChatWidget() {
             .map((m) => ({
               role: m.role,
               content: m.content,
+              images: m.images,
+              attachments: m.attachments,
+              agentMessages: m.agentMessages,
             })),
         }),
       });
@@ -403,6 +403,7 @@ export function ChatWidget() {
             detail?: string;
             reply?: string;
             actions?: StreamDonePayload["actions"];
+            agentMessages?: ChatAgentMessage[];
           };
           try {
             event = JSON.parse(trimmed);
@@ -453,6 +454,7 @@ export function ChatWidget() {
               {
                 reply: event.reply?.trim() || "Done.",
                 actions: event.actions,
+                agentMessages: event.agentMessages,
               },
               images,
             );
@@ -590,6 +592,17 @@ export function ChatWidget() {
                     ))}
                   </div>
                 ) : null}
+                {message.role === "assistant"
+                  ? (() => {
+                      const n = countToolsInAgentMessages(message.agentMessages);
+                      if (!n) return null;
+                      return (
+                        <p className="chat-bubble__tools">
+                          Used {n} tool{n === 1 ? "" : "s"} this turn
+                        </p>
+                      );
+                    })()
+                  : null}
                 {message.content ? <p>{message.content}</p> : null}
                 {message.charts?.map((chart) => (
                   <div key={chart.id} className="chat-chart">

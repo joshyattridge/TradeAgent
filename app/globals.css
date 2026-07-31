@@ -1310,6 +1310,12 @@ textarea {
   margin-bottom: 0.45rem;
 }
 
+.chat-bubble__tools {
+  margin: 0 0 0.4rem;
+  font-size: 0.75rem;
+  opacity: 0.65;
+}
+
 .chat-file-chip {
   display: inline-flex;
   align-items: center;

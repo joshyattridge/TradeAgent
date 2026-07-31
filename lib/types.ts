@@ -1,3 +1,5 @@
+import type { ChatAgentMessage } from "@/lib/chat-history";
+
 export type TradeSide = "long" | "short";
 export type TradeResult = "win" | "loss" | "breakeven" | "open";
 
@@ -131,13 +133,23 @@ export interface ChatAttachmentMeta {
   mime: string;
 }
 
+/** Full attachment payload kept on the message for conversation replay. */
+export type ChatMessageAttachment =
+  | { kind: "image"; name: string; dataUrl: string; mime?: string }
+  | { kind: "text"; name: string; text: string; mime?: string }
+  | { kind: "file"; name: string; dataUrl: string; mime: string };
+
 export interface ChatMessage {
   id: string;
   role: "user" | "assistant" | "system";
   content: string;
   images?: string[];
-  /** Non-image attachments shown as chips (content already sent to the model). */
+  /** Non-image chips in the UI. */
   files?: ChatAttachmentMeta[];
+  /** Full payloads so follow-up turns still see prior CSVs/PDFs/images. */
+  attachments?: ChatMessageAttachment[];
+  /** Full agent turn transcript (tool calls + results) for session continuity. */
+  agentMessages?: ChatAgentMessage[];
   charts?: ChartSpec[];
   createdAt: string;
 }

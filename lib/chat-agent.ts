@@ -8,15 +8,19 @@ import {
 } from "ai";
 import {
   buildChatContextPack,
+  expandHistoryToModelMessages,
+  ensureFinalAssistantText,
+  sanitizeAgentMessages,
   selectReattachedScreenshots,
   type ChatContextPack,
   type HistoryMessage,
 } from "@/lib/chat-context";
 import {
-  formatAttachedFilesPrompt,
-  parseDataUrl,
+  buildUserContentParts,
   type ChatAttachmentPayload,
 } from "@/lib/chat-attachments";
+import type { ChatAgentMessage } from "@/lib/chat-history";
+import { sanitizeJsonValue } from "@/lib/chat-history";
 import {
   annotateTradeSchema,
   compareToStrategySchema,
@@ -62,6 +66,8 @@ export type AgentStreamEvent =
       actions: ChatActions;
       steps: number;
       reattachedScreenshotCount: number;
+      /** Full tool transcript for this turn (replayed on later turns). */
+      agentMessages?: ChatAgentMessage[];
     }
   | { type: "error"; reply: string };
 
@@ -278,7 +284,8 @@ Tool loop (Vercel AI SDK):
 - Tools execute immediately and return JSON results (ids, errors, stats, chart summaries).
 - Never claim a change succeeded unless a tool result returned ok: true.
 - If a tool fails validation or execution, read the error/issues and retry with corrected args.
-- Put screenshot-derived levels into normal trade fields (entry/stop/target/exit/session/setup). There is no separate chartExtract — when you need the image again, screenshots are reattached on named follow-ups.
+- Prior turns include their tool calls and tool results in this conversation (like Cursor). Use them for continuity (ids, what you already compared), but re-query the live journal when answering about current state — Accept/Reject may have changed it.
+- Put screenshot-derived levels into normal trade fields (entry/stop/target/exit/session/setup). There is no separate chartExtract — when you need the image again, prior chat attachments and images stay in the conversation history (same as ChatGPT).
 - entryTime / exitTime must be ISO-8601 (e.g. 2026-07-30T14:52:45.000Z or 2026-07-30T15:52:45+01:00). Do not write "UTC+1" prose — use +01:00.
 
 Voice:
@@ -291,8 +298,9 @@ Missing info / screenshots:
 - Screenshots are primary source of truth. Extract symbol, side, entry, SL, TP, exit, session, structure notes before asking.
 - Prefer screenshot values over asking the user to retype.
 - If ambiguous, suggest your best read and ask yes/no.
-- Reattached screenshots (if any this turn): ${ctx.reattachedScreenshotCount}. These belong to a trade uniquely named in the message.
-- Attached files (CSV/PDF/text exports) are part of the user message — use them as source data for logging, reviews, or imports.
+- The full prior chat is included every turn — including every previously attached CSV, PDF, text file, and image, plus prior tool calls/results. Do not ask the user to reattach a file that already appeared earlier in this conversation.
+- Reattached trade-journal screenshots (if any this turn): ${ctx.reattachedScreenshotCount}. These belong to a trade uniquely named in the message.
+- Attached files on the current message are also in the user message — use them as source data for logging, reviews, or imports.
 - Required when logging/closing: symbol, side, entry, SL, TP (or why missing), result, R and/or $ P&L.
 
 Hard rules for mutations:
@@ -317,7 +325,7 @@ Charts:
 Coaching:
 - ALWAYS write a real final reply. Never answer with only "Trade logged." / "Updated." / "On it."
 - After proposing a mutation: 1 line what you proposed + remind them to Accept (or keep chatting to refine). Optional 1-line strategy check via get_strategy / compare_to_strategy.
-- The full prior chat is included in the messages — use it. Do not invent earlier decisions that were not said.
+- The full prior chat is included in the messages — including prior attachments and tool transcripts. Use it. Do not invent earlier decisions that were not said.
 `;
 }
 
@@ -357,23 +365,18 @@ export async function* streamAgentLoop(opts: {
   yield { type: "status", message: "Preparing context…" };
 
   const attachments = Array.isArray(opts.attachments) ? opts.attachments : [];
-  const imageFromAttachments = attachments
-    .filter(
-      (a): a is Extract<ChatAttachmentPayload, { kind: "image" }> =>
-        a.kind === "image" && typeof a.dataUrl === "string",
-    )
-    .map((a) => a.dataUrl);
-  const textAttachments = attachments.filter(
-    (a): a is Extract<ChatAttachmentPayload, { kind: "text" }> =>
-      a.kind === "text" && typeof a.text === "string" && a.text.length > 0,
+  const turnHasFiles = attachments.some(
+    (a) => a.kind === "text" || a.kind === "file",
   );
-  const fileAttachments = attachments.filter(
-    (a): a is Extract<ChatAttachmentPayload, { kind: "file" }> =>
-      a.kind === "file" && typeof a.dataUrl === "string",
-  );
-
-  // Prefer unified attachments; keep legacy images[] for compatibility
-  const turnImages = [...opts.images, ...imageFromAttachments].slice(0, 6);
+  const turnImages = [
+    ...opts.images,
+    ...attachments
+      .filter(
+        (a): a is Extract<ChatAttachmentPayload, { kind: "image" }> =>
+          a.kind === "image" && typeof a.dataUrl === "string",
+      )
+      .map((a) => a.dataUrl),
+  ];
 
   const reattached = selectReattachedScreenshots({
     userMessage: opts.userText,
@@ -388,10 +391,10 @@ export async function* streamAgentLoop(opts: {
     };
   }
 
-  if (textAttachments.length || fileAttachments.length) {
+  if (turnHasFiles) {
     yield {
       type: "status",
-      message: `Reading ${textAttachments.length + fileAttachments.length} attached file${textAttachments.length + fileAttachments.length > 1 ? "s" : ""}…`,
+      message: "Reading attached file(s)…",
     };
   }
 
@@ -411,74 +414,35 @@ export async function* streamAgentLoop(opts: {
 
   const system = buildSystemPrompt(ctx);
 
-  // Full verbatim chat — no summarization / truncation of prior turns
-  const historyMessages: ModelMessage[] = opts.history
-    .filter(
-      (m) =>
-        (m.role === "user" || m.role === "assistant") &&
-        typeof m.content === "string" &&
-        m.content.trim(),
-    )
-    .map((m) => ({
-      role: m.role as "user" | "assistant",
-      content: m.content,
-    }));
+  // Full verbatim chat — prior images/files/tool transcripts stay in the session
+  const historyMessages = expandHistoryToModelMessages(opts.history);
 
-  const textBlock = [
-    opts.userText,
-    formatAttachedFilesPrompt(
-      textAttachments.map((a) => ({ name: a.name, text: a.text })),
-    ),
-  ]
-    .filter(Boolean)
-    .join("\n\n");
+  const contentParts = buildUserContentParts({
+    text: opts.userText,
+    images: opts.images,
+    attachments,
+    imageDetail: "high",
+  });
 
-  const contentParts: Array<
-    | { type: "text"; text: string }
-    | {
-        type: "image";
-        image: string;
-        providerOptions?: { openai: { imageDetail: "low" | "high" } };
-      }
-    | { type: "file"; data: string; mediaType: string; filename?: string }
-  > = [{ type: "text", text: textBlock || opts.userText }];
-
-  turnImages.forEach((url, i) => {
+  // Also include any trade-journal screenshots reattached for a named symbol
+  for (const url of reattached) {
     contentParts.push({
       type: "image",
       image: url,
-      providerOptions: {
-        openai: { imageDetail: "high" },
-      },
-    });
-    void i;
-  });
-
-  reattached.forEach((url) => {
-    contentParts.push({
-      type: "image",
-      image: url,
-      providerOptions: {
-        openai: { imageDetail: "low" },
-      },
-    });
-  });
-
-  for (const file of fileAttachments) {
-    const parsed = parseDataUrl(file.dataUrl);
-    if (!parsed) continue;
-    contentParts.push({
-      type: "file",
-      data: parsed.base64,
-      mediaType: file.mime || parsed.mime || "application/pdf",
-      filename: file.name,
+      providerOptions: { openai: { imageDetail: "high" } },
     });
   }
 
   const hasRichParts = contentParts.length > 1;
   const userMessage: ModelMessage = hasRichParts
     ? { role: "user", content: contentParts }
-    : { role: "user", content: textBlock || opts.userText };
+    : {
+        role: "user",
+        content:
+          contentParts[0]?.type === "text"
+            ? contentParts[0].text
+            : opts.userText,
+      };
 
   yield { type: "status", message: "Thinking…" };
 
@@ -497,6 +461,13 @@ export async function* streamAgentLoop(opts: {
 
   let streamedText = "";
   let stepCount = 0;
+  /** Fallback transcript if responseMessages is empty after the stream. */
+  const collectedAgentMessages: ChatAgentMessage[] = [];
+  const pendingCalls: Array<{
+    toolCallId: string;
+    toolName: string;
+    input: unknown;
+  }> = [];
 
   try {
     for await (const part of result.fullStream) {
@@ -506,6 +477,11 @@ export async function* streamAgentLoop(opts: {
           yield { type: "status", message: `Continuing (step ${stepCount})…` };
         }
       } else if (part.type === "tool-call") {
+        pendingCalls.push({
+          toolCallId: part.toolCallId,
+          toolName: part.toolName,
+          input: "input" in part ? part.input : undefined,
+        });
         yield {
           type: "tool-start",
           toolCallId: part.toolCallId,
@@ -513,6 +489,32 @@ export async function* streamAgentLoop(opts: {
           label: toolLabel(part.toolName),
         };
       } else if (part.type === "tool-result") {
+        const call = pendingCalls.find((c) => c.toolCallId === part.toolCallId);
+        collectedAgentMessages.push({
+          role: "assistant",
+          content: [
+            {
+              type: "tool-call",
+              toolCallId: part.toolCallId,
+              toolName: part.toolName,
+              input: call?.input ?? {},
+            },
+          ],
+        });
+        collectedAgentMessages.push({
+          role: "tool",
+          content: [
+            {
+              type: "tool-result",
+              toolCallId: part.toolCallId,
+              toolName: part.toolName,
+              output: {
+                type: "json",
+                value: sanitizeJsonValue(part.output),
+              },
+            },
+          ],
+        });
         const { ok, detail } = toolResultDetail(part.output);
         yield {
           type: "tool-result",
@@ -529,6 +531,29 @@ export async function* streamAgentLoop(opts: {
             : typeof part.error === "string"
               ? part.error
               : "Tool failed";
+        const call = pendingCalls.find((c) => c.toolCallId === part.toolCallId);
+        collectedAgentMessages.push({
+          role: "assistant",
+          content: [
+            {
+              type: "tool-call",
+              toolCallId: part.toolCallId,
+              toolName: part.toolName,
+              input: call?.input ?? {},
+            },
+          ],
+        });
+        collectedAgentMessages.push({
+          role: "tool",
+          content: [
+            {
+              type: "tool-result",
+              toolCallId: part.toolCallId,
+              toolName: part.toolName,
+              output: { type: "json", value: { ok: false, error: err } },
+            },
+          ],
+        });
         yield {
           type: "tool-result",
           toolCallId: part.toolCallId,
@@ -572,6 +597,10 @@ export async function* streamAgentLoop(opts: {
 
   let reply = (await result.text)?.trim() || streamedText.trim();
   const steps = (await result.steps).length || stepCount;
+  let agentMessages = sanitizeAgentMessages(await result.responseMessages);
+  if (!agentMessages.length && collectedAgentMessages.length) {
+    agentMessages = sanitizeAgentMessages(collectedAgentMessages);
+  }
 
   if (isWeakReply(reply)) {
     yield { type: "status", message: "Polishing reply…" };
@@ -600,11 +629,14 @@ export async function* streamAgentLoop(opts: {
       "Which trade should I update? Name the symbol (and date/result if there are several).";
   }
 
+  agentMessages = ensureFinalAssistantText(agentMessages, reply || "Done.");
+
   yield {
     type: "done",
     reply: reply || "Done.",
     actions: session.toActions(),
     steps,
     reattachedScreenshotCount: reattached.length,
+    agentMessages,
   };
 }

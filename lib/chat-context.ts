@@ -5,10 +5,13 @@ export const RELEVANT_TRADES_LIMIT = 10;
 export const TRADE_INDEX_LIMIT = 80;
 export const MAX_REATTACH_SCREENSHOTS = 2;
 
-export type HistoryMessage = {
-  role: "user" | "assistant" | string;
-  content: string;
-};
+export type { HistoryMessage, ChatAgentMessage } from "@/lib/chat-history";
+export {
+  expandHistoryToModelMessages,
+  sanitizeAgentMessages,
+  ensureFinalAssistantText,
+  countToolsInAgentMessages,
+} from "@/lib/chat-history";
 
 export type TradeSnapshot = {
   id: string;

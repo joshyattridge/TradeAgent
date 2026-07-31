@@ -203,6 +203,79 @@ export function formatAttachedFilesPrompt(
     .join("\n\n");
 }
 
+export type UserContentPart =
+  | { type: "text"; text: string }
+  | {
+      type: "image";
+      image: string;
+      providerOptions?: { openai: { imageDetail: "low" | "high" } };
+    }
+  | { type: "file"; data: string; mediaType: string; filename?: string };
+
+/**
+ * Build multimodal user content from text + images + attachments.
+ * No caps — callers pass the full conversation payload.
+ */
+export function buildUserContentParts(opts: {
+  text: string;
+  images?: string[];
+  attachments?: ChatAttachmentPayload[];
+  imageDetail?: "low" | "high";
+}): UserContentPart[] {
+  const attachments = opts.attachments ?? [];
+  const imageFromAttachments = attachments
+    .filter(
+      (a): a is Extract<ChatAttachmentPayload, { kind: "image" }> =>
+        a.kind === "image" && typeof a.dataUrl === "string",
+    )
+    .map((a) => a.dataUrl);
+  const textAttachments = attachments.filter(
+    (a): a is Extract<ChatAttachmentPayload, { kind: "text" }> =>
+      a.kind === "text" && typeof a.text === "string" && a.text.length > 0,
+  );
+  const fileAttachments = attachments.filter(
+    (a): a is Extract<ChatAttachmentPayload, { kind: "file" }> =>
+      a.kind === "file" && typeof a.dataUrl === "string",
+  );
+
+  const images = [...(opts.images ?? []), ...imageFromAttachments];
+  const textBlock = [
+    opts.text,
+    formatAttachedFilesPrompt(
+      textAttachments.map((a) => ({ name: a.name, text: a.text })),
+    ),
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+
+  const parts: UserContentPart[] = [
+    { type: "text", text: textBlock || opts.text || "(attachment)" },
+  ];
+  const detail = opts.imageDetail ?? "high";
+
+  for (const url of images) {
+    if (!url) continue;
+    parts.push({
+      type: "image",
+      image: url,
+      providerOptions: { openai: { imageDetail: detail } },
+    });
+  }
+
+  for (const file of fileAttachments) {
+    const parsed = parseDataUrl(file.dataUrl);
+    if (!parsed) continue;
+    parts.push({
+      type: "file",
+      data: parsed.base64,
+      mediaType: file.mime || parsed.mime || "application/pdf",
+      filename: file.name,
+    });
+  }
+
+  return parts;
+}
+
 export function parseDataUrl(dataUrl: string): { mime: string; base64: string } | null {
   const m = dataUrl.match(/^data:([^;,]+)?(?:;[^,]*)?;base64,([\s\S]+)$/);
   if (!m) return null;

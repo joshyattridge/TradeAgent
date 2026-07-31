@@ -48,9 +48,9 @@ function normalizeTradeTimes<T extends Partial<Trade>>(
 const STORE_KEY = "tradeagent-store-v4";
 const MAX_SCREENSHOTS_PER_TRADE = 2;
 
-/** Slim chat for disk: keep full text history, drop heavy image payloads only. */
+/** Persist chat as-is — keep images and full file attachments for conversation replay. */
 function persistableChat(chat: ChatMessage[]): ChatMessage[] {
-  return chat.map(({ images: _images, ...rest }) => rest);
+  return chat;
 }
 
 /** Cap screenshot arrays so one trade can't dominate storage. Drop legacy chartExtract. */
@@ -305,10 +305,10 @@ export const useTradingStore = create<Store>()(
               id: message.id ?? uid(),
               role: message.role,
               content: message.content,
-              // Keep images in memory for the current session UI only —
-              // partialize strips them before writing to disk.
               images: message.images,
               files: message.files,
+              attachments: message.attachments,
+              agentMessages: message.agentMessages,
               charts: message.charts,
               createdAt: new Date().toISOString(),
             },
