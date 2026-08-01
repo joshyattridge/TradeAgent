@@ -226,7 +226,7 @@ describe("coverage gap fills", () => {
     expect(cleared?.tags).toEqual([]);
   });
 
-  it("hits remaining branch edges for compare, coerce, legacy md, and log without times", () => {
+  it("hits remaining branch edges for coerce, legacy md, and log without times", () => {
     expect(coerceDateTimeString("2026-07-30 15:52:45+0100")).toBe(
       "2026-07-30T15:52:45+01:00",
     );
@@ -242,38 +242,6 @@ describe("coverage gap fills", () => {
         approach: "",
       }),
     ).toContain("# X");
-
-    const session = new JournalSession({
-      trades: [
-        trade({
-          id: "cmp1",
-          session: undefined,
-          setup: "random scalp",
-          tags: [],
-          stop: 1.09,
-          entry: 1.1,
-          target: undefined,
-        }),
-      ],
-      strategy: {
-        ...seedStrategy,
-        markdown: `${seedStrategy.markdown}\n\nTrade London or New York only. FVG setups. Aim ≥ 2R.\n`,
-      },
-      userMessage: "compare",
-    });
-    expect(session.compareToStrategy({ ids: ["cmp1"] }).ok).toBe(true);
-
-    // Strategy with no session/setup vocabulary → skip those compare branches
-    const plain = new JournalSession({
-      trades: [trade({ id: "p1", setup: "whatever", session: "Tokyo" })],
-      strategy: {
-        name: "Plain",
-        markdown: "# Plain\n\nNo special session or setup words.\n",
-        updatedAt: "2026-01-01T00:00:00.000Z",
-      },
-      userMessage: "compare",
-    });
-    expect(plain.compareToStrategy({ ids: ["p1"] }).ok).toBe(true);
 
     // entry/exit clock mismatch in findTrade scoring (a && b but a !== b)
     const timed = new JournalSession({
@@ -296,6 +264,11 @@ describe("coverage gap fills", () => {
       }).ok,
     ).toBe(true);
 
+    const session = new JournalSession({
+      trades: [],
+      strategy: seedStrategy,
+      userMessage: "log",
+    });
     const logged = session.logTrade({
       date: "2026-07-30",
       symbol: "EURUSD",

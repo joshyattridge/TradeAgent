@@ -3,6 +3,16 @@ import { z } from "zod";
 export const tradeSideSchema = z.enum(["long", "short"]);
 export const tradeResultSchema = z.enum(["win", "loss", "breakeven", "open"]);
 
+/** Filter-only enums — `any` is first so schema-filling models default to no filter. */
+export const tradeSideFilterSchema = z.enum(["any", "long", "short"]);
+export const tradeResultFilterSchema = z.enum([
+  "any",
+  "win",
+  "loss",
+  "breakeven",
+  "open",
+]);
+
 const optionalTradeFields = {
   exit: z.number().optional(),
   slPips: z.number().optional(),
@@ -277,19 +287,38 @@ export const generateChartsSchema = z.object({
 });
 
 export const tradeFilterSchema = z.object({
-  symbol: z.string().optional(),
-  side: tradeSideSchema.optional(),
-  result: tradeResultSchema.optional(),
-  setup: z.string().optional(),
-  session: z.string().optional(),
-  dateFrom: z.string().optional(),
-  dateTo: z.string().optional(),
+  symbol: z
+    .string()
+    .optional()
+    .describe("Omit unless filtering to one symbol. Never pass empty string."),
+  side: tradeSideFilterSchema
+    .optional()
+    .default("any")
+    .describe(
+      "Use any (default) for all sides. Only set long/short when the user asks for that subset.",
+    ),
+  result: tradeResultFilterSchema
+    .optional()
+    .default("any")
+    .describe(
+      "Use any (default) for all results. Only set win/loss/breakeven/open when the user asks for that subset.",
+    ),
+  setup: z
+    .string()
+    .optional()
+    .describe("Omit unless filtering by setup name. Never pass empty string."),
+  session: z
+    .string()
+    .optional()
+    .describe("Omit unless filtering by session. Never pass empty string."),
+  dateFrom: z.string().optional().describe("YYYY-MM-DD inclusive. Omit if unused."),
+  dateTo: z.string().optional().describe("YYYY-MM-DD inclusive. Omit if unused."),
   text: z
     .string()
     .optional()
-    .describe("Search notes, setup, tags, symbol"),
-  ids: z.array(z.string()).optional(),
-  tags: z.array(z.string()).optional(),
+    .describe("Search notes, setup, tags, symbol. Omit if unused."),
+  ids: z.array(z.string()).optional().describe("Omit unless targeting specific ids."),
+  tags: z.array(z.string()).optional().describe("Omit unless filtering by tags."),
 });
 
 export const queryTradesSchema = tradeFilterSchema.extend({
@@ -300,22 +329,14 @@ export const queryTradesSchema = tradeFilterSchema.extend({
   limit: z.number().int().min(1).max(25).optional().default(10),
 });
 
-export const getStatsSchema = tradeFilterSchema.extend({
-  closedOnly: z.boolean().optional(),
-});
-
-export const compareToStrategySchema = z.object({
-  ids: z.array(z.string()).optional(),
-  symbol: z.string().optional(),
-  side: tradeSideSchema.optional(),
-  result: tradeResultSchema.optional(),
-  setup: z.string().optional(),
-  session: z.string().optional(),
-  dateFrom: z.string().optional(),
-  dateTo: z.string().optional(),
-  text: z.string().optional(),
-  tags: z.array(z.string()).optional(),
-  limit: z.number().int().min(1).max(15).optional().default(5),
+export const getStatsSchema = z.object({
+  closedOnly: z
+    .boolean()
+    .optional()
+    .default(true)
+    .describe(
+      "Always use the full journal. Prefer true (closed trades only). This tool does not accept symbol/side/result filters.",
+    ),
 });
 
 export const getStrategySchema = z.object({

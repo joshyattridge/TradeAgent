@@ -45,6 +45,28 @@ describe("filterTrades", () => {
     expect(filterTrades(pool, {})).toHaveLength(3);
   });
 
+  it("ignores blank string and empty array filter args", () => {
+    expect(
+      filterTrades(pool, {
+        symbol: "  ",
+        setup: "",
+        session: "",
+        text: "",
+        dateFrom: "",
+        dateTo: "",
+        ids: [],
+        tags: [],
+      }),
+    ).toHaveLength(3);
+  });
+
+  it("treats side/result any as no filter", () => {
+    expect(filterTrades(pool, { side: "any", result: "any" })).toHaveLength(3);
+    expect(filterTrades(pool, { side: "any", result: "win" }).map((t) => t.id)).toEqual([
+      "a",
+    ]);
+  });
+
   it("filters by symbol (case-insensitive substring)", () => {
     expect(filterTrades(pool, { symbol: "eur" }).map((t) => t.id)).toEqual(["a"]);
     expect(filterTrades(pool, { symbol: "gbp" }).map((t) => t.id)).toEqual(["b"]);
@@ -154,6 +176,22 @@ describe("JournalSession.queryTrades", () => {
     const dates = res.trades.map((t) => t.date);
     expect([...dates].sort().reverse()).toEqual(dates);
   });
+
+  it("warns when filters narrow the book for performance-style queries", () => {
+    const session = makeSession();
+    const filtered = session.queryTrades({ result: "win", limit: 25 });
+    expect(filtered.note).toMatch(/Filters are active/i);
+    expect(filtered.count).toBeLessThan(filtered.journal.total);
+    expect(filtered.journalStats.closedCount).toBe(filtered.journal.closed);
+    expect(filtered.journalStats.wins + filtered.journalStats.losses).toBeLessThanOrEqual(
+      filtered.journal.closed,
+    );
+
+    const full = session.queryTrades({ limit: 25 });
+    expect(full.note).toMatch(/Full-book query/i);
+    expect(full.count).toBe(full.journal.total);
+    expect(full.journalStats.totalTrades).toBe(full.journal.total);
+  });
 });
 
 describe("getStats and getStatsTool", () => {
@@ -175,19 +213,29 @@ describe("getStats and getStatsTool", () => {
     expect(closedEur.openCount).toBe(0);
   });
 
-  it("getStatsTool surfaces journal, matched, poolSize, and closedOnly", () => {
+  it("getStatsTool always uses the full journal and ignores legacy filter args", () => {
     const session = makeSession();
-    const res = session.getStatsTool({ symbol: "GBPUSD", closedOnly: true });
+    const res = session.getStatsTool({
+      // @ts-expect-error legacy filter fields must be ignored
+      symbol: "GBPUSD",
+      closedOnly: true,
+    });
     expect(res.ok).toBe(true);
     expect(res.action).toBe("get_stats");
     expect(res.journal.total).toBe(seedTrades.length);
     expect(res.journal.open).toBe(1);
-    expect(res.matched).toBe(seedTrades.filter((t) => t.symbol.includes("GBPUSD")).length);
-    expect(res.poolSize).toBe(
-      seedTrades.filter((t) => t.symbol.includes("GBPUSD") && t.result !== "open").length,
-    );
+    expect(res.matched).toBe(seedTrades.length);
+    expect(res.poolSize).toBe(seedTrades.length - 1);
     expect(res.closedOnly).toBe(true);
-    expect(res.stats.closedCount).toBe(res.poolSize);
+    expect(res.stats.closedCount).toBe(seedTrades.length - 1);
+    expect(res.note).toMatch(/Full-journal stats/i);
+  });
+
+  it("getStatsTool notes unfiltered performance pools", () => {
+    const session = makeSession();
+    const res = session.getStatsTool({ closedOnly: true });
+    expect(res.note).toMatch(/Full-journal stats/i);
+    expect(res.matched).toBe(seedTrades.length);
   });
 });
 
@@ -328,138 +376,6 @@ describe("findTrade", () => {
     if (res.ok) {
       expect(res.candidates[0].id).toBe("x");
       expect(res.candidates[0].matched).toContain("text");
-    }
-  });
-});
-
-describe("compareToStrategy", () => {
-  const richStrategy: Strategy = {
-    name: "London FVG Plan",
-    updatedAt: "2026-07-01T00:00:00.000Z",
-    markdown: `# London FVG Plan
-
-Trade during London or New York. Target ≥2R and 1:2 minimum.
-
-Use fair value gap / order block / sweep / continuation setups only.
-`,
-  };
-
-  it("returns error when filter matches nothing", () => {
-    const session = makeSession([], richStrategy);
-    const res = session.compareToStrategy({ symbol: "ZZZZ" });
-    expect(res.ok).toBe(false);
-    if (!res.ok) expect(res.error).toMatch(/No trades matched/);
-  });
-
-  it("maps fits, gaps, and unclear branches from strategy rules", () => {
-    const complete = trade({
-      id: "complete",
-      setup: "FVG continuation after sweep",
-      session: "London",
-      entry: 1.1,
-      stop: 1.09,
-      target: 1.12,
-      rMultiple: 2.5,
-      result: "win",
-      riskUsd: 100,
-      size: "0.5 lots",
-      screenshots: ["img"],
-    });
-    const sparse = trade({
-      id: "sparse",
-      setup: "Discretionary",
-      session: undefined,
-      tags: [],
-      entry: undefined as never,
-      stop: undefined as never,
-      target: undefined,
-      rMultiple: 0.8,
-      result: "win",
-      riskUsd: undefined,
-      size: undefined,
-      screenshots: undefined,
-    });
-    const loss = trade({
-      id: "loss",
-      setup: "FVG",
-      session: "New York",
-      entry: 1.1,
-      stop: 1.09,
-      target: 1.12,
-      rMultiple: -1,
-      result: "loss",
-      riskUsd: 50,
-    });
-
-    const session = makeSession([complete, sparse, loss], richStrategy);
-    const res = session.compareToStrategy({ limit: 3 });
-    expect(res.ok).toBe(true);
-    if (!res.ok) return;
-
-    const byId = Object.fromEntries(res.comparisons.map((c) => [c.tradeId, c]));
-
-    expect(byId.complete.fits).toEqual(
-      expect.arrayContaining([
-        "Has defined entry and stop",
-        "Has a target",
-        "Session noted: London",
-        "Setup labeling aligns with strategy vocabulary",
-        "Closed at 2.5R (≥2R target language in plan)",
-        "Size/risk field present",
-        "Has screenshots for visual review",
-      ]),
-    );
-
-    expect(byId.sparse.gaps).toEqual(
-      expect.arrayContaining([
-        "Missing entry/stop levels",
-        "No take-profit / target set",
-        "Strategy prefers London/NY — session not recorded",
-        "No risk $ or size recorded",
-      ]),
-    );
-    expect(byId.sparse.unclear).toEqual(
-      expect.arrayContaining([
-        "Setup text does not clearly map to strategy rule names",
-        "Win R is below common ≥2R target language — check management",
-        "No screenshots on file",
-      ]),
-    );
-
-    expect(byId.loss.fits).toContain(
-      "Loss is journaled with R — reviewable against risk plan",
-    );
-  });
-
-  it("does not treat open trades as closed ≥2R wins", () => {
-    const openWinner = trade({
-      id: "open-big",
-      result: "open",
-      rMultiple: 3,
-      setup: "FVG",
-      session: "London",
-      entry: 1.1,
-      stop: 1.09,
-      target: 1.12,
-      riskUsd: 100,
-    });
-    const session = makeSession([openWinner], richStrategy);
-    const res = session.compareToStrategy({});
-    expect(res.ok).toBe(true);
-    if (res.ok) {
-      expect(res.comparisons[0].fits).not.toContain(
-        "Closed at 3R (≥2R target language in plan)",
-      );
-    }
-  });
-
-  it("respects ids filter and limit", () => {
-    const session = makeSession(seedTrades.slice(0, 4));
-    const res = session.compareToStrategy({ ids: ["t1", "t2"], limit: 1 });
-    expect(res.ok).toBe(true);
-    if (res.ok) {
-      expect(res.comparisons).toHaveLength(1);
-      expect(res.comparisons[0].tradeId).toBe("t1");
     }
   });
 });
@@ -646,9 +562,10 @@ describe("annotateTrade and patchTrade edge paths", () => {
 
   it("getStatsTool includes open trades when closedOnly is false", () => {
     const session = makeSession();
-    const res = session.getStatsTool({ symbol: "EURUSD", closedOnly: false });
+    const res = session.getStatsTool({ closedOnly: false });
     expect(res.closedOnly).toBe(false);
-    expect(res.poolSize).toBe(res.matched);
+    expect(res.poolSize).toBe(seedTrades.length);
+    expect(res.matched).toBe(seedTrades.length);
   });
 
   it("generateCharts exposes sample points in the response", () => {

@@ -3,16 +3,23 @@ import {
   streamAgentLoop,
   type AgentStreamEvent,
 } from "@/lib/chat-agent";
+import { appendChatLogTurn } from "@/lib/chat-log";
 import {
   sanitizeAttachments,
   sanitizeHistory,
 } from "@/lib/chat-request";
 import type { Strategy, Trade } from "@/lib/types";
+import type { ChatAgentMessage } from "@/lib/chat-history";
 
 export const runtime = "nodejs";
 
 function encodeEvent(event: AgentStreamEvent) {
   return `${JSON.stringify(event)}\n`;
+}
+
+function resolveChatLogId(raw: unknown) {
+  if (typeof raw === "string" && raw.trim()) return raw.trim();
+  return crypto.randomUUID();
 }
 
 export async function POST(req: NextRequest) {
@@ -28,6 +35,7 @@ export async function POST(req: NextRequest) {
     referencedTradeId,
     apiKey: clientApiKey,
     model: clientModel,
+    chatLogId: rawChatLogId,
   }: {
     message: string;
     images?: string[];
@@ -39,10 +47,12 @@ export async function POST(req: NextRequest) {
     referencedTradeId?: string;
     apiKey?: string;
     model?: string;
+    chatLogId?: string;
   } = body;
 
   const attachments = sanitizeAttachments(rawAttachments);
   const history = sanitizeHistory(rawHistory);
+  const chatLogId = resolveChatLogId(rawChatLogId);
 
   const imageList = Array.isArray(images)
     ? images.filter(
@@ -87,6 +97,11 @@ export async function POST(req: NextRequest) {
     message?.trim() ||
     "Review the attached file(s) / image(s) in the context of my trading journal and strategy.";
 
+  const attachmentNames = [
+    ...attachments.map((a) => a.name).filter(Boolean),
+    ...imageList.map((_, i) => `image-${i + 1}`),
+  ];
+
   // Full journal — keep trade screenshots; no stripping for token savings
   const tradeList = Array.isArray(trades) ? trades : [];
 
@@ -112,15 +127,54 @@ export async function POST(req: NextRequest) {
             typeof referencedTradeId === "string" ? referencedTradeId : undefined,
         })) {
           push(event);
+
+          if (event.type === "done") {
+            try {
+              await appendChatLogTurn({
+                chatLogId,
+                userText,
+                reply: event.reply,
+                agentMessages: event.agentMessages as ChatAgentMessage[] | undefined,
+                model,
+                attachmentNames,
+              });
+            } catch (logError) {
+              console.warn("[TradeAgent] chat log write failed", logError);
+            }
+          } else if (event.type === "error") {
+            try {
+              await appendChatLogTurn({
+                chatLogId,
+                userText,
+                error: event.reply,
+                model,
+                attachmentNames,
+              });
+            } catch (logError) {
+              console.warn("[TradeAgent] chat log write failed", logError);
+            }
+          }
         }
       } catch (error) {
         console.error(error);
         const messageText =
           error instanceof Error ? error.message : "OpenAI request failed";
+        const reply = `OpenAI error: ${messageText}\n\nCheck your API key and model in Settings.`;
         push({
           type: "error",
-          reply: `OpenAI error: ${messageText}\n\nCheck your API key and model in Settings.`,
+          reply,
         });
+        try {
+          await appendChatLogTurn({
+            chatLogId,
+            userText,
+            error: reply,
+            model,
+            attachmentNames,
+          });
+        } catch (logError) {
+          console.warn("[TradeAgent] chat log write failed", logError);
+        }
       } finally {
         controller.close();
       }

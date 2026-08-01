@@ -241,31 +241,73 @@ function rankTradesByHints(trades: Trade[], hints: TradeHints, limit = 8) {
   };
 }
 
+function nonEmptyString(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  return trimmed ? trimmed : undefined;
+}
+
+/** Drop blank/empty/`any` filter args the model often invents when filling the schema. */
+export function normalizeTradeFilter(filter: TradeFilterInput = {}): TradeFilterInput {
+  const ids = filter.ids?.map((id) => id.trim()).filter(Boolean);
+  const tags = filter.tags?.map((tag) => tag.trim()).filter(Boolean);
+  const side = filter.side && filter.side !== "any" ? filter.side : undefined;
+  const result = filter.result && filter.result !== "any" ? filter.result : undefined;
+  return {
+    symbol: nonEmptyString(filter.symbol),
+    side,
+    result,
+    setup: nonEmptyString(filter.setup),
+    session: nonEmptyString(filter.session),
+    dateFrom: nonEmptyString(filter.dateFrom),
+    dateTo: nonEmptyString(filter.dateTo),
+    text: nonEmptyString(filter.text),
+    ids: ids?.length ? ids : undefined,
+    tags: tags?.length ? tags : undefined,
+  };
+}
+
+function filterIsActive(filter: TradeFilterInput) {
+  return Boolean(
+    filter.symbol ||
+      filter.side ||
+      filter.result ||
+      filter.setup ||
+      filter.session ||
+      filter.dateFrom ||
+      filter.dateTo ||
+      filter.text ||
+      filter.ids?.length ||
+      filter.tags?.length,
+  );
+}
+
 export function filterTrades(trades: Trade[], filter: TradeFilterInput): Trade[] {
+  const f = normalizeTradeFilter(filter);
   return trades.filter((t) => {
-    if (filter.ids?.length && !filter.ids.includes(t.id)) return false;
-    if (filter.symbol && !t.symbol.toUpperCase().includes(filter.symbol.toUpperCase())) {
+    if (f.ids?.length && !f.ids.includes(t.id)) return false;
+    if (f.symbol && !t.symbol.toUpperCase().includes(f.symbol.toUpperCase())) {
       return false;
     }
-    if (filter.side && t.side !== filter.side) return false;
-    if (filter.result && t.result !== filter.result) return false;
-    if (filter.setup && !t.setup.toLowerCase().includes(filter.setup.toLowerCase())) {
+    if (f.side && t.side !== f.side) return false;
+    if (f.result && t.result !== f.result) return false;
+    if (f.setup && !t.setup.toLowerCase().includes(f.setup.toLowerCase())) {
       return false;
     }
     if (
-      filter.session &&
-      !(t.session ?? "").toLowerCase().includes(filter.session.toLowerCase())
+      f.session &&
+      !(t.session ?? "").toLowerCase().includes(f.session.toLowerCase())
     ) {
       return false;
     }
-    if (filter.dateFrom && t.date < filter.dateFrom) return false;
-    if (filter.dateTo && t.date > filter.dateTo) return false;
-    if (filter.tags?.length) {
+    if (f.dateFrom && t.date < f.dateFrom) return false;
+    if (f.dateTo && t.date > f.dateTo) return false;
+    if (f.tags?.length) {
       const tags = new Set((t.tags ?? []).map((x) => x.toLowerCase()));
-      if (!filter.tags.every((tag) => tags.has(tag.toLowerCase()))) return false;
+      if (!f.tags.every((tag) => tags.has(tag.toLowerCase()))) return false;
     }
-    if (filter.text) {
-      const q = filter.text.toLowerCase();
+    if (f.text) {
+      const q = f.text.toLowerCase();
       const hay = `${t.notes ?? ""} ${t.setup} ${t.symbol} ${(t.tags ?? []).join(" ")}`.toLowerCase();
       if (!hay.includes(q)) return false;
     }
@@ -712,12 +754,15 @@ export class JournalSession {
   }
 
   queryTrades(input: QueryTradesInput) {
-    const filtered = filterTrades(this.trades, input);
+    const filter = normalizeTradeFilter(input);
+    const filtered = filterTrades(this.trades, filter);
     const sorted = sortTrades(filtered, input.sort);
     const limit = input.limit ?? 10;
     const slice = sorted.slice(0, limit);
     const openCount = this.trades.filter((t) => t.result === "open").length;
     const closedCount = this.trades.length - openCount;
+    const narrowed = filterIsActive(filter);
+    const journalStats = computeStats(this.trades);
     return {
       ok: true as const,
       action: "query_trades",
@@ -726,34 +771,39 @@ export class JournalSession {
         open: openCount,
         closed: closedCount,
       },
+      /** Full-book scoreboard — use this for win/loss/R/PnL, not the filtered trades[] slice. */
+      journalStats,
       count: filtered.length,
       returned: slice.length,
       trades: slice.map(tradeSnapshot),
-      note:
-        "journal.total/open/closed is the full book. count/returned are for this filter only. Re-query with result=win|loss|breakeven for closed trades, or omit result for everything.",
+      note: narrowed
+        ? `Filters are active on trades[] only (matched ${filtered.length}/${this.trades.length}). Performance numbers are in journalStats (full book). Do NOT recount from the filtered slice. To list every row, call again with NO symbol/side/result filters and limit=25.`
+        : "Full-book query (no filters). Use journalStats for performance. If returned < count, raise limit (max 25) and call again.",
     };
   }
 
-  getStatsTool(input: TradeFilterInput & { closedOnly?: boolean }) {
-    const { closedOnly, ...filter } = input;
-    const filtered = filterTrades(this.trades, filter);
+  getStatsTool(input: { closedOnly?: boolean } = {}) {
+    // Intentionally unfilterable — models kept inventing side/result and mis-scoring the book.
+    const closedOnly = input.closedOnly !== false;
     const pool = closedOnly
-      ? filtered.filter((t) => t.result !== "open")
-      : filtered;
+      ? this.trades.filter((t) => t.result !== "open")
+      : this.trades;
     const stats = computeStats(pool);
     const openCount = this.trades.filter((t) => t.result === "open").length;
+    const closedCount = this.trades.length - openCount;
     return {
       ok: true as const,
       action: "get_stats",
       journal: {
         total: this.trades.length,
         open: openCount,
-        closed: this.trades.length - openCount,
+        closed: closedCount,
       },
-      matched: filtered.length,
+      matched: this.trades.length,
       poolSize: pool.length,
-      closedOnly: Boolean(closedOnly),
+      closedOnly,
       stats,
+      note: "Full-journal stats (filters are not supported on get_stats). Use stats.wins/losses/totalR/totalPnlUsd for performance answers.",
     };
   }
 
@@ -826,98 +876,4 @@ export class JournalSession {
     };
   }
 
-  compareToStrategy(input: TradeFilterInput & { ids?: string[]; limit?: number }) {
-    const filtered = filterTrades(this.trades, {
-      ...input,
-      ids: input.ids,
-    });
-    const limit = input.limit ?? 5;
-    const picks = filtered.slice(0, limit);
-    if (!picks.length) {
-      return {
-        ok: false as const,
-        error: "No trades matched for strategy comparison",
-      };
-    }
-
-    const comparisons = picks.map((trade) => compareTradeToStrategy(trade, this.strategy));
-    return {
-      ok: true as const,
-      action: "compare_to_strategy",
-      strategy: {
-        name: this.strategy.name,
-      },
-      comparisons,
-    };
-  }
-}
-
-function compareTradeToStrategy(trade: Trade, strategy: Strategy) {
-  const fits: string[] = [];
-  const gaps: string[] = [];
-  const unclear: string[] = [];
-  const plan = `${strategy.name}\n${strategy.markdown}`;
-
-  if (trade.stop != null && trade.entry != null) {
-    fits.push("Has defined entry and stop");
-  } else {
-    gaps.push("Missing entry/stop levels");
-  }
-
-  if (trade.target != null) {
-    fits.push("Has a target");
-  } else {
-    gaps.push("No take-profit / target set");
-  }
-
-  const sessionHay = `${trade.session ?? ""}`.toLowerCase();
-  const wantsSession = /london|new york|ny\b|asian/i.test(plan);
-  if (wantsSession) {
-    if (/london|new york|\bny\b|asian/.test(sessionHay)) {
-      fits.push(`Session noted: ${trade.session}`);
-    } else {
-      gaps.push("Strategy prefers London/NY — session not recorded");
-    }
-  }
-
-  const setupHay = `${trade.setup} ${(trade.tags ?? []).join(" ")}`.toLowerCase();
-  if (/fvg|fair value|order block|sweep|continuation/.test(plan.toLowerCase())) {
-    if (/fvg|fair value|order block|sweep|continuation|poi|mss|bos/.test(setupHay)) {
-      fits.push("Setup labeling aligns with strategy vocabulary");
-    } else {
-      unclear.push("Setup text does not clearly map to strategy rule names");
-    }
-  }
-
-  if (/≥\s*2|>=\s*2|1:2|2r/i.test(plan) && trade.rMultiple < 0 && trade.result === "loss") {
-    fits.push("Loss is journaled with R — reviewable against risk plan");
-  }
-  if (trade.result !== "open" && trade.rMultiple >= 2) {
-    fits.push(`Closed at ${trade.rMultiple}R (≥2R target language in plan)`);
-  } else if (trade.result === "win" && trade.rMultiple > 0 && trade.rMultiple < 1.5) {
-    unclear.push("Win R is below common ≥2R target language — check management");
-  }
-
-  if (trade.riskUsd == null && !trade.size) {
-    gaps.push("No risk $ or size recorded");
-  } else {
-    fits.push("Size/risk field present");
-  }
-
-  if (!(trade.screenshots?.length)) {
-    unclear.push("No screenshots on file");
-  } else {
-    fits.push("Has screenshots for visual review");
-  }
-
-  return {
-    tradeId: trade.id,
-    symbol: trade.symbol,
-    side: trade.side,
-    result: trade.result,
-    rMultiple: trade.rMultiple,
-    fits,
-    gaps,
-    unclear,
-  };
 }

@@ -15,6 +15,12 @@ vi.mock("@/lib/chat-request", () => ({
   sanitizeHistory: vi.fn((raw: unknown) => (Array.isArray(raw) ? raw : [])),
 }));
 
+const mockAppendChatLogTurn = vi.fn().mockResolvedValue("/tmp/fake.log");
+
+vi.mock("@/lib/chat-log", () => ({
+  appendChatLogTurn: (...args: unknown[]) => mockAppendChatLogTurn(...args),
+}));
+
 import { POST } from "../route";
 
 const strategy: Strategy = {
@@ -43,6 +49,8 @@ async function readNdjson(response: Response) {
 describe("POST /api/chat", () => {
   beforeEach(() => {
     mockStreamAgentLoop.mockReset();
+    mockAppendChatLogTurn.mockReset();
+    mockAppendChatLogTurn.mockResolvedValue("/tmp/fake.log");
     delete process.env.OPENAI_API_KEY;
     delete process.env.OPENAI_MODEL;
   });
@@ -75,7 +83,13 @@ describe("POST /api/chat", () => {
       yield { type: "done", reply: "All good", actions: {} };
     });
 
-    const res = await POST(makeRequest({ message: "Analyze my week", strategy }));
+    const res = await POST(
+      makeRequest({
+        message: "Analyze my week",
+        strategy,
+        chatLogId: "sess-abc",
+      }),
+    );
     expect(res.status).toBe(200);
     expect(res.headers.get("Content-Type")).toBe(
       "application/x-ndjson; charset=utf-8",
@@ -86,6 +100,13 @@ describe("POST /api/chat", () => {
       { type: "status", message: "Preparing…" },
       { type: "done", reply: "All good", actions: {} },
     ]);
+    expect(mockAppendChatLogTurn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        chatLogId: "sess-abc",
+        userText: "Analyze my week",
+        reply: "All good",
+      }),
+    );
   });
 
   it("uses default userText for attachments-only requests", async () => {
@@ -195,7 +216,57 @@ describe("POST /api/chat", () => {
         reply: expect.stringContaining("OpenAI error: rate limited"),
       },
     ]);
+    expect(mockAppendChatLogTurn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        error: expect.stringContaining("rate limited"),
+      }),
+    );
     consoleSpy.mockRestore();
+  });
+
+  it("logs stream error events and swallows log write failures", async () => {
+    process.env.OPENAI_API_KEY = "env-key";
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    mockAppendChatLogTurn
+      .mockRejectedValueOnce(new Error("disk full"))
+      .mockRejectedValueOnce(new Error("disk full again"));
+
+    mockStreamAgentLoop.mockImplementation(async function* () {
+      yield { type: "done", reply: "ok", actions: {} };
+      yield { type: "error", reply: "stream failed" };
+    });
+
+    const res = await POST(
+      makeRequest({ message: "hi", strategy, chatLogId: "log-fail" }),
+    );
+    const events = await readNdjson(res);
+    expect(events).toEqual([
+      { type: "done", reply: "ok", actions: {} },
+      { type: "error", reply: "stream failed" },
+    ]);
+    expect(warn).toHaveBeenCalledWith(
+      "[TradeAgent] chat log write failed",
+      expect.any(Error),
+    );
+    warn.mockRestore();
+  });
+
+  it("swallows log failures when the generator throws", async () => {
+    process.env.OPENAI_API_KEY = "env-key";
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    mockAppendChatLogTurn.mockRejectedValueOnce(new Error("cannot write"));
+    mockStreamAgentLoop.mockImplementation(async function* () {
+      throw new Error("boom");
+    });
+
+    const res = await POST(makeRequest({ message: "hi", strategy }));
+    await readNdjson(res);
+    expect(warn).toHaveBeenCalledWith(
+      "[TradeAgent] chat log write failed",
+      expect.any(Error),
+    );
+    warn.mockRestore();
   });
 
   it("emits generic error message for non-Error throws", async () => {

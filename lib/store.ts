@@ -76,6 +76,8 @@ interface Store {
   chat: ChatMessage[];
   /** Rolling summary of older chat turns (server-maintained) */
   chatSummary: string;
+  /** Server log file id — one .log per chat session under logs/chats/ */
+  chatLogId: string;
   openaiApiKey: string;
   openaiModel: string;
   visibleTradeColumns: TradeColumnId[];
@@ -176,6 +178,7 @@ export const useTradingStore = create<Store>()(
       openaiApiKey: "",
       openaiModel: DEFAULT_OPENAI_MODEL,
       chatSummary: "",
+      chatLogId: uid(),
       visibleTradeColumns: DEFAULT_VISIBLE_TRADE_COLUMNS,
       chatReferencedTradeId: null,
       pendingProposal: null,
@@ -320,6 +323,7 @@ export const useTradingStore = create<Store>()(
         set({
           chat: [],
           chatSummary: "",
+          chatLogId: uid(),
           chatReferencedTradeId: null,
           pendingProposal: null,
           proposalReviewOpen: false,
@@ -338,6 +342,7 @@ export const useTradingStore = create<Store>()(
         strategy: state.strategy,
         chat: persistableChat(state.chat),
         chatSummary: state.chatSummary,
+        chatLogId: state.chatLogId,
         openaiApiKey: state.openaiApiKey,
         openaiModel: state.openaiModel,
         visibleTradeColumns: state.visibleTradeColumns,
@@ -364,6 +369,9 @@ export const useTradingStore = create<Store>()(
             cols = [...cols, ...missing];
           }
           state.visibleTradeColumns = orderedColumns(cols);
+          if (!state.chatLogId) {
+            state.chatLogId = crypto.randomUUID();
+          }
           state.setHydrated(true);
         }
       },

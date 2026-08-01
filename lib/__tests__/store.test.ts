@@ -54,6 +54,7 @@ function resetStore(overrides: Partial<ReturnType<typeof useTradingStore.getStat
       },
     ],
     chatSummary: "",
+    chatLogId: "test-chat-log",
     openaiApiKey: "",
     openaiModel: DEFAULT_OPENAI_MODEL,
     visibleTradeColumns: [...DEFAULT_VISIBLE_TRADE_COLUMNS],
@@ -346,6 +347,7 @@ describe("useTradingStore actions", () => {
     useTradingStore.getState().clearChat();
     expect(useTradingStore.getState().chat).toEqual([]);
     expect(useTradingStore.getState().chatSummary).toBe("");
+    expect(useTradingStore.getState().chatLogId).not.toBe("test-chat-log");
     expect(useTradingStore.getState().pendingProposal).toBeNull();
     expect(useTradingStore.getState().proposalReviewOpen).toBe(false);
   });
@@ -581,12 +583,36 @@ describe("persist storage and rehydrate", () => {
     expect(cols).not.toContain("date");
     expect(cols).toContain("entryTime");
     expect(cols).toEqual(expect.arrayContaining(["tags", "notes"]));
+    expect(useTradingStore.getState().chatLogId).toBeTruthy();
 
     const trade = useTradingStore.getState().trades[0] as Trade & {
       chartExtract?: unknown;
     };
     expect(trade.chartExtract).toBeUndefined();
     expect(trade.screenshots).toEqual(["a", "b"]);
+  });
+
+  it("assigns a chatLogId when rehydrating legacy state without one", async () => {
+    const payload = {
+      state: {
+        trades: [sampleTrade()],
+        strategy: seedStrategy,
+        chat: [],
+        chatSummary: "",
+        chatLogId: "",
+        openaiApiKey: "",
+        openaiModel: DEFAULT_OPENAI_MODEL,
+        visibleTradeColumns: [...DEFAULT_VISIBLE_TRADE_COLUMNS],
+      },
+      version: 0,
+    };
+    await idbModule.idbStorage.setItem(STORE_KEY, JSON.stringify(payload));
+
+    await useTradingStore.persist.rehydrate();
+    await vi.waitFor(() => expect(useTradingStore.getState().hydrated).toBe(true));
+    expect(useTradingStore.getState().chatLogId).toMatch(
+      /^[0-9a-f-]{36}$/i,
+    );
   });
 
   it("clears legacy localStorage on rehydrate error", async () => {

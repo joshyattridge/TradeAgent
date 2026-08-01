@@ -23,7 +23,6 @@ import type { ChatAgentMessage } from "@/lib/chat-history";
 import { sanitizeJsonValue } from "@/lib/chat-history";
 import {
   annotateTradeSchema,
-  compareToStrategySchema,
   deleteTradeSchema,
   findTradeSchema,
   generateChartsSchema,
@@ -83,7 +82,6 @@ const TOOL_LABELS: Record<string, string> = {
   generate_charts: "Building charts",
   query_trades: "Searching trades",
   get_stats: "Computing stats",
-  compare_to_strategy: "Comparing to strategy",
 };
 
 function toolLabel(name: string) {
@@ -134,9 +132,6 @@ function toolResultDetail(output: unknown): { ok: boolean; detail?: string } {
         detail: `${s.closedCount ?? "?"} closed, ${s.winRate.toFixed(0)}% WR`,
       };
     }
-  }
-  if (obj.action === "compare_to_strategy") {
-    return { ok, detail: "checklist ready" };
   }
   if (obj.action === "update_strategy") {
     return { ok, detail: "strategy saved" };
@@ -221,21 +216,15 @@ function createJournalTools(session: JournalSession) {
     }),
     query_trades: tool({
       description:
-        "Search/filter the journal. ALWAYS call this before answering about trade quality/history. Omit result to get all trades. Returns journal.total/open/closed for the full book plus matching rows. Example: last 5 NQ losses → symbol=NQ, result=loss, limit=5.",
+        "Search the journal for trade rows. Always includes journalStats (full-book wins/losses/R/PnL). For listing every trade: omit symbol/side/result filters and use limit=25. Only add filters when the user explicitly asks for a subset.",
       inputSchema: queryTradesSchema,
       execute: async (input) => session.queryTrades(input),
     }),
     get_stats: tool({
       description:
-        "Compute win rate, R, PnL, counts from the working journal (optionally filtered). Call when you need performance numbers.",
+        "Full-journal performance scoreboard (wins, losses, win rate, total R, PnL). Does NOT accept symbol/side/result filters — always the whole book. Prefer closedOnly=true.",
       inputSchema: getStatsSchema,
       execute: async (input) => session.getStatsTool(input),
-    }),
-    compare_to_strategy: tool({
-      description:
-        "Compare trade(s) to strategy rules/risk as a short fits/gaps/unclear checklist. Loads strategy internally.",
-      inputSchema: compareToStrategySchema,
-      execute: async (input) => session.compareToStrategy(input),
     }),
   };
 }
@@ -249,9 +238,11 @@ On-demand context (IMPORTANT):
 - Do NOT assume you already know the strategy or trade log. They are NOT included in this prompt.
 - Call get_strategy when you need the full strategy markdown (or before coaching against the strategy).
 - Call query_trades / find_trade / get_trade / get_stats when you need history or to identify a row.
-- Before answering questions about "my trades", "entries", "closed trades", or journal size: ALWAYS call query_trades (omit result filter for the full book). Trust journal.total/open/closed from the tool result — never invent or reuse a count from earlier chat.
-- If the user says there are more trades than you returned, re-query with a higher limit and no result filter before answering again.
-- Call compare_to_strategy when checking whether a trade fits the plan.
+- Before answering questions about "my trades", "entries", "closed trades", "how am I doing", or journal size: ALWAYS call get_stats (closedOnly=true) and query_trades with limit=25 and NO symbol/side/result filters.
+- Performance numbers come ONLY from get_stats.stats or query_trades.journalStats — never tally a filtered trades[] slice. If query_trades was filtered, still use journalStats for the scoreboard and re-query unfiltered if you need every row.
+- Never invent "visible" / "need review" / "can't assess yet" filler when journalStats/get_stats is present.
+- Only add side/result/symbol filters on query_trades when the user explicitly asks for that subset (e.g. "my losing NQ longs"). get_stats never takes those filters.
+- When coaching whether trades fit the plan: call get_strategy, then query_trades + get_stats. Compare yourself from those tool results — there is no separate compare tool.
 - Never invent trades, stats, or strategy rules from memory.
 
 Identifying which trade to update:
@@ -322,7 +313,7 @@ Charts:
 
 Coaching:
 - ALWAYS write a real final reply. Never answer with only "Trade logged." / "Updated." / "On it."
-- After proposing a mutation: 1 line what you proposed + remind them to Accept (or keep chatting to refine). Optional 1-line strategy check via get_strategy / compare_to_strategy.
+- After proposing a mutation: 1 line what you proposed + remind them to Accept (or keep chatting to refine). Optional 1-line strategy check via get_strategy.
 - The full prior chat is included in the messages — including prior attachments and tool transcripts. Use it. Do not invent earlier decisions that were not said.
 `;
 }

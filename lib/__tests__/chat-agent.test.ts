@@ -446,12 +446,6 @@ describe("streamAgentLoop", () => {
         },
         {
           type: "tool-result",
-          toolCallId: "compare",
-          toolName: "compare_to_strategy",
-          output: { action: "compare_to_strategy" },
-        },
-        {
-          type: "tool-result",
           toolCallId: "strategy-update",
           toolName: "update_strategy",
           output: { action: "update_strategy" },
@@ -524,7 +518,6 @@ describe("streamAgentLoop", () => {
       { toolCallId: "patch-empty-trade", detail: "", ok: true },
       { toolCallId: "trade-get-trade-id", detail: "from-trade", ok: true },
       { toolCallId: "find-no-candidates", detail: "0 candidate(s)", ok: true },
-      { toolCallId: "compare", detail: "checklist ready", ok: true },
       { toolCallId: "strategy-update", detail: "strategy saved", ok: true },
       { toolCallId: "strategy-get", detail: "risk", ok: true },
       { toolCallId: "trade-get", detail: "NQ (t9)", ok: true },
@@ -884,9 +877,6 @@ describe("journal tool execute wrappers", () => {
       getStatsTool: vi.spyOn(JournalSession.prototype, "getStatsTool").mockResolvedValue({
         action: "get_stats",
       }),
-      compareToStrategy: vi
-        .spyOn(JournalSession.prototype, "compareToStrategy")
-        .mockResolvedValue({ action: "compare_to_strategy" }),
     };
 
     const tools = await captureTools();
@@ -902,8 +892,7 @@ describe("journal tool execute wrappers", () => {
     await tools.update_strategy.execute({ appendMarkdown: "# New" });
     await tools.generate_charts.execute({ charts: [{ kind: "equity" }] });
     await tools.query_trades.execute({ symbol: "NQ" });
-    await tools.get_stats.execute({ symbol: "NQ" });
-    await tools.compare_to_strategy.execute({ tradeIds: ["t1"] });
+    await tools.get_stats.execute({ closedOnly: true });
 
     expect(spies.getStrategy).toHaveBeenCalledWith("risk");
     expect(spies.getStrategy).toHaveBeenCalledWith("all");
@@ -916,7 +905,6 @@ describe("journal tool execute wrappers", () => {
     expect(spies.updateStrategy).toHaveBeenCalledWith({ appendMarkdown: "# New" });
     expect(spies.generateCharts).toHaveBeenCalledWith([{ kind: "equity" }]);
     expect(spies.queryTrades).toHaveBeenCalledWith({ symbol: "NQ" });
-    expect(spies.getStatsTool).toHaveBeenCalledWith({ symbol: "NQ" });
-    expect(spies.compareToStrategy).toHaveBeenCalledWith({ tradeIds: ["t1"] });
+    expect(spies.getStatsTool).toHaveBeenCalledWith({ closedOnly: true });
   });
 });
