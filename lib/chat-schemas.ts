@@ -382,7 +382,8 @@ export const findTradeSchema = z.object({
 export type LogTradeInput = z.infer<typeof logTradeSchema>;
 export type PatchTradeInput = z.infer<typeof patchTradeSchema>;
 export type AnnotateTradeInput = z.infer<typeof annotateTradeSchema>;
-export type TradeFilterInput = z.infer<typeof tradeFilterSchema>;
+/** Input shape (defaults applied at parse time); allows omitting side/result. */
+export type TradeFilterInput = z.input<typeof tradeFilterSchema>;
 export type QueryTradesInput = z.infer<typeof queryTradesSchema>;
 export type GetStrategyInput = z.infer<typeof getStrategySchema>;
 export type GetTradeInput = z.infer<typeof getTradeSchema>;

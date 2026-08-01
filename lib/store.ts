@@ -163,7 +163,7 @@ const migratingStorage = {
 
 export const useTradingStore = create<Store>()(
   persist(
-    (set, get) => ({
+    (set, get): Store => ({
       trades: seedTrades,
       strategy: seedStrategy,
       chat: [
@@ -176,12 +176,13 @@ export const useTradingStore = create<Store>()(
         },
       ],
       openaiApiKey: "",
-      openaiModel: DEFAULT_OPENAI_MODEL,
+      // Widen preset literal so persist middleware matches Store.openaiModel: string
+      openaiModel: DEFAULT_OPENAI_MODEL as string,
       chatSummary: "",
       chatLogId: uid(),
       visibleTradeColumns: DEFAULT_VISIBLE_TRADE_COLUMNS,
-      chatReferencedTradeId: null,
-      pendingProposal: null,
+      chatReferencedTradeId: null as string | null,
+      pendingProposal: null as ChatProposal | null,
       proposalReviewOpen: false,
       hydrated: false,
       setHydrated: (v) => set({ hydrated: v }),
@@ -358,7 +359,9 @@ export const useTradingStore = create<Store>()(
           // Drop legacy chartExtract; screenshots are reattached when needed
           state.trades = persistableTrades(state.trades);
           // Prefer entry time over calendar date in the logs table
-          let cols = state.visibleTradeColumns.filter((id) => id !== "date");
+          let cols: TradeColumnId[] = state.visibleTradeColumns.filter(
+            (id) => id !== "date",
+          );
           if (!cols.includes("entryTime")) {
             cols = ["entryTime", ...cols];
           }

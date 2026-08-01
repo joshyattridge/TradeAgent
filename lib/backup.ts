@@ -120,7 +120,8 @@ function parseTrade(raw: unknown, index: number): Trade | string {
   // Drop legacy chartExtract from older backups — screenshots are re-sent when needed.
   const { chartExtract: _legacyExtract, ...trade } = raw;
   void _legacyExtract;
-  return trade as Trade;
+  // Validated above; rest is still Record-shaped so go through unknown.
+  return trade as unknown as Trade;
 }
 
 function parseStrategy(raw: unknown): Strategy | string {
