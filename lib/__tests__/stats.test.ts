@@ -6,12 +6,15 @@ import {
   bySetup,
   bySymbol,
   closedTrades,
+  compareTradesChronologically,
   computeStats,
   equityCurve,
   labelValue,
   metricLabel,
   metricValue,
   rByDay,
+  resolvePnlUsd,
+  tradeCloseMs,
   winLossBreakdown,
 } from "@/lib/stats";
 import type { Trade, TradeLabelField, TradeMetricField } from "@/lib/types";
@@ -124,12 +127,129 @@ describe("computeStats", () => {
     expect(computeStats(trades).avgTimeInTradeMinutes).toBeUndefined();
   });
 
-  it("treats missing pnlUsd as zero in totals", () => {
+  it("derives missing pnlUsd from R × risk in totals", () => {
     const stats = computeStats([
-      makeTrade({ id: "pnl-missing", pnlUsd: undefined, rMultiple: 1 }),
+      makeTrade({ id: "pnl-missing", pnlUsd: undefined, rMultiple: 1.5, riskUsd: 100 }),
+    ]);
+    expect(stats.totalPnlUsd).toBe(150);
+    expect(stats.avgPnlUsd).toBe(150);
+  });
+
+  it("treats missing pnlUsd with no risk as zero in totals", () => {
+    const stats = computeStats([
+      makeTrade({
+        id: "pnl-and-risk-missing",
+        pnlUsd: undefined,
+        riskUsd: undefined,
+        rMultiple: 1,
+      }),
     ]);
     expect(stats.totalPnlUsd).toBe(0);
     expect(stats.avgPnlUsd).toBe(0);
+  });
+});
+
+describe("resolvePnlUsd", () => {
+  it("prefers stored pnlUsd over derived", () => {
+    expect(
+      resolvePnlUsd(makeTrade({ id: "p1", pnlUsd: 250, rMultiple: 2, riskUsd: 100 })),
+    ).toEqual({ value: 250, estimated: false });
+  });
+
+  it("derives from R × risk when pnlUsd is missing", () => {
+    expect(
+      resolvePnlUsd(
+        makeTrade({ id: "p2", pnlUsd: undefined, rMultiple: -1, riskUsd: 80 }),
+      ),
+    ).toEqual({ value: -80, estimated: true });
+  });
+
+  it("returns zero estimated when both pnl and risk are missing", () => {
+    expect(
+      resolvePnlUsd(
+        makeTrade({
+          id: "p3",
+          pnlUsd: undefined,
+          riskUsd: undefined,
+          rMultiple: 2,
+        }),
+      ),
+    ).toEqual({ value: 0, estimated: true });
+  });
+});
+
+describe("compareTradesChronologically", () => {
+  it("orders by entryTime (trades taken), not exitTime", () => {
+    // Win entered first but closed later; loss entered later and stopped out sooner.
+    const winFirst = makeTrade({
+      id: "win-first",
+      date: "2026-07-29",
+      entryTime: "2026-07-29T10:00:00",
+      exitTime: "2026-07-29T20:00:00",
+      rMultiple: 2,
+      result: "win",
+    });
+    const lossLater = makeTrade({
+      id: "loss-later",
+      date: "2026-07-29",
+      entryTime: "2026-07-29T14:16:00",
+      exitTime: "2026-07-29T14:30:00",
+      rMultiple: -1.15,
+      result: "loss",
+    });
+    expect(compareTradesChronologically(winFirst, lossLater)).toBeLessThan(0);
+    const curve = equityCurve([lossLater, winFirst], "r");
+    // Start at 0, then win first → positive, then loss
+    expect(curve.map((p) => p.id)).toEqual([
+      "__equity-start",
+      "win-first",
+      "loss-later",
+    ]);
+    expect(curve.map((p) => p.value)).toEqual([0, 2, 0.85]);
+    expect(curve[1].value).toBeGreaterThan(0);
+  });
+
+  it("falls back to exitTime when entryTime is missing", () => {
+    const later = makeTrade({
+      id: "later",
+      date: "2026-07-01",
+      entryTime: undefined,
+      exitTime: "2026-07-01T15:00:00Z",
+      rMultiple: 2,
+    });
+    const earlier = makeTrade({
+      id: "earlier",
+      date: "2026-07-01",
+      entryTime: undefined,
+      exitTime: "2026-07-01T09:00:00Z",
+      rMultiple: -1,
+      result: "loss",
+    });
+    expect(compareTradesChronologically(later, earlier)).toBeGreaterThan(0);
+  });
+
+  it("falls back to id when close times match", () => {
+    const a = makeTrade({
+      id: "a",
+      date: "2026-07-01",
+      entryTime: undefined,
+      exitTime: undefined,
+    });
+    const b = makeTrade({
+      id: "b",
+      date: "2026-07-01",
+      entryTime: undefined,
+      exitTime: undefined,
+    });
+    expect(compareTradesChronologically(a, b)).toBeLessThan(0);
+  });
+
+  it("exposes tradeCloseMs as an alias of trade chronology", () => {
+    const trade = makeTrade({
+      id: "alias",
+      entryTime: "2026-07-01T10:00:00Z",
+    });
+    expect(tradeCloseMs(trade)).toBeGreaterThan(0);
   });
 });
 
@@ -140,12 +260,125 @@ describe("equityCurve", () => {
       makeTrade({ id: "e2", date: "2026-07-01", rMultiple: -1, result: "loss" }),
     ];
     const curve = equityCurve(trades, "r");
-    expect(curve).toHaveLength(2);
-    expect(curve[0].label).toBe("Jul 1");
-    expect(curve[0].value).toBe(-1);
-    expect(curve[0].secondary).toBe(-1);
-    expect(curve[1].value).toBe(1);
-    expect(curve[1].secondary).toBe(2);
+    expect(curve).toHaveLength(3); // Start + 2 trades
+    expect(curve[0]).toMatchObject({ id: "__equity-start", value: 0 });
+    expect(curve[1].label).toMatch(/Jul 1/);
+    expect(curve[1].value).toBe(-1);
+    expect(curve[1].secondary).toBe(-1);
+    expect(curve[1].id).toBe("e2");
+    expect(curve[1].x).toBe(1);
+    expect(curve[2].value).toBe(1);
+    expect(curve[2].secondary).toBe(2);
+    expect(curve[2].id).toBe("e1");
+    expect(curve[2].x).toBe(2);
+  });
+
+  it("orders same-day trades by entryTime and keeps unique point ids", () => {
+    const trades = [
+      makeTrade({
+        id: "second",
+        date: "2026-07-01",
+        entryTime: "2026-07-01T14:00:00Z",
+        exitTime: "2026-07-01T15:00:00Z",
+        rMultiple: 2,
+        pnlUsd: 200,
+      }),
+      makeTrade({
+        id: "first",
+        date: "2026-07-01",
+        entryTime: "2026-07-01T10:00:00Z",
+        exitTime: "2026-07-01T16:00:00Z",
+        rMultiple: -1,
+        result: "loss",
+        pnlUsd: -100,
+      }),
+      makeTrade({
+        id: "third",
+        date: "2026-07-01",
+        entryTime: "2026-07-01T16:30:00Z",
+        exitTime: "2026-07-01T17:00:00Z",
+        rMultiple: 1,
+        pnlUsd: 100,
+      }),
+    ];
+    const curve = equityCurve(trades, "r");
+    expect(curve.map((p) => p.id)).toEqual([
+      "__equity-start",
+      "first",
+      "second",
+      "third",
+    ]);
+    expect(curve.map((p) => p.secondary)).toEqual([0, -1, 2, 1]);
+    expect(curve.map((p) => p.value)).toEqual([0, -1, 1, 2]);
+    const tradeLabels = curve.slice(1).map((p) => p.label);
+    expect(new Set(tradeLabels).size).toBe(3);
+    expect(curve.every((p, i) => p.x === i)).toBe(true);
+  });
+
+  it("disambiguates duplicate chronology labels", () => {
+    const curve = equityCurve(
+      [
+        makeTrade({
+          id: "a",
+          date: "2026-07-01",
+          entryTime: "2026-07-01T20:00:00",
+          exitTime: "2026-07-01T20:05:00",
+          rMultiple: 1,
+        }),
+        makeTrade({
+          id: "b",
+          date: "2026-07-01",
+          entryTime: "2026-07-01T20:00:00",
+          exitTime: "2026-07-01T20:10:00",
+          rMultiple: -1,
+          result: "loss",
+        }),
+      ],
+      "r",
+    );
+    const labels = curve.slice(1).map((p) => p.label);
+    expect(labels[0]).not.toBe(labels[1]);
+    expect(labels[0]).toContain("· 1");
+    expect(labels[1]).toContain("· 2");
+  });
+
+  it("matches cumulative path to chronological trade deltas", () => {
+    const trades = [
+      makeTrade({
+        id: "t-c",
+        date: "2026-07-03",
+        entryTime: "2026-07-03T12:00:00Z",
+        exitTime: "2026-07-03T13:00:00Z",
+        rMultiple: 0.5,
+      }),
+      makeTrade({
+        id: "t-a",
+        date: "2026-07-01",
+        entryTime: "2026-07-01T18:00:00Z",
+        exitTime: "2026-07-01T19:00:00Z",
+        rMultiple: 2,
+      }),
+      makeTrade({
+        id: "t-b",
+        date: "2026-07-02",
+        entryTime: "2026-07-02T09:00:00Z",
+        exitTime: "2026-07-02T10:00:00Z",
+        rMultiple: -1,
+        result: "loss",
+      }),
+    ];
+    const curve = equityCurve(trades, "r");
+    expect(curve.map((p) => p.id)).toEqual([
+      "__equity-start",
+      "t-a",
+      "t-b",
+      "t-c",
+    ]);
+    let running = 0;
+    for (let i = 1; i < curve.length; i++) {
+      running += curve[i].secondary!;
+      expect(curve[i].value).toBe(round2(running));
+    }
   });
 
   it("builds cumulative USD curve", () => {
@@ -154,23 +387,62 @@ describe("equityCurve", () => {
       makeTrade({ id: "u2", date: "2026-07-02", pnlUsd: -50, result: "loss", rMultiple: -0.5 }),
     ];
     const curve = equityCurve(trades, "usd");
-    expect(curve[0].value).toBe(100);
-    expect(curve[1].value).toBe(50);
+    expect(curve[0].value).toBe(0);
+    expect(curve[1].value).toBe(100);
+    expect(curve[2].value).toBe(50);
   });
 
-  it("treats missing pnlUsd as zero in USD mode", () => {
+  it("derives missing pnlUsd from R × risk on the USD equity curve", () => {
     const curve = equityCurve(
-      [makeTrade({ id: "u0", pnlUsd: undefined, rMultiple: 1 })],
+      [
+        makeTrade({
+          id: "u0",
+          pnlUsd: undefined,
+          rMultiple: 1.5,
+          riskUsd: 100,
+        }),
+      ],
       "usd",
     );
     expect(curve[0].value).toBe(0);
-    expect(curve[0].secondary).toBe(0);
+    expect(curve[1].value).toBe(150);
+    expect(curve[1].secondary).toBe(150);
+    expect(curve[1].estimated).toBe(true);
+  });
+
+  it("marks zero when both pnlUsd and riskUsd are missing in USD mode", () => {
+    const curve = equityCurve(
+      [
+        makeTrade({
+          id: "u-empty",
+          pnlUsd: undefined,
+          riskUsd: undefined,
+          rMultiple: 1,
+        }),
+      ],
+      "usd",
+    );
+    expect(curve[1].value).toBe(0);
+    expect(curve[1].secondary).toBe(0);
+    expect(curve[1].estimated).toBe(true);
   });
 
   it("ignores open trades", () => {
-    expect(equityCurve([makeTrade({ id: "open", result: "open" })])).toEqual([]);
+    expect(equityCurve([makeTrade({ id: "open", result: "open" })])).toEqual([
+      {
+        id: "__equity-start",
+        label: "Start",
+        value: 0,
+        secondary: 0,
+        x: 0,
+      },
+    ]);
   });
 });
+
+function round2(n: number) {
+  return Number(n.toFixed(2));
+}
 
 describe("rByDay", () => {
   it("aggregates R by calendar day", () => {
@@ -207,9 +479,9 @@ describe("winLossBreakdown", () => {
       makeTrade({ id: "o", result: "open", rMultiple: 0 }),
     ];
     expect(winLossBreakdown(trades)).toEqual([
-      { label: "Wins", value: 1 },
-      { label: "Losses", value: 1 },
-      { label: "Open", value: 1 },
+      { id: "wins", label: "Wins", value: 1 },
+      { id: "losses", label: "Losses", value: 1 },
+      { id: "open", label: "Open", value: 1 },
     ]);
   });
 });
@@ -222,8 +494,18 @@ describe("bySymbol", () => {
       makeTrade({ id: "s3", symbol: "EURUSD", rMultiple: -1, result: "loss" }),
     ];
     const rows = bySymbol(trades, "r");
-    expect(rows[0]).toEqual({ label: "EURUSD", value: 1 });
-    expect(rows[1]).toEqual({ label: "GBPUSD", value: 1 });
+    expect(rows[0]).toEqual({
+      id: "EURUSD",
+      label: "EURUSD",
+      value: 1,
+      count: 2,
+    });
+    expect(rows[1]).toEqual({
+      id: "GBPUSD",
+      label: "GBPUSD",
+      value: 1,
+      count: 1,
+    });
   });
 
   it("sums USD by symbol", () => {
@@ -235,6 +517,122 @@ describe("bySymbol", () => {
       "usd",
     );
     expect(rows[0].value).toBe(200);
+    expect(rows[0].count).toBe(2);
+  });
+
+  it("nets multiple wins and losses on the same symbol", () => {
+    const rows = bySymbol(
+      [
+        makeTrade({ id: "g1", symbol: "GBPJPY", rMultiple: 1.1, result: "win" }),
+        makeTrade({
+          id: "g2",
+          symbol: "GBPJPY",
+          rMultiple: -1.02,
+          result: "loss",
+        }),
+        makeTrade({ id: "g3", symbol: "GBPJPY", rMultiple: 1.89, result: "win" }),
+      ],
+      "r",
+    );
+    expect(rows).toEqual([
+      {
+        id: "GBPJPY",
+        label: "GBPJPY",
+        value: 1.97,
+        count: 3,
+      },
+    ]);
+  });
+
+  it("includes a symbol whose only trade is missing pnlUsd by deriving R × risk", () => {
+    const trades = [
+      makeTrade({
+        id: "eur",
+        symbol: "EURUSD",
+        pnlUsd: 100,
+        rMultiple: 1,
+        riskUsd: 100,
+      }),
+      makeTrade({
+        id: "nas-missing-$",
+        symbol: "NAS100",
+        pnlUsd: undefined,
+        rMultiple: 2,
+        riskUsd: 100,
+        result: "win",
+      }),
+    ];
+    const rows = bySymbol(trades, "usd");
+    const symbols = rows.map((r) => r.label);
+    expect(symbols).toContain("NAS100");
+    expect(symbols).toContain("EURUSD");
+    expect(rows.find((r) => r.label === "NAS100")).toMatchObject({
+      value: 200,
+      estimated: true,
+      count: 1,
+    });
+    expect(rows.find((r) => r.label === "EURUSD")?.estimated).toBeUndefined();
+  });
+
+  it("still lists a symbol when $ cannot be derived (visible $0 bar)", () => {
+    const rows = bySymbol(
+      [
+        makeTrade({
+          id: "orphan",
+          symbol: "AUDUSD",
+          pnlUsd: undefined,
+          riskUsd: undefined,
+          rMultiple: 1.2,
+        }),
+      ],
+      "usd",
+    );
+    expect(rows).toEqual([
+      {
+        id: "AUDUSD",
+        label: "AUDUSD",
+        value: 0,
+        count: 1,
+        estimated: true,
+      },
+    ]);
+  });
+
+  it("excludes open trades from symbol totals", () => {
+    const rows = bySymbol(
+      [
+        makeTrade({ id: "closed", symbol: "GBPUSD", pnlUsd: 50, rMultiple: 0.5 }),
+        makeTrade({
+          id: "open",
+          symbol: "USDJPY",
+          result: "open",
+          pnlUsd: undefined,
+          rMultiple: 0,
+        }),
+      ],
+      "usd",
+    );
+    expect(rows.map((r) => r.label)).toEqual(["GBPUSD"]);
+  });
+
+  it("matches sum of $ by symbol to totalPnlUsd (including derived)", () => {
+    const trades = [
+      makeTrade({ id: "a", symbol: "EURUSD", pnlUsd: 100, rMultiple: 1 }),
+      makeTrade({
+        id: "b",
+        symbol: "XAUUSD",
+        pnlUsd: undefined,
+        rMultiple: -1,
+        riskUsd: 100,
+        result: "loss",
+      }),
+      makeTrade({ id: "c", symbol: "EURUSD", pnlUsd: 50, rMultiple: 0.5 }),
+      makeTrade({ id: "open", symbol: "NAS100", result: "open", rMultiple: 0 }),
+    ];
+    const rows = bySymbol(trades, "usd");
+    const chartTotal = rows.reduce((sum, r) => sum + r.value, 0);
+    expect(chartTotal).toBe(computeStats(trades).totalPnlUsd);
+    expect(chartTotal).toBe(50); // 100 + (-100) + 50
   });
 });
 
@@ -244,7 +642,12 @@ describe("bySetup", () => {
       makeTrade({ id: "p1", setup: "A", rMultiple: 3 }),
       makeTrade({ id: "p2", setup: "B", rMultiple: 1 }),
     ];
-    expect(bySetup(trades, "r")[0]).toEqual({ label: "A", value: 3 });
+    expect(bySetup(trades, "r")[0]).toEqual({
+      id: "A",
+      label: "A",
+      value: 3,
+      count: 1,
+    });
   });
 
   it("sums USD by setup", () => {
@@ -253,6 +656,31 @@ describe("bySetup", () => {
       "usd",
     );
     expect(rows[0].value).toBe(80);
+  });
+});
+
+describe("dashboard chart correctness", () => {
+  it("equity final point matches total R / $ for the seed book", () => {
+    const stats = computeStats(seedTrades);
+    const rCurve = equityCurve(seedTrades, "r");
+    const usdCurve = equityCurve(seedTrades, "usd");
+    expect(rCurve[0]?.value).toBe(0);
+    expect(rCurve.at(-1)?.value).toBe(round2(stats.totalR));
+    expect(usdCurve.at(-1)?.value).toBe(round2(stats.totalPnlUsd));
+    expect(rCurve).toHaveLength(stats.closedCount + 1); // Start + closed
+    expect(new Set(rCurve.slice(1).map((p) => p.id)).size).toBe(stats.closedCount);
+  });
+
+  it("bySymbol $ sums to totalPnlUsd for the seed book", () => {
+    const stats = computeStats(seedTrades);
+    const rows = bySymbol(seedTrades, "usd");
+    const sum = rows.reduce((s, r) => s + r.value, 0);
+    expect(sum).toBe(round2(stats.totalPnlUsd));
+    // Every closed symbol appears
+    const closedSymbols = new Set(
+      seedTrades.filter((t) => t.result !== "open").map((t) => t.symbol),
+    );
+    expect(new Set(rows.map((r) => r.label))).toEqual(closedSymbols);
   });
 });
 

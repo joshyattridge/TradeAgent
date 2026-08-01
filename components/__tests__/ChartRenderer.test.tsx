@@ -6,10 +6,13 @@ import type { ChartPoint, ChartSpec } from "@/lib/types";
 
 type Captured = {
   yTickFormatter?: (v: unknown) => string;
+  xTickFormatter?: (v: unknown, index: number) => string;
   tooltipFormatter?: (...args: unknown[]) => unknown;
   labelFormatter?: (...args: unknown[]) => unknown;
   xAxisLabel?: unknown;
   yAxisLabel?: unknown;
+  xAxisDataKey?: unknown;
+  barMinPointSize?: unknown;
 };
 
 let captured: Captured = {};
@@ -17,12 +20,34 @@ let captured: Captured = {};
 vi.mock("recharts", () => {
   const passthrough =
     (tag: string) =>
-    ({ children, tickFormatter, label, formatter, labelFormatter, ...rest }: Record<string, unknown>) => {
-      if (tickFormatter) captured.yTickFormatter = tickFormatter as (v: unknown) => string;
+    ({
+      children,
+      tickFormatter,
+      label,
+      formatter,
+      labelFormatter,
+      dataKey,
+      minPointSize,
+      ...rest
+    }: Record<string, unknown>) => {
+      if (tickFormatter) {
+        if (tag === "XAxis") {
+          captured.xTickFormatter = tickFormatter as (
+            v: unknown,
+            index: number,
+          ) => string;
+        } else {
+          captured.yTickFormatter = tickFormatter as (v: unknown) => string;
+        }
+      }
       if (formatter) captured.tooltipFormatter = formatter as (...args: unknown[]) => unknown;
       if (labelFormatter) captured.labelFormatter = labelFormatter as (...args: unknown[]) => unknown;
-      if (tag === "XAxis" && label) captured.xAxisLabel = label;
+      if (tag === "XAxis") {
+        if (label) captured.xAxisLabel = label;
+        if (dataKey != null) captured.xAxisDataKey = dataKey;
+      }
       if (tag === "YAxis" && label) captured.yAxisLabel = label;
+      if (tag === "Bar" && minPointSize != null) captured.barMinPointSize = minPointSize;
       return (
         <div data-testid={`recharts-${tag.toLowerCase()}`} data-props={JSON.stringify(Object.keys(rest))}>
           {children as React.ReactNode}
@@ -37,7 +62,16 @@ vi.mock("recharts", () => {
     AreaChart: passthrough("AreaChart"),
     Area: () => <div data-testid="recharts-area" />,
     BarChart: passthrough("BarChart"),
-    Bar: ({ children }: { children?: React.ReactNode }) => <div data-testid="recharts-bar">{children}</div>,
+    Bar: ({
+      children,
+      minPointSize,
+    }: {
+      children?: React.ReactNode;
+      minPointSize?: number;
+    }) => {
+      if (minPointSize != null) captured.barMinPointSize = minPointSize;
+      return <div data-testid="recharts-bar">{children}</div>;
+    },
     LineChart: passthrough("LineChart"),
     Line: () => <div data-testid="recharts-line" />,
     PieChart: passthrough("PieChart"),
@@ -123,14 +157,58 @@ describe("ChartRenderer", () => {
           type: "equity",
           id: "eq-usd",
           valueUnit: "usd",
-          data: [{ label: "Jul 1", value: 150.5 }],
+          data: [{ id: "t1", label: "Jul 1", value: 150.5, x: 0 }],
         })}
       />,
     );
     expect(screen.getByTestId("recharts-areachart")).toBeInTheDocument();
+    expect(captured.xAxisDataKey).toBe("id");
     expect(captured.yTickFormatter!("150.5")).toBe("+$151");
     expect(captured.yTickFormatter!("-25.12")).toBe("$-25.12");
-    expect(captured.tooltipFormatter!(50, "value")).toEqual(["+$50.00", "Value"]);
+    expect(captured.tooltipFormatter!(50, "value", { payload: { label: "Jul 1" } })).toEqual([
+      "+$50.00",
+      "Value",
+    ]);
+  });
+
+  it("equity tooltip marks estimated $ points and labels from payload", () => {
+    render(
+      <ChartRenderer
+        chart={chart({
+          type: "equity",
+          valueUnit: "usd",
+          data: [
+            { id: "a", label: "Jul 1 10:00", value: 150, x: 0, estimated: true },
+            { id: "b", label: "Jul 1 14:00", value: 200, x: 1 },
+          ],
+        })}
+      />,
+    );
+    expect(
+      captured.tooltipFormatter!(150, "value", {
+        payload: { label: "Jul 1 10:00", estimated: true },
+      }),
+    ).toEqual(["+$150 (est.)", "Value"]);
+    expect(
+      captured.labelFormatter!("ignored", [
+        { payload: { label: "Jul 1 10:00", id: "a" } },
+      ]),
+    ).toBe("Jul 1 10:00");
+    expect(captured.xTickFormatter!("a", 0)).toBe("Jul 1 10:00");
+    expect(captured.xTickFormatter!("missing", 99)).toBe("missing");
+    expect(captured.xTickFormatter!(undefined, 99)).toBe("");
+  });
+
+  it("falls back to label dataKey when equity points lack ids", () => {
+    render(
+      <ChartRenderer
+        chart={chart({
+          type: "equity",
+          data: [{ label: "Only label", value: 1 }],
+        })}
+      />,
+    );
+    expect(captured.xAxisDataKey).toBe("label");
   });
 
   it("renders equity with r unit formatting", () => {
@@ -139,12 +217,15 @@ describe("ChartRenderer", () => {
         chart={chart({
           type: "equity",
           valueUnit: "r",
-          data: [{ label: "Jul 1", value: 1.234 }],
+          data: [{ id: "t1", label: "Jul 1", value: 1.234, x: 0 }],
         })}
       />,
     );
     expect(captured.yTickFormatter!(1.234)).toBe("+1.23R");
-    expect(captured.tooltipFormatter!("not-a-number", "value")).toEqual(["not-a-number", "Value"]);
+    expect(captured.tooltipFormatter!("not-a-number", "value", {})).toEqual([
+      "not-a-number",
+      "Value",
+    ]);
   });
 
   it("renders line chart with yLabel and r formatters", () => {
@@ -178,7 +259,80 @@ describe("ChartRenderer", () => {
     const cells = screen.getAllByTestId("recharts-cell");
     expect(cells[0]).toHaveAttribute("data-fill", "#0d9488");
     expect(cells[1]).toHaveAttribute("data-fill", "#e11d48");
-    expect(captured.tooltipFormatter!(100, "value")).toEqual(["+$100", "P&L"]);
+    expect(captured.barMinPointSize).toBe(4);
+    expect(captured.tooltipFormatter!(100, "value", { payload: {} })).toEqual([
+      "+$100",
+      "P&L",
+    ]);
+  });
+
+  it("keeps estimated $0 symbol bars visible with muted fill", () => {
+    render(
+      <ChartRenderer
+        chart={chart({
+          type: "bySymbol",
+          valueUnit: "usd",
+          yLabel: "$",
+          data: [
+            { id: "EURUSD", label: "EURUSD", value: 100, count: 1 },
+            { id: "AUDUSD", label: "AUDUSD", value: 0, estimated: true, count: 1 },
+          ],
+        })}
+      />,
+    );
+    const cells = screen.getAllByTestId("recharts-cell");
+    expect(cells).toHaveLength(2);
+    expect(cells[1]).toHaveAttribute("data-fill", "#78716c");
+    expect(captured.barMinPointSize).toBe(4);
+    expect(
+      captured.tooltipFormatter!(0, "value", {
+        payload: { estimated: true, label: "AUDUSD", count: 1 },
+      }),
+    ).toEqual(["$0.00 (est.) · 1 trade", "Net $"]);
+  });
+
+  it("shows net label and trade count for by-symbol bars", () => {
+    render(
+      <ChartRenderer
+        chart={chart({
+          type: "bySymbol",
+          valueUnit: "r",
+          yLabel: "R",
+          data: [{ id: "GBPJPY", label: "GBPJPY", value: 1.97, count: 3 }],
+        })}
+      />,
+    );
+    expect(
+      captured.tooltipFormatter!(1.97, "value", {
+        payload: { label: "GBPJPY", count: 3 },
+      }),
+    ).toEqual(["+1.97R · 3 trades", "Net R"]);
+  });
+
+  it("defaults net tooltip series label when yLabel is omitted", () => {
+    render(
+      <ChartRenderer
+        chart={chart({
+          type: "bySymbol",
+          data: [{ id: "X", label: "X", value: 1, count: 2 }],
+        })}
+      />,
+    );
+    expect(
+      captured.tooltipFormatter!(1, "value", { payload: { count: 2 } }),
+    ).toEqual(["1 · 2 trades", "Net value"]);
+  });
+
+  it("equity labelFormatter falls back when payload has no label", () => {
+    render(
+      <ChartRenderer
+        chart={chart({
+          type: "equity",
+          data: [{ id: "a", label: "Jul 1", value: 1, x: 0 }],
+        })}
+      />,
+    );
+    expect(captured.labelFormatter!("ignored", [{ payload: {} }])).toBe("");
   });
 
   it("renders scatter chart with axis labels and tooltip formatters", () => {

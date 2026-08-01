@@ -232,6 +232,41 @@ export function formatClock(iso?: string, fallbackDate?: string): string {
   }
 }
 
+/**
+ * Milliseconds for "trades taken" order — matches the journal table.
+ * Prefer entryTime, then exitTime, then calendar date.
+ */
+export function tradeChronologyMs(trade: Trade): number {
+  if (trade.entryTime?.trim()) {
+    const entry = parseTradeDateTime(trade.entryTime, trade.date);
+    if (entry && isValid(entry)) return entry.getTime();
+  }
+  if (trade.exitTime?.trim()) {
+    const exit = parseTradeDateTime(trade.exitTime, trade.date);
+    if (exit && isValid(exit)) return exit.getTime();
+  }
+  const day = parseTradeDateTime(trade.date);
+  if (day && isValid(day)) return day.getTime();
+  return 0;
+}
+
+/**
+ * Wall-clock label for equity / timeline charts.
+ * Uses entry time when present (trade sequence), else exit, else date.
+ */
+export function tradeChronologyLabel(trade: Trade): string {
+  const raw = trade.entryTime?.trim() || trade.exitTime?.trim();
+  if (raw) {
+    const formatted = formatTradeDateTime(raw, trade.date, "MMM d HH:mm");
+    if (formatted && formatted !== "—") return formatted;
+  }
+  try {
+    return format(parseISO(trade.date), "MMM d");
+  } catch {
+    return trade.date;
+  }
+}
+
 export function formatPnlUsd(value?: number): string {
   if (value == null || Number.isNaN(value)) return "—";
   const sign = value > 0 ? "+" : "";

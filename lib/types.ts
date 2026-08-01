@@ -80,11 +80,17 @@ export type TradeMetricField =
 export type TradeLabelField = "symbol" | "date" | "setup" | "session" | "side" | "result";
 
 export interface ChartPoint {
+  /** Unique point id (trade id, symbol, etc.) — used as chart keys / X-axis categories */
+  id?: string;
   label: string;
   value: number;
   secondary?: number;
   x?: number;
   y?: number;
+  /** True when $ value was derived from R × risk because pnlUsd was missing */
+  estimated?: boolean;
+  /** How many trades contributed to this aggregated point */
+  count?: number;
 }
 
 export type PerformanceUnit = "r" | "usd";

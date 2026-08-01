@@ -199,11 +199,32 @@ function BarBody({ chart, data }: { chart: ChartSpec; data: ChartPoint[] }) {
         />
         <Tooltip
           contentStyle={tooltipStyle()}
-          formatter={(value) => [formatChartValue(value, chart.valueUnit), chart.yLabel ?? "Value"]}
+          formatter={(value, _name, item) => {
+            const point = item?.payload as ChartPoint | undefined;
+            const formatted = formatChartValue(value, chart.valueUnit);
+            const bits = [formatted];
+            if (point?.estimated) bits.push("(est.)");
+            if (point?.count != null && point.count > 0) {
+              bits.push(`· ${point.count} trade${point.count === 1 ? "" : "s"}`);
+            }
+            const seriesLabel =
+              point?.count != null && point.count > 0
+                ? `Net ${chart.yLabel ?? "value"}`
+                : (chart.yLabel ?? "Value");
+            return [bits.join(" "), seriesLabel];
+          }}
         />
-        <Bar dataKey="value" radius={[8, 8, 0, 0]}>
-          {data.map((entry) => (
-            <Cell key={entry.label} fill={pointColor(entry.value)} />
+        {/* minPointSize keeps $0 / breakeven / estimated-zero symbols visible */}
+        <Bar dataKey="value" radius={[8, 8, 0, 0]} minPointSize={4}>
+          {data.map((entry, i) => (
+            <Cell
+              key={entry.id ?? `${entry.label}-${i}`}
+              fill={
+                entry.estimated && entry.value === 0
+                  ? MUTED
+                  : pointColor(entry.value)
+              }
+            />
           ))}
         </Bar>
       </BarChart>
@@ -234,9 +255,9 @@ export function ChartRenderer({ chart }: { chart: ChartSpec }) {
                 outerRadius={78}
                 paddingAngle={3}
               >
-                {data.map((entry) => (
+                {data.map((entry, i) => (
                   <Cell
-                    key={entry.label}
+                    key={entry.id ?? `${entry.label}-${i}`}
                     fill={
                       entry.label === "Wins"
                         ? TEAL
@@ -263,11 +284,19 @@ export function ChartRenderer({ chart }: { chart: ChartSpec }) {
                   </linearGradient>
                 </defs>
                 <CartesianGrid stroke={GRID} vertical={false} />
+                {/*
+                  Prefer sequential `x` so same-day trades never share a category
+                  key (duplicate date labels used to collapse points in Recharts).
+                */}
                 <XAxis
-                  dataKey="label"
+                  dataKey={data.every((d) => d.id != null && d.id !== "") ? "id" : "label"}
+                  type="category"
+                  allowDuplicatedCategory
                   tick={axisTick()}
                   axisLine={false}
                   tickLine={false}
+                  tickFormatter={(_value, index) => data[index]?.label ?? String(_value ?? "")}
+                  interval="preserveStartEnd"
                 />
                 <YAxis
                   tick={axisTick()}
@@ -278,17 +307,26 @@ export function ChartRenderer({ chart }: { chart: ChartSpec }) {
                 />
                 <Tooltip
                   contentStyle={tooltipStyle()}
-                  formatter={(value) => [
-                    formatChartValue(value, chart.valueUnit),
-                    chart.yLabel ?? "Value",
-                  ]}
+                  labelFormatter={(_label, payload) => {
+                    const point = payload?.[0]?.payload as ChartPoint | undefined;
+                    return point?.label ?? "";
+                  }}
+                  formatter={(value, _name, item) => {
+                    const point = item?.payload as ChartPoint | undefined;
+                    const formatted = formatChartValue(value, chart.valueUnit);
+                    const suffix = point?.estimated ? " (est.)" : "";
+                    return [`${formatted}${suffix}`, chart.yLabel ?? "Value"];
+                  }}
                 />
                 <Area
-                  type="monotone"
+                  type="linear"
                   dataKey="value"
                   stroke={TEAL}
                   strokeWidth={2.2}
                   fill={`url(#eq-${chart.id})`}
+                  isAnimationActive={false}
+                  dot={{ r: 3, fill: TEAL, strokeWidth: 0 }}
+                  activeDot={{ r: 5 }}
                 />
               </AreaChart>
             </ResponsiveContainer>

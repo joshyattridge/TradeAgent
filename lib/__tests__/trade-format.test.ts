@@ -25,6 +25,8 @@ import {
   parseTradeDateTime,
   pipSize,
   priceToPips,
+  tradeChronologyLabel,
+  tradeChronologyMs,
 } from "@/lib/trade-format";
 import type { Trade } from "@/lib/types";
 
@@ -234,9 +236,123 @@ describe("parse / format / normalize trade datetimes", () => {
     expect(formatTradeDateTime("2026-07-30T15:52:45")).toBe("—");
     expect(formatTradeDate("2026-07-30")).toBe("2026-07-30");
     expect(formatClock("2026-07-30T15:52:45")).toBe("—");
+    expect(
+      tradeChronologyLabel({
+        id: "bad-date",
+        date: "2026-07-30",
+        symbol: "EURUSD",
+        side: "long",
+        setup: "x",
+        entry: 1,
+        stop: 0.9,
+        target: 1.1,
+        rMultiple: 1,
+        result: "win",
+      }),
+    ).toBe("2026-07-30");
     vi.mocked(dateFns.format).mockRestore();
   });
+});
 
+describe("tradeChronologyMs / tradeChronologyLabel", () => {
+  const base: Trade = {
+    id: "t",
+    date: "2026-07-30",
+    symbol: "EURUSD",
+    side: "long",
+    setup: "x",
+    entry: 1.1,
+    stop: 1.09,
+    target: 1.12,
+    rMultiple: 1,
+    result: "win",
+  };
+
+  it("prefers entryTime, then exitTime, then date", () => {
+    const entryMs = tradeChronologyMs({
+      ...base,
+      entryTime: "2026-07-30T08:00:00",
+      exitTime: "2026-07-30T18:00:00",
+    });
+    const exitMs = tradeChronologyMs({
+      ...base,
+      entryTime: undefined,
+      exitTime: "2026-07-30T18:00:00",
+    });
+    const dateMs = tradeChronologyMs({
+      ...base,
+      entryTime: undefined,
+      exitTime: undefined,
+    });
+    // Same exit on both first trades — preferring entry makes the first earlier.
+    expect(entryMs).toBeLessThan(exitMs);
+    expect(exitMs).toBeGreaterThan(dateMs);
+  });
+
+  it("returns 0 when no usable chronology fields parse", () => {
+    expect(
+      tradeChronologyMs({
+        ...base,
+        date: "not-a-date",
+        entryTime: undefined,
+        exitTime: "also-bad",
+      }),
+    ).toBe(0);
+  });
+
+  it("falls through when entry/exit strings are present but unparseable", () => {
+    expect(
+      tradeChronologyMs({
+        ...base,
+        date: "not-a-date",
+        entryTime: "nope",
+        exitTime: "still-nope",
+      }),
+    ).toBe(0);
+  });
+
+  it("labels from entry, exit, or calendar date", () => {
+    expect(
+      tradeChronologyLabel({
+        ...base,
+        entryTime: "2026-07-30T10:43:00",
+      }),
+    ).toMatch(/Jul 30/);
+    expect(
+      tradeChronologyLabel({
+        ...base,
+        entryTime: undefined,
+        exitTime: "2026-07-30T15:00:00",
+      }),
+    ).toMatch(/Jul 30/);
+    expect(
+      tradeChronologyLabel({
+        ...base,
+        entryTime: undefined,
+        exitTime: undefined,
+      }),
+    ).toBe("Jul 30");
+  });
+
+  it("falls back to calendar date when clock formatting yields em dash", () => {
+    expect(
+      tradeChronologyLabel({
+        ...base,
+        entryTime: "not-a-real-clock",
+        exitTime: undefined,
+        date: "not-a-date",
+      }),
+    ).toBe("not-a-date");
+  });
+});
+
+describe("formatPnlUsd extras", () => {
+  it("keeps existing coverage for signed dollars", () => {
+    expect(formatPnlUsd(10)).toBe("+$10.00");
+  });
+});
+
+describe("parseTradeDateTime fallbacks", () => {
   it("falls back to calendar date when clock string is nonsense", () => {
     const d = parseTradeDateTime("25:99:99", "2026-07-30");
     expect(d).not.toBeNull();

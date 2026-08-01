@@ -9,7 +9,11 @@ import type {
   TradeLabelField,
   TradeMetricField,
 } from "./types";
-import { getTimeInTradeMinutes } from "./trade-format";
+import {
+  getTimeInTradeMinutes,
+  tradeChronologyLabel,
+  tradeChronologyMs,
+} from "./trade-format";
 
 export type { PerformanceUnit };
 
@@ -17,12 +21,61 @@ export function closedTrades(trades: Trade[]) {
   return trades.filter((t) => t.result !== "open");
 }
 
+/**
+ * Resolve $ P&L for charting/stats.
+ * Prefer stored pnlUsd; otherwise derive from R × risk so missing $ fields
+ * still contribute instead of silently vanishing as $0.
+ */
+export function resolvePnlUsd(trade: Trade): {
+  value: number;
+  estimated: boolean;
+} {
+  if (trade.pnlUsd != null && Number.isFinite(trade.pnlUsd)) {
+    return { value: trade.pnlUsd, estimated: false };
+  }
+  if (
+    trade.riskUsd != null &&
+    Number.isFinite(trade.riskUsd) &&
+    Number.isFinite(trade.rMultiple)
+  ) {
+    return { value: trade.rMultiple * trade.riskUsd, estimated: true };
+  }
+  return { value: 0, estimated: trade.pnlUsd == null };
+}
+
 function tradeUnitValue(trade: Trade, unit: PerformanceUnit): number {
-  return unit === "usd" ? (trade.pnlUsd ?? 0) : trade.rMultiple;
+  return unit === "usd" ? resolvePnlUsd(trade).value : trade.rMultiple;
 }
 
 function roundUnit(value: number): number {
   return Number(value.toFixed(2));
+}
+
+/** @deprecated use tradeChronologyMs — kept as alias for callers/tests */
+export function tradeCloseMs(trade: Trade): number {
+  return tradeChronologyMs(trade);
+}
+
+export function compareTradesChronologically(a: Trade, b: Trade): number {
+  const diff = tradeChronologyMs(a) - tradeChronologyMs(b);
+  if (diff !== 0) return diff;
+  return a.id.localeCompare(b.id);
+}
+
+function uniqueEquityLabels(trades: Trade[]): string[] {
+  const raw = trades.map((t) => tradeChronologyLabel(t));
+  const totals = new Map<string, number>();
+  for (const label of raw) {
+    totals.set(label, (totals.get(label) ?? 0) + 1);
+  }
+  const seen = new Map<string, number>();
+  return raw.map((label) => {
+    const total = totals.get(label)!;
+    if (total <= 1) return label;
+    const n = (seen.get(label) ?? 0) + 1;
+    seen.set(label, n);
+    return `${label} · ${n}`;
+  });
 }
 
 export function computeStats(trades: Trade[]) {
@@ -35,7 +88,10 @@ export function computeStats(trades: Trade[]) {
   const expectancy = avgR;
   const best = closed.reduce((m, t) => Math.max(m, t.rMultiple), 0);
   const worst = closed.reduce((m, t) => Math.min(m, t.rMultiple), 0);
-  const totalPnlUsd = closed.reduce((sum, t) => sum + (t.pnlUsd ?? 0), 0);
+  const totalPnlUsd = closed.reduce(
+    (sum, t) => sum + resolvePnlUsd(t).value,
+    0,
+  );
   const avgPnlUsd = closed.length ? totalPnlUsd / closed.length : 0;
   const durations = closed
     .map((t) => getTimeInTradeMinutes(t))
@@ -64,19 +120,35 @@ export function computeStats(trades: Trade[]) {
 }
 
 export function equityCurve(trades: Trade[], unit: PerformanceUnit = "r") {
-  const closed = [...closedTrades(trades)].sort((a, b) =>
-    a.date.localeCompare(b.date),
-  );
+  const closed = [...closedTrades(trades)].sort(compareTradesChronologically);
+  const labels = uniqueEquityLabels(closed);
+
+  // Start at flat 0 so the first trade is a visible step (win goes up, loss down).
+  const points: ChartPoint[] = [
+    {
+      id: "__equity-start",
+      label: "Start",
+      value: 0,
+      secondary: 0,
+      x: 0,
+    },
+  ];
+
   let running = 0;
-  return closed.map((t) => {
-    const delta = tradeUnitValue(t, unit);
+  closed.forEach((t, index) => {
+    const resolved = unit === "usd" ? resolvePnlUsd(t) : null;
+    const delta = resolved ? resolved.value : t.rMultiple;
     running += delta;
-    return {
-      label: format(parseISO(t.date), "MMM d"),
+    points.push({
+      id: t.id,
+      label: labels[index]!,
       value: roundUnit(running),
       secondary: roundUnit(delta),
-    };
+      x: index + 1,
+      estimated: resolved?.estimated,
+    });
   });
+  return points;
 }
 
 export function rByDay(trades: Trade[], unit: PerformanceUnit = "r") {
@@ -87,6 +159,7 @@ export function rByDay(trades: Trade[], unit: PerformanceUnit = "r") {
   return [...map.entries()]
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([date, value]) => ({
+      id: date,
       label: format(parseISO(date), "MMM d"),
       value: roundUnit(value),
     }));
@@ -95,35 +168,51 @@ export function rByDay(trades: Trade[], unit: PerformanceUnit = "r") {
 export function winLossBreakdown(trades: Trade[]) {
   const stats = computeStats(trades);
   return [
-    { label: "Wins", value: stats.wins },
-    { label: "Losses", value: stats.losses },
-    { label: "Open", value: stats.openCount },
+    { id: "wins", label: "Wins", value: stats.wins },
+    { id: "losses", label: "Losses", value: stats.losses },
+    { id: "open", label: "Open", value: stats.openCount },
   ];
 }
 
 export function bySymbol(trades: Trade[], unit: PerformanceUnit = "r") {
-  const map = new Map<string, number>();
+  const totals = new Map<string, number>();
+  const counts = new Map<string, number>();
+  const estimated = new Map<string, boolean>();
   for (const t of closedTrades(trades)) {
-    map.set(t.symbol, (map.get(t.symbol) ?? 0) + tradeUnitValue(t, unit));
+    counts.set(t.symbol, (counts.get(t.symbol) ?? 0) + 1);
+    if (unit === "usd") {
+      const resolved = resolvePnlUsd(t);
+      totals.set(t.symbol, (totals.get(t.symbol) ?? 0) + resolved.value);
+      if (resolved.estimated) estimated.set(t.symbol, true);
+    } else {
+      totals.set(t.symbol, (totals.get(t.symbol) ?? 0) + t.rMultiple);
+    }
   }
-  return [...map.entries()]
+  return [...totals.entries()]
     .sort((a, b) => b[1] - a[1])
     .map(([label, value]) => ({
+      id: label,
       label,
       value: roundUnit(value),
+      count: counts.get(label)!,
+      estimated: estimated.get(label) === true ? true : undefined,
     }));
 }
 
 export function bySetup(trades: Trade[], unit: PerformanceUnit = "r") {
   const map = new Map<string, number>();
+  const counts = new Map<string, number>();
   for (const t of closedTrades(trades)) {
     map.set(t.setup, (map.get(t.setup) ?? 0) + tradeUnitValue(t, unit));
+    counts.set(t.setup, (counts.get(t.setup) ?? 0) + 1);
   }
   return [...map.entries()]
     .sort((a, b) => b[1] - a[1])
     .map(([label, value]) => ({
+      id: label,
       label,
       value: roundUnit(value),
+      count: counts.get(label)!,
     }));
 }
 
@@ -266,6 +355,9 @@ export function buildChart(
         id,
         type,
         title: title ?? (isUsd ? "$ by symbol" : "R by symbol"),
+        description: isUsd
+          ? "Net $ P&L across closed trades per symbol"
+          : "Net R across closed trades per symbol",
         yLabel: isUsd ? "$" : "R",
         valueUnit: unit,
         data: bySymbol(trades, unit),
@@ -275,6 +367,9 @@ export function buildChart(
         id,
         type,
         title: title ?? (isUsd ? "$ by setup" : "R by setup"),
+        description: isUsd
+          ? "Net $ P&L across closed trades per setup"
+          : "Net R across closed trades per setup",
         yLabel: isUsd ? "$" : "R",
         valueUnit: unit,
         data: bySetup(trades, unit),
