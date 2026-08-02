@@ -40,7 +40,55 @@ describe("DashboardPage", () => {
     expect(screen.getByRole("heading", { name: "Dashboard" })).toBeInTheDocument();
     expect(screen.getByText("Total R")).toBeInTheDocument();
     expect(screen.getByText("Win rate")).toBeInTheDocument();
+    expect(screen.getByTestId("pnl-calendar")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Last 30 days" })).toBeInTheDocument();
     expect(screen.getAllByTestId(/^chart-/).length).toBeGreaterThan(0);
+  });
+
+  it("colors calendar days by daily profit and shows amounts", () => {
+    const today = new Date();
+    const winDate = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 5);
+    const lossDate = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 4);
+    const toIso = (d: Date) =>
+      `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    const formatLabel = (d: Date) =>
+      d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+
+    resetStore({
+      trades: [
+        {
+          id: "win-day",
+          date: toIso(winDate),
+          symbol: "EURUSD",
+          side: "long",
+          setup: "Test",
+          entry: 1.1,
+          stop: 1.09,
+          target: 1.12,
+          rMultiple: 2,
+          result: "win",
+          pnlUsd: 200,
+        },
+        {
+          id: "loss-day",
+          date: toIso(lossDate),
+          symbol: "EURUSD",
+          side: "long",
+          setup: "Test",
+          entry: 1.1,
+          stop: 1.09,
+          target: 1.12,
+          rMultiple: -1,
+          result: "loss",
+          pnlUsd: -100,
+        },
+      ],
+    });
+
+    render(<DashboardPage />);
+
+    expect(screen.getByLabelText(`${formatLabel(winDate)}: +2.0R`)).toBeInTheDocument();
+    expect(screen.getByLabelText(`${formatLabel(lossDate)}: -1.0R`)).toBeInTheDocument();
   });
 
   it("toggles between R and $ performance units", async () => {

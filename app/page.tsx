@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { ChartRenderer } from "@/components/ChartRenderer";
+import { PnlCalendar } from "@/components/PnlCalendar";
 import { useTradingStore } from "@/lib/store";
 import { buildChart, computeStats, type PerformanceUnit } from "@/lib/stats";
 
@@ -134,6 +135,10 @@ export default function DashboardPage() {
 
       <section style={{ marginTop: "1rem" }}>
         <ChartRenderer chart={bySymbol} />
+      </section>
+
+      <section style={{ marginTop: "1rem" }}>
+        <PnlCalendar trades={trades} unit={unit} />
       </section>
     </div>
   );

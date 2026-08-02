@@ -12,6 +12,7 @@ import {
   labelValue,
   metricLabel,
   metricValue,
+  pnlCalendar,
   rByDay,
   resolvePnlUsd,
   tradeCloseMs,
@@ -468,6 +469,57 @@ describe("rByDay", () => {
     );
     expect(byDay[0].value).toBe(200);
     expect(byDay[1].value).toBe(-50);
+  });
+});
+
+describe("pnlCalendar", () => {
+  it("fills the last 30 days and pads to full weeks", () => {
+    const now = new Date(2026, 7, 2); // Aug 2, 2026 (Sunday)
+    const trades = [
+      makeTrade({ id: "p1", date: "2026-07-14", rMultiple: 2, pnlUsd: 200 }),
+      makeTrade({ id: "p2", date: "2026-07-22", rMultiple: -1, result: "loss", pnlUsd: -100 }),
+      makeTrade({ id: "old", date: "2026-06-01", rMultiple: 5, pnlUsd: 500 }),
+    ];
+    const cells = pnlCalendar(trades, "r", 30, now);
+    const inRange = cells.filter((c) => c.inRange);
+
+    expect(inRange).toHaveLength(30);
+    expect(inRange[0]!.date).toBe("2026-07-04");
+    expect(inRange[inRange.length - 1]!.date).toBe("2026-08-02");
+    expect(cells[0]!.date).toBe("2026-06-28"); // leading Sunday pad
+    expect(cells[0]!.inRange).toBe(false);
+    expect(cells.length % 7).toBe(0);
+
+    const win = cells.find((c) => c.date === "2026-07-14")!;
+    expect(win.hasTrades).toBe(true);
+    expect(win.value).toBe(2);
+
+    const loss = cells.find((c) => c.date === "2026-07-22")!;
+    expect(loss.hasTrades).toBe(true);
+    expect(loss.value).toBe(-1);
+
+    const empty = cells.find((c) => c.date === "2026-07-15")!;
+    expect(empty.inRange).toBe(true);
+    expect(empty.hasTrades).toBe(false);
+    expect(empty.value).toBe(0);
+
+    expect(cells.some((c) => c.date === "2026-06-01" && c.hasTrades)).toBe(false);
+  });
+
+  it("aggregates USD values for calendar cells", () => {
+    const now = new Date(2026, 6, 10); // Jul 10, 2026
+    const cells = pnlCalendar(
+      [
+        makeTrade({ id: "a", date: "2026-07-09", pnlUsd: 150, rMultiple: 1.5 }),
+        makeTrade({ id: "b", date: "2026-07-09", pnlUsd: 50, rMultiple: 0.5 }),
+      ],
+      "usd",
+      7,
+      now,
+    );
+    const day = cells.find((c) => c.date === "2026-07-09")!;
+    expect(day.value).toBe(200);
+    expect(day.hasTrades).toBe(true);
   });
 });
 

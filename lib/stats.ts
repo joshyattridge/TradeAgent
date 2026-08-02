@@ -1,4 +1,12 @@
-import { format, parseISO } from "date-fns";
+import {
+  eachDayOfInterval,
+  endOfWeek,
+  format,
+  parseISO,
+  startOfDay,
+  startOfWeek,
+  subDays,
+} from "date-fns";
 import type {
   ChartKind,
   ChartPoint,
@@ -16,6 +24,18 @@ import {
 } from "./trade-format";
 
 export type { PerformanceUnit };
+
+export type CalendarDayPnl = {
+  date: string;
+  dayOfMonth: number;
+  label: string;
+  /** Day is inside the requested lookback window. */
+  inRange: boolean;
+  /** Closed trades exist on this calendar day. */
+  hasTrades: boolean;
+  /** Net P&L for the day when in range; null for week-padding cells. */
+  value: number | null;
+};
 
 export function closedTrades(trades: Trade[]) {
   return trades.filter((t) => t.result !== "open");
@@ -163,6 +183,39 @@ export function rByDay(trades: Trade[], unit: PerformanceUnit = "r") {
       label: format(parseISO(date), "MMM d"),
       value: roundUnit(value),
     }));
+}
+
+/**
+ * Build a Sunday–Saturday calendar grid covering the last `days` calendar
+ * days (inclusive of `now`). Leading/trailing week padding cells have
+ * `inRange: false` so the UI can render empty squares.
+ */
+export function pnlCalendar(
+  trades: Trade[],
+  unit: PerformanceUnit = "r",
+  days = 30,
+  now: Date = new Date(),
+): CalendarDayPnl[] {
+  const end = startOfDay(now);
+  const start = subDays(end, Math.max(days, 1) - 1);
+  const byDay = new Map(rByDay(trades, unit).map((d) => [d.id, d.value]));
+  const gridStart = startOfWeek(start, { weekStartsOn: 0 });
+  const gridEnd = endOfWeek(end, { weekStartsOn: 0 });
+
+  return eachDayOfInterval({ start: gridStart, end: gridEnd }).map((day) => {
+    const date = format(day, "yyyy-MM-dd");
+    const inRange = day >= start && day <= end;
+    const value = byDay.get(date);
+    const hasTrades = value !== undefined;
+    return {
+      date,
+      dayOfMonth: day.getDate(),
+      label: format(day, "MMM d"),
+      inRange,
+      hasTrades,
+      value: inRange ? (hasTrades ? value! : 0) : null,
+    };
+  });
 }
 
 export function winLossBreakdown(trades: Trade[]) {
