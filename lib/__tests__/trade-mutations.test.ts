@@ -1052,3 +1052,169 @@ describe("LLM misuse / accidental wipe defenses", () => {
     expect(session.trades[0].entry).toBe(before.entry);
   });
 });
+
+describe("strategy checklist on trades", () => {
+  it("logTradeSchema accepts checklist answers", () => {
+    const parsed = logTradeSchema.parse({
+      date: "2026-07-30",
+      symbol: "EURUSD",
+      side: "long",
+      setup: "1H FVG",
+      entry: 1.1,
+      stop: 1.09,
+      target: 1.12,
+      rMultiple: 0,
+      result: "open",
+      checklist: [
+        { id: "cl-bias", checked: true },
+        { id: "cl-pd", checked: false },
+      ],
+    });
+    expect(parsed.checklist).toEqual([
+      { id: "cl-bias", checked: true },
+      { id: "cl-pd", checked: false },
+    ]);
+  });
+
+  it("log_trade snapshots checklist labels from strategy", () => {
+    const session = makeSession([]);
+    const res = session.logTrade({
+      date: "2026-07-30",
+      symbol: "EURUSD",
+      side: "long",
+      setup: "1H FVG",
+      entry: 1.1,
+      stop: 1.09,
+      target: 1.12,
+      rMultiple: 0,
+      result: "open",
+      checklist: [
+        { id: "cl-bias", checked: true },
+        { id: "cl-entry", checked: false },
+      ],
+    });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.trade.checklist).toEqual([
+      {
+        id: "cl-bias",
+        label: "Daily bias locked (HH/HL or LH/LL + BOS)",
+        checked: true,
+      },
+      {
+        id: "cl-entry",
+        label: "Entry at CE of fresh/first-touch 1H FVG",
+        checked: false,
+      },
+    ]);
+  });
+
+  it("log_trade rejects unknown checklist ids", () => {
+    const session = makeSession([]);
+    const res = session.logTrade({
+      date: "2026-07-30",
+      symbol: "EURUSD",
+      side: "long",
+      setup: "1H FVG",
+      entry: 1.1,
+      stop: 1.09,
+      target: 1.12,
+      rMultiple: 0,
+      result: "open",
+      checklist: [{ id: "nope", checked: true }],
+    });
+    expect(res.ok).toBe(false);
+    if (res.ok) return;
+    expect(res.error).toMatch(/Unknown checklist/);
+    expect(session.trades).toHaveLength(0);
+  });
+
+  it("log_trade omits checklist when all answer ids are blank", () => {
+    const session = makeSession([]);
+    const res = session.logTrade({
+      date: "2026-07-30",
+      symbol: "EURUSD",
+      side: "long",
+      setup: "1H FVG",
+      entry: 1.1,
+      stop: 1.09,
+      target: 1.12,
+      rMultiple: 0,
+      result: "open",
+      checklist: [{ id: "   ", checked: true }],
+    });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.trade.checklist).toBeUndefined();
+  });
+
+  it("get_strategy and update_strategy handle missing checklist", () => {
+    const session = makeSession([]);
+    session.strategy = { ...session.strategy, checklist: undefined };
+    expect(session.getStrategy().strategy.checklist).toEqual([]);
+    const res = session.updateStrategy({ name: "Renamed Only" });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.strategy.checklistCount).toBe(0);
+  });
+
+  it("patch_trade merges checklist answers by id", () => {
+    const before = fullTrade({
+      checklist: [
+        {
+          id: "cl-bias",
+          label: "Daily bias locked (HH/HL or LH/LL + BOS)",
+          checked: true,
+        },
+      ],
+    });
+    const session = makeSession([before]);
+    const res = session.patchTrade({
+      id: before.id,
+      checklist: [
+        { id: "cl-bias", checked: false },
+        { id: "cl-pd", checked: true },
+      ],
+    });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.trade.checklist).toEqual([
+      {
+        id: "cl-bias",
+        label: "Daily bias locked (HH/HL or LH/LL + BOS)",
+        checked: false,
+      },
+      {
+        id: "cl-pd",
+        label: "Correct premium/discount zone for side",
+        checked: true,
+      },
+    ]);
+  });
+
+  it("patch_trade rejects unknown checklist ids", () => {
+    const before = fullTrade();
+    const session = makeSession([before]);
+    const res = session.patchTrade({
+      id: before.id,
+      checklist: [{ id: "missing", checked: true }],
+    });
+    expect(res.ok).toBe(false);
+    if (res.ok) return;
+    expect(res.error).toMatch(/Unknown checklist/);
+  });
+
+  it("update_strategy can replace checklist", () => {
+    const session = makeSession([]);
+    const res = session.updateStrategy({
+      checklist: [{ id: "x", label: "Only this" }],
+    });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.applied).toContain("checklist");
+    expect(session.strategy.checklist).toEqual([{ id: "x", label: "Only this" }]);
+    expect(session.getStrategy().strategy.checklist).toEqual([
+      { id: "x", label: "Only this" },
+    ]);
+  });
+});

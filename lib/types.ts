@@ -3,6 +3,23 @@ import type { ChatAgentMessage } from "@/lib/chat-history";
 export type TradeSide = "long" | "short";
 export type TradeResult = "win" | "loss" | "breakeven" | "open";
 
+/** Checklist item defined on the strategy plan. */
+export interface StrategyChecklistItem {
+  id: string;
+  label: string;
+}
+
+/**
+ * Yes/No answer recorded on a trade.
+ * Unanswered items are omitted (neither radio selected).
+ * `label` is snapshotted so history survives strategy checklist edits.
+ */
+export interface TradeChecklistAnswer {
+  id: string;
+  label: string;
+  checked: boolean;
+}
+
 export interface Trade {
   id: string;
   /** Calendar date YYYY-MM-DD */
@@ -42,6 +59,8 @@ export interface Trade {
   tags?: string[];
   /** Chart screenshots / images attached when the trade was logged */
   screenshots?: string[];
+  /** Strategy checklist Yes/No answers for this trade */
+  checklist?: TradeChecklistAnswer[];
 }
 
 export interface Strategy {
@@ -50,6 +69,8 @@ export interface Strategy {
   /** Full strategy document as markdown (images may be data URLs) */
   markdown: string;
   updatedAt: string;
+  /** Structured pre-trade checklist (Yes/No recorded on each trade) */
+  checklist?: StrategyChecklistItem[];
 }
 
 export type ChartKind =

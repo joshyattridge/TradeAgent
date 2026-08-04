@@ -183,6 +183,47 @@ describe("ProposalReview", () => {
     expect(document.querySelector(".proposal-md-line--same")).toBeTruthy();
   });
 
+  it("renders strategy checklist diff including empty before/after", async () => {
+    const before: Strategy = {
+      name: "Plan",
+      markdown: "# Plan\n",
+      updatedAt: "2026-01-01T00:00:00Z",
+      checklist: [{ id: "a", label: "Bias" }],
+    };
+    const afterEmpty: Strategy = {
+      ...before,
+      checklist: [],
+    };
+    pendingProposal = proposal([
+      { kind: "strategy", before, after: afterEmpty },
+    ]);
+    proposalReviewOpen = true;
+    const { rerender } = render(<ProposalReview />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Checklist")).toBeInTheDocument();
+    });
+    expect(screen.getByText("Bias")).toHaveClass("proposal-field__value--before");
+    expect(screen.getByText("—")).toHaveClass("proposal-field__value--after");
+
+    pendingProposal = proposal([
+      {
+        kind: "strategy",
+        before: { ...before, checklist: [] },
+        after: {
+          ...before,
+          checklist: [{ id: "b", label: "PD zone" }],
+        },
+      },
+    ]);
+    rerender(<ProposalReview />);
+    await waitFor(() => {
+      expect(screen.getByText("PD zone")).toHaveClass(
+        "proposal-field__value--after",
+      );
+    });
+  });
+
   it("accepts, rejects, closes via backdrop, X, and Escape", async () => {
     const user = userEvent.setup();
     pendingProposal = proposal([{ kind: "add", trade: sampleTrade({ id: "x" }) }], "Save me");

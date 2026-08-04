@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
-import { MessageSquare, Trash2, X } from "lucide-react";
+import { Check, MessageSquare, Trash2, X } from "lucide-react";
+import { checklistDisplayRows } from "@/lib/checklist";
 import { useTradingStore } from "@/lib/store";
 import type { Trade } from "@/lib/types";
 import {
@@ -40,13 +41,19 @@ function Row({
 }
 
 export function TradeDetail({
-  trade,
+  trade: tradeProp,
   onClose,
 }: {
   trade: Trade;
   onClose: () => void;
 }) {
   const deleteTrade = useTradingStore((s) => s.deleteTrade);
+  const updateTrade = useTradingStore((s) => s.updateTrade);
+  const strategyChecklist = useTradingStore((s) => s.strategy.checklist);
+  const liveTrade = useTradingStore((s) =>
+    s.trades.find((t) => t.id === tradeProp.id),
+  );
+  const trade = liveTrade ?? tradeProp;
   const setChatReferencedTradeId = useTradingStore(
     (s) => s.setChatReferencedTradeId,
   );
@@ -79,6 +86,25 @@ export function TradeDetail({
   const tpPips = getTpPips(trade);
   const pnlClass =
     trade.pnlUsd == null ? "" : trade.pnlUsd >= 0 ? "pos" : "neg";
+
+  const checklistRows = checklistDisplayRows(
+    strategyChecklist,
+    trade.checklist,
+  );
+  const doneCount = checklistRows.filter((row) => row.checked === true).length;
+
+  function toggleChecklistDone(id: string, label: string, done: boolean) {
+    const byId = new Map(
+      (trade.checklist ?? []).map((item) => [item.id, item]),
+    );
+    if (done) {
+      byId.set(id, { id, label, checked: true });
+    } else {
+      byId.delete(id);
+    }
+    // Always pass an array (including []) — store skips undefined patches.
+    updateTrade(trade.id, { checklist: [...byId.values()] });
+  }
 
   function onDelete() {
     if (!confirmDelete) {
@@ -183,6 +209,51 @@ export function TradeDetail({
               </span>
             </Row>
           </div>
+
+          {checklistRows.length ? (
+            <div className="trade-detail__checklist">
+              <div className="trade-detail__checklist-head">
+                <p className="trade-detail__eyebrow">Checklist</p>
+                <span className="trade-detail__checklist-score">
+                  {doneCount}/{checklistRows.length} done
+                </span>
+              </div>
+              <ul className="trade-detail__checklist-list">
+                {checklistRows.map((row) => {
+                  const done = row.checked === true;
+                  return (
+                    <li key={row.id}>
+                      <label
+                        className={`trade-detail__checklist-item${done ? " trade-detail__checklist-item--done" : ""}`}
+                      >
+                        <span
+                          className={`trade-detail__checklist-mark${done ? " trade-detail__checklist-mark--done" : ""}`}
+                          aria-hidden
+                        >
+                          {done ? <Check size={14} strokeWidth={2.5} /> : null}
+                        </span>
+                        <input
+                          type="checkbox"
+                          className="sr-only"
+                          checked={done}
+                          onChange={(e) =>
+                            toggleChecklistDone(
+                              row.id,
+                              row.label,
+                              e.target.checked,
+                            )
+                          }
+                        />
+                        <span className="trade-detail__checklist-label">
+                          {row.label}
+                        </span>
+                      </label>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          ) : null}
 
           {trade.screenshots?.length ? (
             <div className="trade-detail__shots">

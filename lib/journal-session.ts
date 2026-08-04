@@ -9,6 +9,11 @@ import type {
   TradeFilterInput,
 } from "@/lib/chat-schemas";
 import {
+  mergeTradeChecklist,
+  normalizeStrategyChecklist,
+  resolveChecklistAnswers,
+} from "@/lib/checklist";
+import {
   markdownForChat,
   normalizeStrategy,
   strategyNameFromMarkdown,
@@ -422,6 +427,23 @@ export class JournalSession {
       entryTime: input.entryTime,
       exitTime: input.exitTime,
     });
+
+    let checklist = undefined as Trade["checklist"];
+    if (input.checklist?.length) {
+      const resolved = resolveChecklistAnswers(
+        this.strategy.checklist,
+        input.checklist,
+      );
+      if (!resolved.ok) {
+        return {
+          ok: false as const,
+          error: resolved.error,
+          unknownIds: resolved.unknownIds,
+        };
+      }
+      checklist = resolved.checklist.length ? resolved.checklist : undefined;
+    }
+
     const trade: Trade = {
       id: uid(),
       date: input.date,
@@ -446,6 +468,7 @@ export class JournalSession {
       notes: input.notes,
       session: input.session,
       tags: input.tags,
+      checklist,
       ...(this.turnHasScreenshots ? { screenshots: ["pending"] } : {}),
     };
 
@@ -482,7 +505,8 @@ export class JournalSession {
       };
     }
 
-    const { id: _id, symbol: _symbol, ...rest } = input;
+    const { id: _id, symbol: _symbol, checklist: checklistInput, ...rest } =
+      input;
     void _id;
     void _symbol;
 
@@ -499,6 +523,24 @@ export class JournalSession {
     delete (patch as Record<string, unknown>).tags;
     delete (patch as Record<string, unknown>).screenshots;
     delete (patch as Record<string, unknown>).id;
+
+    if (checklistInput?.length) {
+      const resolved = resolveChecklistAnswers(
+        this.strategy.checklist,
+        checklistInput,
+      );
+      if (!resolved.ok) {
+        return {
+          ok: false as const,
+          error: resolved.error,
+          unknownIds: resolved.unknownIds,
+        };
+      }
+      patch.checklist = mergeTradeChecklist(
+        existing.checklist,
+        resolved.checklist,
+      );
+    }
 
     // Same-pair typo fix only (already validated above)
     if (input.symbol && symbolsMatch(existing.symbol, input.symbol)) {
@@ -630,6 +672,7 @@ export class JournalSession {
     appendMarkdown?: string;
     name?: string;
     replacements?: Array<{ find: string; replace: string; replaceAll?: boolean }>;
+    checklist?: Array<{ id: string; label: string }>;
   }) {
     const patch: Partial<Strategy> = {};
     let nextMarkdown = this.strategy.markdown;
@@ -702,6 +745,11 @@ export class JournalSession {
       patch.name = strategyNameFromMarkdown(nextMarkdown, this.strategy.name);
     }
 
+    if (input.checklist !== undefined) {
+      patch.checklist = normalizeStrategyChecklist(input.checklist);
+      applied.push("checklist");
+    }
+
     if (!Object.keys(patch).length) {
       return { ok: false as const, error: "update_strategy received no valid fields" };
     }
@@ -723,6 +771,7 @@ export class JournalSession {
         name: this.strategy.name,
         updatedAt: this.strategy.updatedAt,
         markdownChars: this.strategy.markdown.length,
+        checklistCount: this.strategy.checklist?.length ?? 0,
       },
       applied,
     };
@@ -817,8 +866,9 @@ export class JournalSession {
         name: s.name,
         updatedAt: s.updatedAt,
         markdown: markdownForChat(s.markdown),
+        checklist: s.checklist ?? [],
       },
-      note: "Full strategy markdown. Embedded images are placeholders here; open the Strategy page to view them.",
+      note: "Full strategy markdown + checklist. Use checklist[].id when logging/patching trade checklist answers. Embedded images are placeholders here; open the Strategy page to view them.",
     };
   }
 

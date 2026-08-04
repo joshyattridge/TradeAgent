@@ -168,6 +168,20 @@ describe("useTradingStore actions", () => {
     expect(trade?.screenshots).toEqual(["a", "b"]);
   });
 
+  it("updateTrade clears checklist when patched to an empty array", () => {
+    useTradingStore.setState({
+      trades: [
+        sampleTrade({
+          checklist: [{ id: "cl-bias", label: "Bias", checked: true }],
+        }),
+      ],
+    });
+    useTradingStore.getState().updateTrade("t1", { checklist: [] });
+    expect(
+      useTradingStore.getState().trades.find((t) => t.id === "t1")?.checklist,
+    ).toBeUndefined();
+  });
+
   it("deleteTrade removes trade and clears composer pin when matched", () => {
     useTradingStore.setState({ chatReferencedTradeId: "t1" });
     useTradingStore.getState().deleteTrade("t1");

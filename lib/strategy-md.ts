@@ -1,4 +1,5 @@
-import type { Strategy } from "./types";
+import { normalizeStrategyChecklist } from "./checklist";
+import type { Strategy, StrategyChecklistItem } from "./types";
 
 /** Legacy structured strategy shape (pre-markdown). */
 export type LegacyStrategy = {
@@ -13,6 +14,7 @@ export type LegacyStrategy = {
   approach?: string;
   markdown?: string;
   updatedAt?: string;
+  checklist?: StrategyChecklistItem[];
 };
 
 /** Pull a display name from the first ATX heading, else fallback. */
@@ -147,6 +149,7 @@ export function normalizeStrategy(raw: unknown): Strategy {
     name: "Trading strategy",
     markdown: "# Trading strategy\n\nWrite your plan here.\n",
     updatedAt: new Date().toISOString(),
+    checklist: [],
   };
 
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
@@ -162,8 +165,11 @@ export function normalizeStrategy(raw: unknown): Strategy {
     typeof legacy.updatedAt === "string" && legacy.updatedAt
       ? legacy.updatedAt
       : new Date().toISOString();
+  const checklist = normalizeStrategyChecklist(
+    (raw as { checklist?: unknown }).checklist,
+  );
 
-  return { name, markdown, updatedAt };
+  return { name, markdown, updatedAt, checklist };
 }
 
 /**

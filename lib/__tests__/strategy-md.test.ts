@@ -41,6 +41,7 @@ describe("strategy markdown helpers", () => {
     expect(normalizeStrategy(null).name).toBe("Trading strategy");
     expect(normalizeStrategy([]).markdown).toContain("# Trading strategy");
     expect(normalizeStrategy("x").name).toBe("Trading strategy");
+    expect(normalizeStrategy(null).checklist).toEqual([]);
   });
 
   it("derives name from markdown when legacy name missing", () => {

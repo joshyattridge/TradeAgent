@@ -37,6 +37,15 @@ const optionalTradeFields = {
   session: z.string().optional(),
 };
 
+const checklistAnswerInputSchema = z.object({
+  id: z
+    .string()
+    .describe("Checklist item id from get_strategy.strategy.checklist"),
+  checked: z
+    .boolean()
+    .describe("true = done (followed), false = not done"),
+});
+
 /** Create a brand-new trade. Initial notes/tags allowed only on create. */
 export const logTradeSchema = z.object({
   date: z.string().describe("YYYY-MM-DD"),
@@ -50,6 +59,12 @@ export const logTradeSchema = z.object({
   result: tradeResultSchema,
   notes: z.string().optional().describe("Initial notes for a new trade only"),
   tags: z.array(z.string()).optional().describe("Initial tags for a new trade only"),
+  checklist: z
+    .array(checklistAnswerInputSchema)
+    .optional()
+    .describe(
+      "Strategy checklist done/not-done answers. Use ids from get_strategy.strategy.checklist. Prefer only including done items (checked: true).",
+    ),
   ...optionalTradeFields,
 });
 
@@ -71,6 +86,12 @@ export const patchTradeSchema = z.object({
   target: z.number().optional(),
   rMultiple: z.number().optional(),
   result: tradeResultSchema.optional(),
+  checklist: z
+    .array(checklistAnswerInputSchema)
+    .optional()
+    .describe(
+      "Merge checklist done answers by id (from get_strategy). Prefer checked: true for completed items.",
+    ),
   ...optionalTradeFields,
 });
 
@@ -219,6 +240,19 @@ export const updateStrategySchema = z.object({
     .string()
     .optional()
     .describe("Optional display name override (defaults from first H1)"),
+  checklist: z
+    .array(
+      z.object({
+        id: z
+          .string()
+          .describe("Stable id for this item (reuse existing ids when editing)"),
+        label: z.string().describe("Checklist item text shown on trades"),
+      }),
+    )
+    .optional()
+    .describe(
+      "Replace the full strategy checklist (tick-off items recorded on each trade). Pass [] to clear.",
+    ),
 });
 
 const metricField = z.enum([

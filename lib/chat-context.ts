@@ -37,6 +37,7 @@ export type TradeSnapshot = {
   session?: string;
   notes?: string;
   tags?: string[];
+  checklist?: Trade["checklist"];
   hasScreenshots: boolean;
 };
 
@@ -74,6 +75,7 @@ export function tradeSnapshot(trade: Trade): TradeSnapshot {
     session: trade.session,
     notes: trade.notes,
     tags: trade.tags,
+    checklist: trade.checklist,
     hasScreenshots: Boolean(
       trade.screenshots?.some((s) => s && s !== "pending"),
     ),
@@ -113,6 +115,7 @@ export function buildStrategyDigest(strategy: Strategy) {
     name: strategy.name,
     updatedAt: strategy.updatedAt,
     markdown: truncate(markdownForChat(strategy.markdown), 4000),
+    checklist: strategy.checklist ?? [],
   };
 }
 

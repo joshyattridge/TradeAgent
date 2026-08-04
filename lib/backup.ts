@@ -1,3 +1,7 @@
+import {
+  normalizeStrategyChecklist,
+  normalizeTradeChecklist,
+} from "./checklist";
 import type { Strategy, Trade, TradeResult, TradeSide } from "./types";
 import { normalizeStrategy } from "./strategy-md";
 
@@ -116,12 +120,21 @@ function parseTrade(raw: unknown, index: number): Trade | string {
   if (!isOptionalStringArray(raw.screenshots)) {
     return `Trade ${id} has invalid screenshots`;
   }
+  if (raw.checklist !== undefined && !Array.isArray(raw.checklist)) {
+    return `Trade ${id} has invalid checklist`;
+  }
+  const checklist = normalizeTradeChecklist(raw.checklist);
 
   // Drop legacy chartExtract from older backups — screenshots are re-sent when needed.
   const { chartExtract: _legacyExtract, ...trade } = raw;
   void _legacyExtract;
-  // Validated above; rest is still Record-shaped so go through unknown.
-  return trade as unknown as Trade;
+  const next = trade as unknown as Trade;
+  if (checklist.length) {
+    next.checklist = checklist;
+  } else {
+    delete next.checklist;
+  }
+  return next;
 }
 
 function parseStrategy(raw: unknown): Strategy | string {
@@ -132,14 +145,19 @@ function parseStrategy(raw: unknown): Strategy | string {
     if (typeof raw.updatedAt !== "string" || !raw.updatedAt) {
       return "Strategy is missing a valid updatedAt";
     }
+    if (raw.checklist !== undefined && !Array.isArray(raw.checklist)) {
+      return "Strategy.checklist must be an array";
+    }
     const name =
       typeof raw.name === "string" && raw.name.trim()
         ? raw.name.trim()
         : "Trading strategy";
+    const checklist = normalizeStrategyChecklist(raw.checklist);
     return {
       name,
       markdown: raw.markdown,
       updatedAt: raw.updatedAt,
+      checklist,
     };
   }
 

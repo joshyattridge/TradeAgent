@@ -248,6 +248,14 @@ export const useTradingStore = create<Store>()(
                 .filter((s) => s && s !== "pending")
                 .slice(0, MAX_SCREENSHOTS_PER_TRADE);
             }
+            // Empty checklist means none done — don't leave stale answers.
+            if (
+              Object.prototype.hasOwnProperty.call(patch, "checklist") &&
+              Array.isArray(patch.checklist) &&
+              patch.checklist.length === 0
+            ) {
+              delete merged.checklist;
+            }
             return merged;
           }),
         }),

@@ -143,6 +143,10 @@ function ChangeBlock({ change }: { change: ProposalChange }) {
   const mdDiff = lineDiff(change.before.markdown, change.after.markdown);
   const changedOnly = mdDiff.filter((l) => l.type !== "same");
   const showDiff = changedOnly.length ? mdDiff : mdDiff.slice(0, 40);
+  const beforeChecklist = change.before.checklist ?? [];
+  const afterChecklist = change.after.checklist ?? [];
+  const checklistChanged =
+    JSON.stringify(beforeChecklist) !== JSON.stringify(afterChecklist);
 
   return (
     <section className="proposal-change">
@@ -157,6 +161,21 @@ function ChangeBlock({ change }: { change: ProposalChange }) {
           </p>
         ) : null}
       </header>
+      {checklistChanged ? (
+        <div className="proposal-checklist-diff">
+          <p className="proposal-change__meta">Checklist</p>
+          <p className="proposal-field__value--before">
+            {beforeChecklist.length
+              ? beforeChecklist.map((item) => item.label).join("; ")
+              : "—"}
+          </p>
+          <p className="proposal-field__value--after">
+            {afterChecklist.length
+              ? afterChecklist.map((item) => item.label).join("; ")
+              : "—"}
+          </p>
+        </div>
+      ) : null}
       <div className="proposal-md-diff" aria-label="Strategy markdown diff">
         {showDiff.map((line, i) => (
           <div

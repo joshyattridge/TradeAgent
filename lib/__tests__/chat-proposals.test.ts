@@ -72,6 +72,28 @@ describe("formatTradeFieldValue", () => {
 
     expect(
       formatTradeFieldValue(
+        {
+          ...base,
+          checklist: [
+            { id: "a", label: "Bias", checked: true },
+            { id: "b", label: "PD", checked: false },
+          ],
+        },
+        "checklist",
+      ),
+    ).toBe("Bias: Done; PD: Not done");
+    expect(formatTradeFieldValue({ ...base, checklist: [] }, "checklist")).toBe(
+      "—",
+    );
+    expect(
+      formatTradeFieldValue(
+        { ...base, checklist: ["legacy"] as never },
+        "checklist",
+      ),
+    ).toBe("legacy");
+
+    expect(
+      formatTradeFieldValue(
         { ...base, entryTime: "2026-07-30T15:46:09" },
         "entryTime",
       ),
@@ -367,6 +389,37 @@ describe("chat proposals", () => {
       { type: "same", text: "a" },
       { type: "same", text: "b" },
     ]);
+  });
+
+  it("includes checklist-only strategy updates in proposals", () => {
+    const checklist = [{ id: "n1", label: "New item" }];
+    const proposal = buildChatProposal({
+      actions: { updateStrategy: { checklist } },
+      trades: [],
+      strategy: { ...seedStrategy, checklist: undefined },
+    });
+    expect(proposal?.changes[0].kind).toBe("strategy");
+    if (proposal?.changes[0].kind === "strategy") {
+      expect(proposal.changes[0].after.checklist).toEqual(checklist);
+    }
+  });
+
+  it("includes trade checklist in update diffs", () => {
+    const trade = sampleTrade();
+    const proposal = buildChatProposal({
+      actions: {
+        updateTrade: {
+          id: trade.id,
+          checklist: [{ id: "cl-bias", label: "Daily bias", checked: true }],
+        },
+      },
+      trades: [trade],
+      strategy: seedStrategy,
+    });
+    expect(proposal?.changes[0].kind).toBe("update");
+    if (proposal?.changes[0].kind === "update") {
+      expect(proposal.changes[0].changedKeys).toContain("checklist");
+    }
   });
 
   it("mergeTradePatch normalizes entry/exit times and skips undefined patch keys", () => {

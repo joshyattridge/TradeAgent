@@ -209,6 +209,90 @@ describe("StrategyPage", () => {
     expect(mockFileToChatImage).not.toHaveBeenCalled();
   });
 
+  it("renders checklist items in view mode", () => {
+    render(<StrategyPage />);
+    expect(screen.getByRole("heading", { name: "Checklist" })).toBeInTheDocument();
+    expect(
+      screen.getByText(seedStrategy.checklist![0].label),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(`${seedStrategy.checklist!.length} checklist`),
+    ).toBeInTheDocument();
+  });
+
+  it("shows empty checklist note when strategy has no items", () => {
+    resetStore({
+      strategy: { ...seedStrategy, checklist: undefined },
+    });
+    render(<StrategyPage />);
+    expect(
+      screen.getByText(/No checklist items yet\. Click Edit/),
+    ).toBeInTheDocument();
+  });
+
+  it("edits checklist: add, rename, reorder, remove, and save", async () => {
+    const user = userEvent.setup();
+    resetStore({
+      strategy: {
+        ...seedStrategy,
+        checklist: [
+          { id: "a", label: "First" },
+          { id: "b", label: "Second" },
+        ],
+      },
+    });
+    render(<StrategyPage />);
+
+    await user.click(screen.getByRole("button", { name: "Edit" }));
+    expect(screen.getByRole("button", { name: "Add item" })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Add item" }));
+    const inputs = screen.getAllByPlaceholderText("Checklist item…");
+    expect(inputs).toHaveLength(3);
+
+    await user.type(inputs[2], "Third");
+    expect(screen.getByText("Unsaved")).toBeInTheDocument();
+
+    const moveUps = screen.getAllByRole("button", { name: "Move up" });
+    await user.click(moveUps[1]);
+
+    const moveDowns = screen.getAllByRole("button", { name: "Move down" });
+    await user.click(moveDowns[0]);
+
+    // Bound checks: move first up and last down are no-ops
+    await user.click(screen.getAllByRole("button", { name: "Move up" })[0]);
+    const downs = screen.getAllByRole("button", { name: "Move down" });
+    await user.click(downs[downs.length - 1]);
+
+    await user.click(screen.getAllByRole("button", { name: "Remove item" })[0]);
+
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => {
+      const checklist = useTradingStore.getState().strategy.checklist ?? [];
+      expect(checklist.some((item) => item.label === "Third")).toBe(true);
+      expect(checklist).toHaveLength(2);
+    });
+  });
+
+  it("shows empty checklist editor hint and cancels checklist-only dirty", async () => {
+    const user = userEvent.setup();
+    resetStore({
+      strategy: { ...seedStrategy, checklist: undefined },
+    });
+    render(<StrategyPage />);
+
+    await user.click(screen.getByRole("button", { name: "Edit" }));
+    expect(
+      screen.getByText(/No checklist items yet\. Add the steps/),
+    ).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Add item" }));
+    expect(screen.getByText("Unsaved")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByText("Unsaved")).not.toBeInTheDocument();
+  });
+
   it("uses default alt text for extension-only filenames and ignores empty picks", async () => {
     const user = userEvent.setup();
     render(<StrategyPage />);

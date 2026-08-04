@@ -8,6 +8,7 @@ import {
   useState,
 } from "react";
 import { format, parseISO } from "date-fns";
+import { ArrowDown, ArrowUp, Plus, Trash2 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { fileToChatImage } from "@/lib/images";
@@ -15,7 +16,13 @@ import {
   insertMarkdownImage,
   strategyNameFromMarkdown,
 } from "@/lib/strategy-md";
+import { reorderChecklistItems } from "@/lib/checklist";
 import { useTradingStore } from "@/lib/store";
+import type { StrategyChecklistItem } from "@/lib/types";
+
+function cloneChecklist(items: StrategyChecklistItem[] | undefined) {
+  return (items ?? []).map((item) => ({ ...item }));
+}
 
 export default function StrategyPage() {
   const strategy = useTradingStore((s) => s.strategy);
@@ -24,6 +31,9 @@ export default function StrategyPage() {
 
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(strategy.markdown);
+  const [checklistDraft, setChecklistDraft] = useState<StrategyChecklistItem[]>(
+    () => cloneChecklist(strategy.checklist),
+  );
   const [dirty, setDirty] = useState(false);
   const [imageError, setImageError] = useState<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -32,10 +42,11 @@ export default function StrategyPage() {
   useEffect(() => {
     if (!editing) {
       setDraft(strategy.markdown);
+      setChecklistDraft(cloneChecklist(strategy.checklist));
       setDirty(false);
       setImageError(null);
     }
-  }, [strategy.markdown, editing]);
+  }, [strategy.markdown, strategy.checklist, editing]);
 
   if (!hydrated) {
     return (
@@ -45,8 +56,20 @@ export default function StrategyPage() {
     );
   }
 
+  function markDirty(
+    nextMarkdown: string,
+    nextChecklist: StrategyChecklistItem[],
+  ) {
+    const mdDirty = nextMarkdown !== strategy.markdown;
+    const clDirty =
+      JSON.stringify(nextChecklist) !==
+      JSON.stringify(strategy.checklist ?? []);
+    setDirty(mdDirty || clDirty);
+  }
+
   function startEdit() {
     setDraft(strategy.markdown);
+    setChecklistDraft(cloneChecklist(strategy.checklist));
     setDirty(false);
     setImageError(null);
     setEditing(true);
@@ -54,6 +77,7 @@ export default function StrategyPage() {
 
   function cancelEdit() {
     setDraft(strategy.markdown);
+    setChecklistDraft(cloneChecklist(strategy.checklist));
     setDirty(false);
     setImageError(null);
     setEditing(false);
@@ -61,9 +85,16 @@ export default function StrategyPage() {
 
   function save() {
     const markdown = draft;
+    const checklist = checklistDraft
+      .map((item) => ({
+        id: item.id.trim(),
+        label: item.label.trim(),
+      }))
+      .filter((item) => item.id && item.label);
     replaceStrategy({
       name: strategyNameFromMarkdown(markdown, strategy.name),
       markdown,
+      checklist,
       updatedAt: new Date().toISOString(),
     });
     setDirty(false);
@@ -72,7 +103,35 @@ export default function StrategyPage() {
 
   function onDraftChange(value: string) {
     setDraft(value);
-    setDirty(value !== strategy.markdown);
+    markDirty(value, checklistDraft);
+  }
+
+  function onChecklistChange(next: StrategyChecklistItem[]) {
+    setChecklistDraft(next);
+    markDirty(draft, next);
+  }
+
+  function addChecklistItem() {
+    onChecklistChange([
+      ...checklistDraft,
+      { id: crypto.randomUUID(), label: "" },
+    ]);
+  }
+
+  function updateChecklistLabel(id: string, label: string) {
+    onChecklistChange(
+      checklistDraft.map((item) =>
+        item.id === id ? { ...item, label } : item,
+      ),
+    );
+  }
+
+  function removeChecklistItem(id: string) {
+    onChecklistChange(checklistDraft.filter((item) => item.id !== id));
+  }
+
+  function moveChecklistItem(id: string, direction: -1 | 1) {
+    onChecklistChange(reorderChecklistItems(checklistDraft, id, direction));
   }
 
   async function insertImageFile(file: File) {
@@ -107,6 +166,8 @@ export default function StrategyPage() {
     );
     if (file) await insertImageFile(file);
   }
+
+  const viewChecklist = strategy.checklist ?? [];
 
   return (
     <div className="page">
@@ -160,6 +221,9 @@ export default function StrategyPage() {
         <span className="pill">
           Updated {format(parseISO(strategy.updatedAt), "MMM d, yyyy")}
         </span>
+        {viewChecklist.length ? (
+          <span className="pill">{viewChecklist.length} checklist</span>
+        ) : null}
         {dirty ? <span className="pill pill--warn">Unsaved</span> : null}
       </div>
 
@@ -198,6 +262,97 @@ export default function StrategyPage() {
           )}
         </article>
       )}
+
+      <section className="strategy-checklist panel">
+        <div className="strategy-checklist__header">
+          <div>
+            <h2>Checklist</h2>
+            <p>
+              Pre-trade steps to tick off. Completed items are recorded on every
+              trade.
+            </p>
+          </div>
+          {editing ? (
+            <button
+              type="button"
+              className="ghost-btn"
+              onClick={addChecklistItem}
+            >
+              <Plus size={14} />
+              Add item
+            </button>
+          ) : null}
+        </div>
+
+        {editing ? (
+          checklistDraft.length ? (
+            <ul className="strategy-checklist__list">
+              {checklistDraft.map((item, index) => (
+                <li key={item.id} className="strategy-checklist__item">
+                  <span
+                    className="strategy-checklist__mark"
+                    aria-hidden
+                  />
+                  <input
+                    type="text"
+                    className="strategy-checklist__input"
+                    value={item.label}
+                    onChange={(e) =>
+                      updateChecklistLabel(item.id, e.target.value)
+                    }
+                    placeholder="Checklist item…"
+                    aria-label={`Checklist item ${index + 1}`}
+                  />
+                  <div className="strategy-checklist__row-actions">
+                    <button
+                      type="button"
+                      className="icon-btn"
+                      onClick={() => moveChecklistItem(item.id, -1)}
+                      aria-label="Move up"
+                    >
+                      <ArrowUp size={14} />
+                    </button>
+                    <button
+                      type="button"
+                      className="icon-btn"
+                      onClick={() => moveChecklistItem(item.id, 1)}
+                      aria-label="Move down"
+                    >
+                      <ArrowDown size={14} />
+                    </button>
+                    <button
+                      type="button"
+                      className="icon-btn"
+                      onClick={() => removeChecklistItem(item.id)}
+                      aria-label="Remove item"
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="empty-note">
+              No checklist items yet. Add the steps you want to verify before
+              every trade.
+            </p>
+          )
+        ) : viewChecklist.length ? (
+          <ul className="strategy-checklist__list">
+            {viewChecklist.map((item) => (
+              <li key={item.id} className="strategy-checklist__item">
+                <span className="strategy-checklist__mark" aria-hidden />
+                <span className="strategy-checklist__label">{item.label}</span>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="empty-note">
+            No checklist items yet. Click Edit to add them.
+          </p>
+        )}
+      </section>
     </div>
   );
 }

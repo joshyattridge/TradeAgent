@@ -71,10 +71,24 @@ Soft stop at −6R / month. If expectancy dies over 30+ closed trades, stop and 
 - **Max trades / week:** 2–6
 - **Max DD:** −6R / month soft stop
 `,
+  checklist: [
+    { id: "cl-bias", label: "Daily bias locked (HH/HL or LH/LL + BOS)" },
+    { id: "cl-pd", label: "Correct premium/discount zone for side" },
+    { id: "cl-poi", label: "Whitelist 4H POI (FVG / OB / overlap)" },
+    { id: "cl-sweep", label: "Liquidity sweep + reclaim into POI" },
+    { id: "cl-disp", label: "1H displacement + FVG + MSS" },
+    { id: "cl-entry", label: "Entry at CE of fresh/first-touch 1H FVG" },
+  ],
   updatedAt: new Date().toISOString(),
 };
 
 const R = 100; // $ risked per 1R in seed book
+
+const seedChecklistAllYes = seedStrategy.checklist!.map((item) => ({
+  id: item.id,
+  label: item.label,
+  checked: true,
+}));
 
 export const seedTrades: Trade[] = [
   {
@@ -100,6 +114,7 @@ export const seedTrades: Trade[] = [
     result: "win",
     notes: "London SSL sweep into 4H FVG, clean CE fill.",
     session: "London",
+    checklist: seedChecklistAllYes,
   },
   {
     id: "t2",
@@ -124,6 +139,11 @@ export const seedTrades: Trade[] = [
     result: "loss",
     notes: "Sweep was valid but NY news spiked through stop.",
     session: "New York",
+    checklist: seedChecklistAllYes.map((item) =>
+      item.id === "cl-entry"
+        ? { ...item, checked: false }
+        : item,
+    ),
   },
   {
     id: "t3",

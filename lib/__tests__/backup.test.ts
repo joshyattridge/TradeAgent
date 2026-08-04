@@ -41,6 +41,23 @@ describe("journal backup", () => {
     expect(parsed.backup.trades).toEqual(trades);
     expect(parsed.backup.strategy.name).toBe(seedStrategy.name);
     expect(parsed.backup.strategy.markdown).toContain("# 1H Fair Value Gap Continuation");
+    expect(parsed.backup.strategy.checklist).toEqual(seedStrategy.checklist);
+  });
+
+  it("round-trips trade checklist answers", () => {
+    const trades = [
+      sampleTrade({
+        checklist: [
+          { id: "cl-bias", label: "Daily bias", checked: true },
+          { id: "cl-pd", label: "PD zone", checked: false },
+        ],
+      }),
+    ];
+    const backup = buildJournalBackup(trades, seedStrategy);
+    const parsed = parseJournalBackup(serializeJournalBackup(backup));
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    expect(parsed.backup.trades[0].checklist).toEqual(trades[0].checklist);
   });
 
   it("migrates legacy structured strategy on import", () => {
@@ -94,6 +111,32 @@ describe("journal backup", () => {
     expect(parsed.ok).toBe(false);
     if (parsed.ok) return;
     expect(parsed.error).toMatch(/side/i);
+  });
+
+  it("rejects invalid trade and strategy checklist shapes", () => {
+    const backup = buildJournalBackup([sampleTrade()], seedStrategy);
+    const badTrade = parseJournalBackup({
+      ...backup,
+      trades: [{ ...sampleTrade(), checklist: "nope" }],
+    });
+    expect(badTrade.ok).toBe(false);
+    if (!badTrade.ok) {
+      expect(badTrade.error).toMatch(/invalid checklist/i);
+    }
+
+    const badStrategy = parseJournalBackup({
+      ...backup,
+      strategy: {
+        name: "Plan",
+        markdown: "# Plan\n",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+        checklist: "nope",
+      },
+    });
+    expect(badStrategy.ok).toBe(false);
+    if (!badStrategy.ok) {
+      expect(badStrategy.error).toMatch(/checklist must be an array/i);
+    }
   });
 
   it("merges by id with incoming winning", () => {

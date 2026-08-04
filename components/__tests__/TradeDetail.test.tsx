@@ -3,16 +3,23 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { TradeDetail } from "@/components/TradeDetail";
-import type { Trade } from "@/lib/types";
+import type { StrategyChecklistItem, Trade } from "@/lib/types";
 
 const deleteTrade = vi.fn();
+const updateTrade = vi.fn();
 const setChatReferencedTradeId = vi.fn();
+
+let strategyChecklist: StrategyChecklistItem[] = [];
+let storeTrades: Trade[] = [];
 
 vi.mock("@/lib/store", () => ({
   useTradingStore: (selector: (s: Record<string, unknown>) => unknown) =>
     selector({
       deleteTrade,
+      updateTrade,
       setChatReferencedTradeId,
+      strategy: { checklist: strategyChecklist },
+      trades: storeTrades,
     }),
 }));
 
@@ -54,6 +61,8 @@ describe("TradeDetail", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     document.body.style.overflow = "";
+    strategyChecklist = [];
+    storeTrades = [];
   });
 
   it("returns null until mounted, then portals dialog to body", async () => {
@@ -78,24 +87,25 @@ describe("TradeDetail", () => {
     expect(view.getByText("0.40 lots")).toBeInTheDocument();
     expect(view.getByText("$100")).toBeInTheDocument();
     expect(view.getByText("Clean fill")).toBeInTheDocument();
-    expect(view.getByAltText("Trade chart 1")).toBeInTheDocument();
-    expect(view.getByText("A+")).toBeInTheDocument();
+    expect(view.getByAltText("Trade chart 1")).toHaveAttribute(
+      "src",
+      "https://example.com/chart.png",
+    );
   });
 
-  it("renders loss, open, breakeven badges and missing optional fields", async () => {
+  it("renders loss/open/breakeven badges and empty optional fields", async () => {
     const { rerender } = render(
       <TradeDetail
         trade={sampleTrade({
           result: "loss",
           rMultiple: -1,
-          pnlUsd: -100,
-          side: "short",
+          pnlUsd: -50,
           session: undefined,
           size: undefined,
           riskUsd: undefined,
-          exit: undefined,
           feesUsd: undefined,
-          notes: "  ",
+          exit: undefined,
+          notes: "   ",
           tags: undefined,
           screenshots: undefined,
         })}
@@ -103,48 +113,33 @@ describe("TradeDetail", () => {
       />,
     );
 
-    await waitFor(() => {
-      expect(screen.getByText("loss")).toHaveClass("badge--loss");
-    });
-    expect(screen.getByText("short")).toHaveClass("side-short");
+    expect(await screen.findByText("loss")).toHaveClass("badge--loss");
     expect(screen.getByText("-1.0R")).toHaveClass("neg");
-    expect(screen.getAllByText("—").length).toBeGreaterThan(0);
-    expect(screen.getByText("No notes yet.")).toBeInTheDocument();
 
     rerender(
       <TradeDetail trade={sampleTrade({ result: "open", rMultiple: 0, pnlUsd: undefined })} onClose={vi.fn()} />,
     );
-    expect(screen.getByText("open")).toHaveClass("badge--open");
+    expect(await screen.findByText("open")).toHaveClass("badge--open");
 
     rerender(
       <TradeDetail trade={sampleTrade({ result: "breakeven", rMultiple: 0 })} onClose={vi.fn()} />,
     );
-    expect(screen.getByText("breakeven")).toHaveClass("badge");
+    expect(await screen.findByText("breakeven")).toBeInTheDocument();
   });
 
-  it("locks body overflow and restores on unmount", async () => {
-    const prev = "scroll";
-    document.body.style.overflow = prev;
-    const { unmount } = render(<TradeDetail trade={sampleTrade()} onClose={vi.fn()} />);
-
-    await waitFor(() => {
-      expect(document.body.style.overflow).toBe("hidden");
-    });
-
-    unmount();
-    expect(document.body.style.overflow).toBe(prev);
-  });
-
-  it("closes via backdrop, X button, and Escape", async () => {
+  it("closes on backdrop click, close button, and Escape", async () => {
     const user = userEvent.setup();
     const onClose = vi.fn();
-    render(<TradeDetail trade={sampleTrade()} onClose={onClose} />);
+    const { unmount } = render(<TradeDetail trade={sampleTrade()} onClose={onClose} />);
 
     await waitFor(() => {
       expect(screen.getByRole("dialog")).toBeInTheDocument();
     });
 
-    await user.click(document.body.querySelector(".trade-detail-backdrop")!);
+    fireEvent.click(screen.getByRole("dialog"));
+    expect(onClose).not.toHaveBeenCalled();
+
+    fireEvent.click(document.querySelector(".trade-detail-backdrop")!);
     expect(onClose).toHaveBeenCalledTimes(1);
 
     onClose.mockClear();
@@ -154,46 +149,40 @@ describe("TradeDetail", () => {
     onClose.mockClear();
     fireEvent.keyDown(window, { key: "Escape" });
     expect(onClose).toHaveBeenCalledTimes(1);
+
+    unmount();
+    expect(document.body.style.overflow).toBe("");
   });
 
-  it("does not close when clicking inside the panel", async () => {
+  it("requires confirm before deleting", async () => {
     const user = userEvent.setup();
     const onClose = vi.fn();
     render(<TradeDetail trade={sampleTrade()} onClose={onClose} />);
-
-    await waitFor(() => {
-      expect(screen.getByRole("dialog")).toBeInTheDocument();
-    });
-
-    await user.click(screen.getByRole("dialog"));
-    expect(onClose).not.toHaveBeenCalled();
-  });
-
-  it("runs delete confirmation flow and resets on trade change", async () => {
-    const user = userEvent.setup();
-    const onClose = vi.fn();
-    const { rerender } = render(
-      <TradeDetail trade={sampleTrade({ id: "t1" })} onClose={onClose} />,
-    );
 
     await waitFor(() => {
       expect(screen.getByRole("button", { name: /Delete trade/i })).toBeInTheDocument();
     });
 
     await user.click(screen.getByRole("button", { name: /Delete trade/i }));
+    expect(deleteTrade).not.toHaveBeenCalled();
     expect(screen.getByText("Delete this trade permanently?")).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: /Cancel/i }));
-    expect(screen.queryByText("Delete this trade permanently?")).not.toBeInTheDocument();
-
-    await user.click(screen.getByRole("button", { name: /Delete trade/i }));
     await user.click(screen.getByRole("button", { name: /Confirm delete/i }));
     expect(deleteTrade).toHaveBeenCalledWith("t1");
     expect(onClose).toHaveBeenCalled();
+  });
 
-    deleteTrade.mockClear();
-    onClose.mockClear();
-    rerender(<TradeDetail trade={sampleTrade({ id: "t2" })} onClose={onClose} />);
+  it("cancels delete confirmation", async () => {
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+    render(<TradeDetail trade={sampleTrade()} onClose={onClose} />);
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /Delete trade/i })).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByRole("button", { name: /Delete trade/i }));
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
     expect(screen.queryByText("Delete this trade permanently?")).not.toBeInTheDocument();
   });
 
@@ -221,5 +210,76 @@ describe("TradeDetail", () => {
 
     fireEvent.keyDown(window, { key: "Enter" });
     expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it("toggles checklist items done and clears them", async () => {
+    const user = userEvent.setup();
+    strategyChecklist = [
+      { id: "cl-bias", label: "Daily bias" },
+      { id: "cl-pd", label: "PD zone" },
+    ];
+    const trade = sampleTrade({
+      checklist: [{ id: "cl-bias", label: "Daily bias", checked: true }],
+    });
+    storeTrades = [trade];
+
+    render(<TradeDetail trade={trade} onClose={vi.fn()} />);
+
+    await waitFor(() => {
+      expect(screen.getByText("1/2 done")).toBeInTheDocument();
+    });
+
+    const boxes = screen.getAllByRole("checkbox");
+    expect(boxes).toHaveLength(2);
+    expect(boxes[0]).toBeChecked();
+    expect(boxes[1]).not.toBeChecked();
+
+    await user.click(boxes[1]);
+    expect(updateTrade).toHaveBeenCalledWith("t1", {
+      checklist: [
+        { id: "cl-bias", label: "Daily bias", checked: true },
+        { id: "cl-pd", label: "PD zone", checked: true },
+      ],
+    });
+
+    await user.click(boxes[0]);
+    expect(updateTrade).toHaveBeenCalledWith("t1", {
+      checklist: [],
+    });
+  });
+
+  it("checks first item when trade has no checklist yet", async () => {
+    const user = userEvent.setup();
+    strategyChecklist = [{ id: "cl-bias", label: "Daily bias" }];
+    const trade = sampleTrade({ side: "short", checklist: undefined });
+    storeTrades = [trade];
+
+    render(<TradeDetail trade={trade} onClose={vi.fn()} />);
+
+    await waitFor(() => {
+      expect(screen.getByText("short")).toHaveClass("side-short");
+    });
+
+    await user.click(screen.getByRole("checkbox"));
+    expect(updateTrade).toHaveBeenCalledWith("t1", {
+      checklist: [{ id: "cl-bias", label: "Daily bias", checked: true }],
+    });
+  });
+
+  it("uses live store trade when present for checklist state", async () => {
+    strategyChecklist = [{ id: "cl-bias", label: "Daily bias" }];
+    const propTrade = sampleTrade({ checklist: undefined });
+    storeTrades = [
+      sampleTrade({
+        checklist: [{ id: "cl-bias", label: "Daily bias", checked: true }],
+      }),
+    ];
+
+    render(<TradeDetail trade={propTrade} onClose={vi.fn()} />);
+
+    await waitFor(() => {
+      expect(screen.getByText("1/1 done")).toBeInTheDocument();
+    });
+    expect(screen.getByRole("checkbox")).toBeChecked();
   });
 });

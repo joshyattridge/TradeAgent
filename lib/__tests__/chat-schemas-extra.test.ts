@@ -23,6 +23,11 @@ describe("remaining chat schemas", () => {
     expect(updateStrategySchema.parse({ markdown: "# Full\n" }).markdown).toBe(
       "# Full\n",
     );
+    expect(
+      updateStrategySchema.parse({
+        checklist: [{ id: "cl-1", label: "Bias locked" }],
+      }).checklist,
+    ).toEqual([{ id: "cl-1", label: "Bias locked" }]);
   });
 
   it("parses chart and generateCharts schemas", () => {

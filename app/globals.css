@@ -625,6 +625,81 @@ textarea {
   margin-top: 1.15rem;
 }
 
+.trade-detail__checklist {
+  margin-top: 1.15rem;
+}
+
+.trade-detail__checklist-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.trade-detail__checklist-score {
+  font-size: 0.8rem;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.trade-detail__checklist-list {
+  list-style: none;
+  margin: 0.55rem 0 0;
+  padding: 0;
+  display: grid;
+  gap: 0.45rem;
+}
+
+.trade-detail__checklist-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.65rem;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid var(--line);
+  border-radius: calc(var(--radius) - 4px);
+  background: rgba(255, 253, 248, 0.55);
+  cursor: pointer;
+  user-select: none;
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease;
+}
+
+.trade-detail__checklist-item--done {
+  border-color: rgba(13, 148, 136, 0.35);
+  background: rgba(13, 148, 136, 0.12);
+}
+
+.trade-detail__checklist-mark {
+  flex-shrink: 0;
+  width: 1.15rem;
+  height: 1.15rem;
+  margin-top: 0.1rem;
+  border-radius: 999px;
+  border: 1.5px solid rgba(28, 25, 23, 0.28);
+  background: rgba(255, 253, 248, 0.9);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: transparent;
+}
+
+.trade-detail__checklist-mark--done {
+  border-color: var(--teal-deep);
+  background: var(--teal-deep);
+  color: #fff;
+}
+
+.trade-detail__checklist-label {
+  color: var(--ink-soft);
+  font-size: 0.9rem;
+  line-height: 1.35;
+}
+
+.trade-detail__checklist-item--done .trade-detail__checklist-label {
+  color: var(--teal-deep);
+}
+
 .trade-detail__tag-list,
 .trade-tag-row {
   display: flex;
@@ -941,6 +1016,90 @@ textarea {
 
 .strategy-doc {
   padding: 1.25rem 1.4rem 1.5rem;
+}
+
+.strategy-checklist {
+  margin-top: 1rem;
+  padding: 1.1rem 1.25rem 1.25rem;
+}
+
+.strategy-checklist__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.85rem;
+  margin-bottom: 0.85rem;
+}
+
+.strategy-checklist__header h2 {
+  margin: 0;
+  font-size: 1.15rem;
+}
+
+.strategy-checklist__header p {
+  margin: 0.25rem 0 0;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.strategy-checklist__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.45rem;
+}
+
+.strategy-checklist__item {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.65rem;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid var(--line);
+  border-radius: calc(var(--radius) - 4px);
+  background: rgba(255, 253, 248, 0.55);
+}
+
+.strategy-checklist__mark {
+  flex-shrink: 0;
+  width: 1.15rem;
+  height: 1.15rem;
+  margin-top: 0.1rem;
+  border-radius: 999px;
+  border: 1.5px solid rgba(28, 25, 23, 0.28);
+  background: rgba(255, 253, 248, 0.9);
+}
+
+.strategy-checklist__label {
+  color: var(--ink-soft);
+  font-size: 0.9rem;
+  line-height: 1.35;
+}
+
+.strategy-checklist__input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  background: transparent;
+  color: var(--ink);
+  padding: 0;
+  font-size: 0.9rem;
+  line-height: 1.35;
+}
+
+.strategy-checklist__input:focus {
+  outline: none;
+}
+
+.strategy-checklist__input::placeholder {
+  color: var(--muted);
+}
+
+.strategy-checklist__row-actions {
+  display: flex;
+  gap: 0.2rem;
+  flex-shrink: 0;
+  margin-left: auto;
 }
 
 .markdown-body {

@@ -70,6 +70,7 @@ const TRADE_COMPARE_KEYS: (keyof Trade)[] = [
   "session",
   "tags",
   "screenshots",
+  "checklist",
 ];
 
 function valuesEqual(a: unknown, b: unknown): boolean {
@@ -316,7 +317,9 @@ export function buildChatProposal(opts: {
     const after = mergeStrategyPatch(opts.strategy, gated.updateStrategy);
     if (
       after.name !== opts.strategy.name ||
-      after.markdown !== opts.strategy.markdown
+      after.markdown !== opts.strategy.markdown ||
+      JSON.stringify(after.checklist) !==
+        JSON.stringify(opts.strategy.checklist ?? [])
     ) {
       changes.push({
         kind: "strategy",
@@ -407,6 +410,7 @@ export const TRADE_FIELD_LABELS: Partial<Record<keyof Trade, string>> = {
   session: "Session",
   tags: "Tags",
   screenshots: "Screenshots",
+  checklist: "Checklist",
 };
 
 export function formatTradeFieldValue(
@@ -420,6 +424,23 @@ export function formatTradeFieldValue(
   }
   if (key === "screenshots" && Array.isArray(value)) {
     return value.length ? `${value.length} image${value.length > 1 ? "s" : ""}` : "—";
+  }
+  if (key === "checklist" && Array.isArray(value)) {
+    if (!value.length) return "—";
+    return value
+      .map((item) => {
+        if (
+          item &&
+          typeof item === "object" &&
+          "label" in item &&
+          "checked" in item
+        ) {
+          const answer = item as { label: string; checked: boolean };
+          return `${answer.label}: ${answer.checked ? "Done" : "Not done"}`;
+        }
+        return String(item);
+      })
+      .join("; ");
   }
   if ((key === "entryTime" || key === "exitTime") && typeof value === "string") {
     return formatTradeDateTime(value, trade.date, "MMM d, yyyy HH:mm:ss");
@@ -462,4 +483,5 @@ export const PROPOSED_TRADE_KEYS: (keyof Trade)[] = [
   "notes",
   "tags",
   "screenshots",
+  "checklist",
 ];
