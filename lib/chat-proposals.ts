@@ -403,7 +403,7 @@ export const TRADE_FIELD_LABELS: Partial<Record<keyof Trade, string>> = {
   pnlUsd: "P&L ($)",
   riskUsd: "Risk ($)",
   size: "Size",
-  feesUsd: "Fees ($)",
+  feesUsd: "Fees (comm+swap $)",
   rMultiple: "R",
   result: "Result",
   notes: "Notes",

@@ -199,13 +199,13 @@ function createJournalTools(session: JournalSession) {
     }),
     log_trade: tool({
       description:
-        "Create a NEW trade only — never updates an existing row. Returns the new id; use patch_trade for field follow-ups and annotate_trade for notes/tags. When reading a screenshot, extract levels into the normal trade fields (entry/stop/target/exit/session/setup).",
+        "Create a NEW trade only — never updates an existing row. Returns the new id; use patch_trade for field follow-ups and annotate_trade for notes/tags. When reading a screenshot, extract levels into the normal trade fields (entry/stop/target/exit/session/setup). feesUsd is commission + swap.",
       inputSchema: logTradeSchema,
       execute: async (input) => session.logTrade(input),
     }),
     patch_trade: tool({
       description:
-        "Partial update of trade fields by exact id (levels, result, session, setup, PnL, etc). Does NOT touch notes or tags — use annotate_trade for those. Never guess ids; call find_trade / query_trades first. No silent retargeting.",
+        "Partial update of trade fields by exact id (levels, result, session, setup, PnL, fees, etc). feesUsd = commission + swap. Does NOT touch notes or tags — use annotate_trade for those. Never guess ids; call find_trade / query_trades first. No silent retargeting.",
       inputSchema: patchTradeSchema,
       execute: async (input) => session.patchTrade(input),
     }),
@@ -315,6 +315,7 @@ Missing info / screenshots:
 - Reattached trade-journal screenshots (if any this turn): ${ctx.reattachedScreenshotCount}. These belong to a trade uniquely named in the message.
 - Attached files on the current message are also in the user message — use them as source data for logging, reviews, or imports.
 - Required when logging/closing: symbol, side, entry, SL, TP (or why missing), result, R and/or $ P&L.
+- feesUsd = commission + swap (add them if the broker shows both separately). pnlUsd is gross price P&L; net $ P&L used in stats is pnlUsd − feesUsd.
 
 Hard rules for mutations:
 - Journal writes (log/patch/annotate/delete/strategy) are PROPOSED to the user. A review panel asks them to Accept or Reject before anything is saved.

@@ -30,10 +30,20 @@ const optionalTradeFields = {
       "Exit datetime. Broker CSV/chart clocks without a timezone: YYYY-MM-DDTHH:mm:ss with NO Z (keep wall clock). Only use Z or +HH:MM when the source states a zone.",
     ),
   timeInTradeMinutes: z.number().optional(),
-  pnlUsd: z.number().optional(),
+  pnlUsd: z
+    .number()
+    .optional()
+    .describe(
+      "Gross realized price P&L in $ (before fees). Net dashboard P&L = pnlUsd − feesUsd.",
+    ),
   riskUsd: z.number().optional(),
   size: z.string().optional(),
-  feesUsd: z.number().optional(),
+  feesUsd: z
+    .number()
+    .optional()
+    .describe(
+      "Total trade costs in $ = commission + swap (sum both if shown separately). Subtracted from pnlUsd for net $ P&L.",
+    ),
   session: z.string().optional(),
 };
 

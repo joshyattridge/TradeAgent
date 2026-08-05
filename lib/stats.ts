@@ -42,29 +42,23 @@ export function closedTrades(trades: Trade[]) {
 }
 
 /**
- * Resolve $ P&L for charting/stats.
- * Prefer stored pnlUsd; otherwise derive from R × risk so missing $ fields
- * still contribute instead of silently vanishing as $0.
+ * Resolve net $ P&L for charting/stats: pnlUsd − feesUsd.
+ * feesUsd is the combined commission / swap / other costs field.
+ * Missing pnlUsd contributes 0 (no R × risk estimate).
  */
-export function resolvePnlUsd(trade: Trade): {
-  value: number;
-  estimated: boolean;
-} {
+export function resolvePnlUsd(trade: Trade): number {
   if (trade.pnlUsd != null && Number.isFinite(trade.pnlUsd)) {
-    return { value: trade.pnlUsd, estimated: false };
+    const fees =
+      trade.feesUsd != null && Number.isFinite(trade.feesUsd)
+        ? trade.feesUsd
+        : 0;
+    return trade.pnlUsd - fees;
   }
-  if (
-    trade.riskUsd != null &&
-    Number.isFinite(trade.riskUsd) &&
-    Number.isFinite(trade.rMultiple)
-  ) {
-    return { value: trade.rMultiple * trade.riskUsd, estimated: true };
-  }
-  return { value: 0, estimated: trade.pnlUsd == null };
+  return 0;
 }
 
 function tradeUnitValue(trade: Trade, unit: PerformanceUnit): number {
-  return unit === "usd" ? resolvePnlUsd(trade).value : trade.rMultiple;
+  return unit === "usd" ? resolvePnlUsd(trade) : trade.rMultiple;
 }
 
 function roundUnit(value: number): number {
@@ -109,7 +103,7 @@ export function computeStats(trades: Trade[]) {
   const best = closed.reduce((m, t) => Math.max(m, t.rMultiple), 0);
   const worst = closed.reduce((m, t) => Math.min(m, t.rMultiple), 0);
   const totalPnlUsd = closed.reduce(
-    (sum, t) => sum + resolvePnlUsd(t).value,
+    (sum, t) => sum + resolvePnlUsd(t),
     0,
   );
   const avgPnlUsd = closed.length ? totalPnlUsd / closed.length : 0;
@@ -156,8 +150,7 @@ export function equityCurve(trades: Trade[], unit: PerformanceUnit = "r") {
 
   let running = 0;
   closed.forEach((t, index) => {
-    const resolved = unit === "usd" ? resolvePnlUsd(t) : null;
-    const delta = resolved ? resolved.value : t.rMultiple;
+    const delta = unit === "usd" ? resolvePnlUsd(t) : t.rMultiple;
     running += delta;
     points.push({
       id: t.id,
@@ -165,7 +158,6 @@ export function equityCurve(trades: Trade[], unit: PerformanceUnit = "r") {
       value: roundUnit(running),
       secondary: roundUnit(delta),
       x: index + 1,
-      estimated: resolved?.estimated,
     });
   });
   return points;
@@ -230,16 +222,12 @@ export function winLossBreakdown(trades: Trade[]) {
 export function bySymbol(trades: Trade[], unit: PerformanceUnit = "r") {
   const totals = new Map<string, number>();
   const counts = new Map<string, number>();
-  const estimated = new Map<string, boolean>();
   for (const t of closedTrades(trades)) {
     counts.set(t.symbol, (counts.get(t.symbol) ?? 0) + 1);
-    if (unit === "usd") {
-      const resolved = resolvePnlUsd(t);
-      totals.set(t.symbol, (totals.get(t.symbol) ?? 0) + resolved.value);
-      if (resolved.estimated) estimated.set(t.symbol, true);
-    } else {
-      totals.set(t.symbol, (totals.get(t.symbol) ?? 0) + t.rMultiple);
-    }
+    totals.set(
+      t.symbol,
+      (totals.get(t.symbol) ?? 0) + tradeUnitValue(t, unit),
+    );
   }
   return [...totals.entries()]
     .sort((a, b) => b[1] - a[1])
@@ -248,7 +236,6 @@ export function bySymbol(trades: Trade[], unit: PerformanceUnit = "r") {
       label,
       value: roundUnit(value),
       count: counts.get(label)!,
-      estimated: estimated.get(label) === true ? true : undefined,
     }));
 }
 
@@ -281,7 +268,7 @@ const METRIC_LABELS: Record<TradeMetricField, string> = {
   timeInTradeMinutes: "Time in trade (min)",
   pnlUsd: "P&L ($)",
   riskUsd: "Risk ($)",
-  feesUsd: "Fees ($)",
+  feesUsd: "Fees (comm+swap $)",
   rMultiple: "R",
 };
 

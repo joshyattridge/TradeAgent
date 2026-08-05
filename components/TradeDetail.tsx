@@ -203,7 +203,7 @@ export function TradeDetail({
             <Row label="Duration">
               <span className="mono">{formatDuration(duration)}</span>
             </Row>
-            <Row label="Fees $">
+            <Row label="Fees $ (comm+swap)">
               <span className="mono">
                 {trade.feesUsd != null ? `$${trade.feesUsd.toFixed(2)}` : "—"}
               </span>

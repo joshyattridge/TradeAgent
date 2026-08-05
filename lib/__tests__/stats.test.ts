@@ -35,7 +35,7 @@ function makeTrade(overrides: Partial<Trade> & Pick<Trade, "id">): Trade {
     timeInTradeMinutes: 60,
     pnlUsd: 100,
     riskUsd: 100,
-    feesUsd: 1,
+    feesUsd: 0,
     rMultiple: 1,
     result: "win",
     session: "London",
@@ -70,8 +70,9 @@ describe("computeStats", () => {
     expect(stats.expectancy).toBeCloseTo(0.97);
     expect(stats.best).toBe(2);
     expect(stats.worst).toBe(-1);
-    expect(stats.totalPnlUsd).toBe(970);
-    expect(stats.avgPnlUsd).toBe(97);
+    // Gross $970 − closed fees $27.20
+    expect(stats.totalPnlUsd).toBeCloseTo(942.8);
+    expect(stats.avgPnlUsd).toBeCloseTo(94.28);
     expect(stats.avgTimeInTradeMinutes).toBeDefined();
   });
 
@@ -128,54 +129,55 @@ describe("computeStats", () => {
     expect(computeStats(trades).avgTimeInTradeMinutes).toBeUndefined();
   });
 
-  it("derives missing pnlUsd from R × risk in totals", () => {
-    const stats = computeStats([
-      makeTrade({ id: "pnl-missing", pnlUsd: undefined, rMultiple: 1.5, riskUsd: 100 }),
-    ]);
-    expect(stats.totalPnlUsd).toBe(150);
-    expect(stats.avgPnlUsd).toBe(150);
-  });
-
-  it("treats missing pnlUsd with no risk as zero in totals", () => {
+  it("treats missing pnlUsd as zero in totals (no R × risk fallback)", () => {
     const stats = computeStats([
       makeTrade({
-        id: "pnl-and-risk-missing",
+        id: "pnl-missing",
         pnlUsd: undefined,
-        riskUsd: undefined,
-        rMultiple: 1,
+        rMultiple: 1.5,
+        riskUsd: 100,
       }),
     ]);
     expect(stats.totalPnlUsd).toBe(0);
     expect(stats.avgPnlUsd).toBe(0);
   });
+
+  it("nets fees out of totalPnlUsd", () => {
+    const stats = computeStats([
+      makeTrade({ id: "net", pnlUsd: 200, feesUsd: 2.5 }),
+    ]);
+    expect(stats.totalPnlUsd).toBe(197.5);
+    expect(stats.avgPnlUsd).toBe(197.5);
+  });
 });
 
 describe("resolvePnlUsd", () => {
-  it("prefers stored pnlUsd over derived", () => {
+  it("returns stored pnlUsd when fees are zero/absent", () => {
+    expect(resolvePnlUsd(makeTrade({ id: "p1", pnlUsd: 250, feesUsd: 0 }))).toBe(
+      250,
+    );
     expect(
-      resolvePnlUsd(makeTrade({ id: "p1", pnlUsd: 250, rMultiple: 2, riskUsd: 100 })),
-    ).toEqual({ value: 250, estimated: false });
+      resolvePnlUsd(makeTrade({ id: "p1b", pnlUsd: 250, feesUsd: undefined })),
+    ).toBe(250);
   });
 
-  it("derives from R × risk when pnlUsd is missing", () => {
+  it("subtracts feesUsd from pnlUsd", () => {
     expect(
-      resolvePnlUsd(
-        makeTrade({ id: "p2", pnlUsd: undefined, rMultiple: -1, riskUsd: 80 }),
-      ),
-    ).toEqual({ value: -80, estimated: true });
+      resolvePnlUsd(makeTrade({ id: "p-fees", pnlUsd: 200, feesUsd: 2.4 })),
+    ).toBe(197.6);
   });
 
-  it("returns zero estimated when both pnl and risk are missing", () => {
+  it("returns zero when pnlUsd is missing (no R × risk estimate)", () => {
     expect(
       resolvePnlUsd(
         makeTrade({
-          id: "p3",
+          id: "p2",
           pnlUsd: undefined,
-          riskUsd: undefined,
-          rMultiple: 2,
+          rMultiple: -1,
+          riskUsd: 80,
         }),
       ),
-    ).toEqual({ value: 0, estimated: true });
+    ).toBe(0);
   });
 });
 
@@ -393,7 +395,7 @@ describe("equityCurve", () => {
     expect(curve[2].value).toBe(50);
   });
 
-  it("derives missing pnlUsd from R × risk on the USD equity curve", () => {
+  it("treats missing pnlUsd as zero on the USD equity curve (no R × risk)", () => {
     const curve = equityCurve(
       [
         makeTrade({
@@ -406,26 +408,17 @@ describe("equityCurve", () => {
       "usd",
     );
     expect(curve[0].value).toBe(0);
-    expect(curve[1].value).toBe(150);
-    expect(curve[1].secondary).toBe(150);
-    expect(curve[1].estimated).toBe(true);
-  });
-
-  it("marks zero when both pnlUsd and riskUsd are missing in USD mode", () => {
-    const curve = equityCurve(
-      [
-        makeTrade({
-          id: "u-empty",
-          pnlUsd: undefined,
-          riskUsd: undefined,
-          rMultiple: 1,
-        }),
-      ],
-      "usd",
-    );
     expect(curve[1].value).toBe(0);
     expect(curve[1].secondary).toBe(0);
-    expect(curve[1].estimated).toBe(true);
+  });
+
+  it("nets fees on the USD equity curve", () => {
+    const curve = equityCurve(
+      [makeTrade({ id: "u-fees", pnlUsd: 100, feesUsd: 2.5 })],
+      "usd",
+    );
+    expect(curve[1].value).toBe(97.5);
+    expect(curve[1].secondary).toBe(97.5);
   });
 
   it("ignores open trades", () => {
@@ -596,7 +589,7 @@ describe("bySymbol", () => {
     ]);
   });
 
-  it("includes a symbol whose only trade is missing pnlUsd by deriving R × risk", () => {
+  it("lists a symbol with missing pnlUsd as $0 (no R × risk)", () => {
     const trades = [
       makeTrade({
         id: "eur",
@@ -615,18 +608,17 @@ describe("bySymbol", () => {
       }),
     ];
     const rows = bySymbol(trades, "usd");
-    const symbols = rows.map((r) => r.label);
-    expect(symbols).toContain("NAS100");
-    expect(symbols).toContain("EURUSD");
     expect(rows.find((r) => r.label === "NAS100")).toMatchObject({
-      value: 200,
-      estimated: true,
+      value: 0,
       count: 1,
     });
-    expect(rows.find((r) => r.label === "EURUSD")?.estimated).toBeUndefined();
+    expect(rows.find((r) => r.label === "EURUSD")).toMatchObject({
+      value: 100,
+      count: 1,
+    });
   });
 
-  it("still lists a symbol when $ cannot be derived (visible $0 bar)", () => {
+  it("still lists a symbol when pnlUsd is missing (visible $0 bar)", () => {
     const rows = bySymbol(
       [
         makeTrade({
@@ -645,7 +637,6 @@ describe("bySymbol", () => {
         label: "AUDUSD",
         value: 0,
         count: 1,
-        estimated: true,
       },
     ]);
   });
@@ -667,9 +658,9 @@ describe("bySymbol", () => {
     expect(rows.map((r) => r.label)).toEqual(["GBPUSD"]);
   });
 
-  it("matches sum of $ by symbol to totalPnlUsd (including derived)", () => {
+  it("matches sum of $ by symbol to totalPnlUsd (fees netted, missing $ = 0)", () => {
     const trades = [
-      makeTrade({ id: "a", symbol: "EURUSD", pnlUsd: 100, rMultiple: 1 }),
+      makeTrade({ id: "a", symbol: "EURUSD", pnlUsd: 100, feesUsd: 2, rMultiple: 1 }),
       makeTrade({
         id: "b",
         symbol: "XAUUSD",
@@ -678,13 +669,13 @@ describe("bySymbol", () => {
         riskUsd: 100,
         result: "loss",
       }),
-      makeTrade({ id: "c", symbol: "EURUSD", pnlUsd: 50, rMultiple: 0.5 }),
+      makeTrade({ id: "c", symbol: "EURUSD", pnlUsd: 50, feesUsd: 1, rMultiple: 0.5 }),
       makeTrade({ id: "open", symbol: "NAS100", result: "open", rMultiple: 0 }),
     ];
     const rows = bySymbol(trades, "usd");
     const chartTotal = rows.reduce((sum, r) => sum + r.value, 0);
     expect(chartTotal).toBe(computeStats(trades).totalPnlUsd);
-    expect(chartTotal).toBe(50); // 100 + (-100) + 50
+    expect(chartTotal).toBe(147); // (100-2) + 0 + (50-1)
   });
 });
 
@@ -727,7 +718,7 @@ describe("dashboard chart correctness", () => {
     const stats = computeStats(seedTrades);
     const rows = bySymbol(seedTrades, "usd");
     const sum = rows.reduce((s, r) => s + r.value, 0);
-    expect(sum).toBe(round2(stats.totalPnlUsd));
+    expect(round2(sum)).toBe(round2(stats.totalPnlUsd));
     // Every closed symbol appears
     const closedSymbols = new Set(
       seedTrades.filter((t) => t.result !== "open").map((t) => t.symbol),
@@ -749,7 +740,7 @@ describe("metricLabel", () => {
     expect(metricLabel("timeInTradeMinutes")).toBe("Time in trade (min)");
     expect(metricLabel("pnlUsd")).toBe("P&L ($)");
     expect(metricLabel("riskUsd")).toBe("Risk ($)");
-    expect(metricLabel("feesUsd")).toBe("Fees ($)");
+    expect(metricLabel("feesUsd")).toBe("Fees (comm+swap $)");
     expect(metricLabel("rMultiple")).toBe("R");
   });
 
@@ -771,7 +762,7 @@ describe("metricValue", () => {
     expect(metricValue(trade, "timeInTradeMinutes")).toBe(60);
     expect(metricValue(trade, "pnlUsd")).toBe(100);
     expect(metricValue(trade, "riskUsd")).toBe(100);
-    expect(metricValue(trade, "feesUsd")).toBe(1);
+    expect(metricValue(trade, "feesUsd")).toBe(0);
     expect(metricValue(trade, "rMultiple")).toBe(1);
   });
 

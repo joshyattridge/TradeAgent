@@ -43,13 +43,13 @@ export interface Trade {
   exitTime?: string;
   /** Duration in minutes (optional; derived from entry/exit times when missing) */
   timeInTradeMinutes?: number;
-  /** Realized P&L in account currency ($) */
+  /** Gross realized price P&L in account currency ($) — before fees */
   pnlUsd?: number;
   /** Dollars risked for 1R on this trade */
   riskUsd?: number;
   /** Position size label, e.g. "0.40 lots" or "2 contracts" */
   size?: string;
-  /** Fees / commission / swap in $ */
+  /** Commission + swap + other costs in $ (subtracted from pnlUsd for net stats) */
   feesUsd?: number;
   rMultiple: number;
   result: TradeResult;
@@ -108,7 +108,7 @@ export interface ChartPoint {
   secondary?: number;
   x?: number;
   y?: number;
-  /** True when $ value was derived from R × risk because pnlUsd was missing */
+  /** Optional UI marker for approximated chart points */
   estimated?: boolean;
   /** How many trades contributed to this aggregated point */
   count?: number;
