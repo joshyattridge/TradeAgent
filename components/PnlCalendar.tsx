@@ -1,17 +1,13 @@
 "use client";
 
-import { pnlCalendar, type PerformanceUnit } from "@/lib/stats";
+import { pnlCalendar } from "@/lib/stats";
 import type { Trade } from "@/lib/types";
 
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const;
 
-function formatDayValue(value: number, unit: PerformanceUnit): string {
-  if (unit === "usd") {
-    const sign = value > 0 ? "+" : "";
-    return `${sign}$${value.toFixed(Math.abs(value) >= 100 ? 0 : 2)}`;
-  }
+function formatDayUsd(value: number): string {
   const sign = value > 0 ? "+" : "";
-  return `${sign}${value.toFixed(1)}R`;
+  return `${sign}$${value.toFixed(Math.abs(value) >= 100 ? 0 : 2)}`;
 }
 
 function cellTone(hasTrades: boolean, value: number | null): string {
@@ -21,23 +17,20 @@ function cellTone(hasTrades: boolean, value: number | null): string {
 
 export function PnlCalendar({
   trades,
-  unit,
   days = 30,
   now,
 }: {
   trades: Trade[];
-  unit: PerformanceUnit;
   days?: number;
   now?: Date;
 }) {
-  const cells = pnlCalendar(trades, unit, days, now ?? new Date());
-  const unitLabel = unit === "usd" ? "$" : "R";
+  const cells = pnlCalendar(trades, "usd", days, now ?? new Date());
 
   return (
     <div className="chart-panel pnl-cal" data-testid="pnl-calendar">
       <div className="chart-panel__head">
         <h3>Last {days} days</h3>
-        <p>Daily {unitLabel} — green when profitable, red when not</p>
+        <p>Daily $ — green when profitable, red when not</p>
       </div>
       <div className="chart-panel__body">
         <div className="pnl-cal__weekdays" aria-hidden="true">
@@ -66,7 +59,7 @@ export function PnlCalendar({
             const tone = cellTone(cell.hasTrades, cell.value);
             const amount =
               cell.hasTrades && cell.value !== null
-                ? formatDayValue(cell.value, unit)
+                ? formatDayUsd(cell.value)
                 : "—";
 
             return (

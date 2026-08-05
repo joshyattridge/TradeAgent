@@ -17,6 +17,7 @@ function makeTrade(overrides: Partial<Trade> & Pick<Trade, "id" | "date">): Trad
     rMultiple: 1,
     result: "win",
     pnlUsd: 100,
+    feesUsd: 0,
     ...overrides,
   };
 }
@@ -28,24 +29,23 @@ describe("PnlCalendar", () => {
     render(
       <PnlCalendar
         trades={[makeTrade({ id: "1", date: "2026-07-20", rMultiple: 1.5, pnlUsd: 150 })]}
-        unit="r"
         now={now}
       />,
     );
 
     expect(screen.getByTestId("pnl-calendar")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Last 30 days" })).toBeInTheDocument();
-    expect(screen.getByLabelText("Jul 20: +1.5R")).toBeInTheDocument();
+    expect(screen.getByText("Daily $ — green when profitable, red when not")).toBeInTheDocument();
+    expect(screen.getByLabelText("Jul 20: +$150")).toBeInTheDocument();
   });
 
-  it("shows USD amounts when unit is usd", () => {
+  it("shows USD amounts for wins and losses", () => {
     render(
       <PnlCalendar
         trades={[
           makeTrade({ id: "w", date: "2026-07-20", rMultiple: 2, pnlUsd: 200 }),
           makeTrade({ id: "l", date: "2026-07-21", rMultiple: -0.5, result: "loss", pnlUsd: -50.5 }),
         ]}
-        unit="usd"
         now={now}
       />,
     );

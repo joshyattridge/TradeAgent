@@ -3,7 +3,6 @@
  */
 import "fake-indexeddb/auto";
 import { render, screen } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import DashboardPage from "@/app/page";
 import { seedTrades } from "@/lib/seed-data";
@@ -35,17 +34,23 @@ describe("DashboardPage", () => {
     expect(screen.getByText("Loading book…")).toBeInTheDocument();
   });
 
-  it("renders dashboard stats and charts when hydrated", () => {
+  it("renders $-only dashboard stats and charts when hydrated", () => {
     render(<DashboardPage />);
     expect(screen.getByRole("heading", { name: "Dashboard" })).toBeInTheDocument();
-    expect(screen.getByText("Total R")).toBeInTheDocument();
+    expect(screen.getByText("$ P&L")).toBeInTheDocument();
     expect(screen.getByText("Win rate")).toBeInTheDocument();
+    expect(screen.getByText("Avg RR")).toBeInTheDocument();
+    expect(screen.getByText("Avg $")).toBeInTheDocument();
+    expect(screen.queryByText("Total R")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "R" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "$" })).not.toBeInTheDocument();
     expect(screen.getByTestId("pnl-calendar")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Last 30 days" })).toBeInTheDocument();
+    expect(screen.getByText(/cumulative \$/, { exact: false })).toBeInTheDocument();
     expect(screen.getAllByTestId(/^chart-/).length).toBeGreaterThan(0);
   });
 
-  it("colors calendar days by daily profit and shows amounts", () => {
+  it("colors calendar days by daily $ profit and shows amounts", () => {
     const today = new Date();
     const winDate = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 5);
     const lossDate = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 4);
@@ -68,6 +73,7 @@ describe("DashboardPage", () => {
           rMultiple: 2,
           result: "win",
           pnlUsd: 200,
+          feesUsd: 0,
         },
         {
           id: "loss-day",
@@ -81,57 +87,18 @@ describe("DashboardPage", () => {
           rMultiple: -1,
           result: "loss",
           pnlUsd: -100,
+          feesUsd: 0,
         },
       ],
     });
 
     render(<DashboardPage />);
 
-    expect(screen.getByLabelText(`${formatLabel(winDate)}: +2.0R`)).toBeInTheDocument();
-    expect(screen.getByLabelText(`${formatLabel(lossDate)}: -1.0R`)).toBeInTheDocument();
+    expect(screen.getByLabelText(`${formatLabel(winDate)}: +$200`)).toBeInTheDocument();
+    expect(screen.getByLabelText(`${formatLabel(lossDate)}: $-100`)).toBeInTheDocument();
   });
 
-  it("toggles between R and $ performance units", async () => {
-    const user = userEvent.setup();
-    render(<DashboardPage />);
-
-    expect(screen.getByText("Total R")).toBeInTheDocument();
-    expect(screen.getByText("$ P&L")).toBeInTheDocument();
-
-    await user.click(screen.getByRole("button", { name: "$" }));
-
-    expect(screen.getByText("$ P&L")).toBeInTheDocument();
-    expect(screen.getByText("Total R")).toBeInTheDocument();
-    expect(screen.getByText("Avg $")).toBeInTheDocument();
-    expect(
-      screen.getByText(/cumulative \$/, { exact: false }),
-    ).toBeInTheDocument();
-
-    await user.click(screen.getByRole("button", { name: "R" }));
-
-    expect(screen.getByText("Expectancy")).toBeInTheDocument();
-    expect(
-      screen.getByText(/cumulative R/, { exact: false }),
-    ).toBeInTheDocument();
-  });
-
-  it("marks active unit toggle button", async () => {
-    const user = userEvent.setup();
-    render(<DashboardPage />);
-
-    const rBtn = screen.getByRole("button", { name: "R" });
-    const usdBtn = screen.getByRole("button", { name: "$" });
-
-    expect(rBtn).toHaveAttribute("aria-pressed", "true");
-    expect(usdBtn).toHaveAttribute("aria-pressed", "false");
-
-    await user.click(usdBtn);
-
-    expect(rBtn).toHaveAttribute("aria-pressed", "false");
-    expect(usdBtn).toHaveAttribute("aria-pressed", "true");
-  });
-
-  it("shows negative dashboard stats in usd mode", async () => {
+  it("shows negative dashboard $ stats", () => {
     resetStore({
       trades: [
         {
@@ -146,12 +113,12 @@ describe("DashboardPage", () => {
           rMultiple: -1,
           result: "loss",
           pnlUsd: -100,
+          feesUsd: 0,
         },
       ],
     });
-    const user = userEvent.setup();
     render(<DashboardPage />);
-    await user.click(screen.getByRole("button", { name: "$" }));
     expect(screen.getAllByText("$-100").length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText("-1.00R")).toBeInTheDocument();
   });
 });
