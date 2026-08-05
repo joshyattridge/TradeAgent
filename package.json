@@ -10,6 +10,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
+    "test:chat-capability": "RUN_CHAT_EVAL=1 vitest run --config evals/vitest.eval.config.ts",
     "prepare": "husky"
   },
   "dependencies": {

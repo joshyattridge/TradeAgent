@@ -35,12 +35,30 @@ import {
   updateStrategySchema,
 } from "@/lib/chat-schemas";
 import { JournalSession, type ChatActions } from "@/lib/journal-session";
+import {
+  DEFAULT_REASONING_EFFORT,
+  isReasoningEffort,
+  type ReasoningEffortId,
+} from "@/lib/models";
 import type { Strategy, Trade } from "@/lib/types";
 
-export type { ChatActions };
+export type { ChatActions, ReasoningEffortId };
+export type OpenAIReasoningEffort = ReasoningEffortId;
 export { JournalSession };
 
 export const MAX_AGENT_STEPS = 8;
+
+/** Default medium — override with CHAT_REASONING_EFFORT or streamAgentLoop opts. */
+export function resolveReasoningEffort(
+  override?: ReasoningEffortId | string | null,
+): ReasoningEffortId {
+  const raw = (override ?? process.env.CHAT_REASONING_EFFORT ?? DEFAULT_REASONING_EFFORT)
+    .toString()
+    .trim()
+    .toLowerCase();
+  if (isReasoningEffort(raw)) return raw;
+  return DEFAULT_REASONING_EFFORT;
+}
 
 export type AgentStreamEvent =
   | { type: "status"; message: string }
@@ -355,9 +373,11 @@ export async function* streamAgentLoop(opts: {
   images: string[];
   attachments?: ChatAttachmentPayload[];
   referencedTradeId?: string;
+  reasoningEffort?: ReasoningEffortId | string;
 }): AsyncGenerator<AgentStreamEvent> {
   const openai = createOpenAI({ apiKey: opts.apiKey });
   const model = openai(opts.model);
+  const reasoningEffort = resolveReasoningEffort(opts.reasoningEffort);
 
   yield { type: "status", message: "Preparing context…" };
 
@@ -448,7 +468,7 @@ export async function* streamAgentLoop(opts: {
     stopWhen: stepCountIs(MAX_AGENT_STEPS),
     providerOptions: {
       openai: {
-        reasoningEffort: "none",
+        reasoningEffort,
       },
     },
   });
@@ -616,7 +636,7 @@ export async function* streamAgentLoop(opts: {
         },
       ],
       providerOptions: {
-        openai: { reasoningEffort: "none" },
+        openai: { reasoningEffort },
       },
     });
     reply =

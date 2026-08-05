@@ -38,9 +38,11 @@ import {
   buildSystemPrompt,
   JournalSession,
   MAX_AGENT_STEPS,
+  resolveReasoningEffort,
   streamAgentLoop,
   type AgentStreamEvent,
 } from "@/lib/chat-agent";
+import { DEFAULT_REASONING_EFFORT } from "@/lib/models";
 
 const strategy: Strategy = {
   name: "NQ Breakout",
@@ -121,6 +123,15 @@ function baseLoopOpts(
     ...overrides,
   };
 }
+
+describe("resolveReasoningEffort", () => {
+  it("accepts known efforts and falls back for junk", () => {
+    expect(resolveReasoningEffort("max")).toBe("max");
+    expect(resolveReasoningEffort("HIGH")).toBe("high");
+    expect(resolveReasoningEffort("not-real")).toBe(DEFAULT_REASONING_EFFORT);
+    expect(resolveReasoningEffort(null)).toBe(DEFAULT_REASONING_EFFORT);
+  });
+});
 
 describe("buildSystemPrompt", () => {
   it("includes journal pointers, strategy name, and screenshot count", () => {

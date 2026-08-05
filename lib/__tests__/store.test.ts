@@ -5,7 +5,7 @@ import "fake-indexeddb/auto";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { buildChatProposal } from "@/lib/chat-proposals";
 import * as idbModule from "@/lib/idb-storage";
-import { DEFAULT_OPENAI_MODEL } from "@/lib/models";
+import { DEFAULT_OPENAI_MODEL, DEFAULT_REASONING_EFFORT } from "@/lib/models";
 import { seedStrategy, seedTrades } from "@/lib/seed-data";
 import {
   DEFAULT_VISIBLE_TRADE_COLUMNS,
@@ -57,6 +57,7 @@ function resetStore(overrides: Partial<ReturnType<typeof useTradingStore.getStat
     chatLogId: "test-chat-log",
     openaiApiKey: "",
     openaiModel: DEFAULT_OPENAI_MODEL,
+    openaiReasoningEffort: DEFAULT_REASONING_EFFORT,
     visibleTradeColumns: [...DEFAULT_VISIBLE_TRADE_COLUMNS],
     chatReferencedTradeId: null,
     pendingProposal: null,
@@ -98,6 +99,15 @@ describe("useTradingStore actions", () => {
     useTradingStore.getState().setChatSummary("Earlier context");
     expect(useTradingStore.getState().openaiModel).toBe("gpt-4.1");
     expect(useTradingStore.getState().chatSummary).toBe("Earlier context");
+  });
+
+  it("setOpenAIReasoningEffort updates and persists a default for blanks", () => {
+    useTradingStore.getState().setOpenAIReasoningEffort("high");
+    expect(useTradingStore.getState().openaiReasoningEffort).toBe("high");
+    useTradingStore.getState().setOpenAIReasoningEffort("   ");
+    expect(useTradingStore.getState().openaiReasoningEffort).toBe(
+      DEFAULT_REASONING_EFFORT,
+    );
   });
 
   it("setChatReferencedTradeId updates composer pin", () => {
@@ -626,6 +636,29 @@ describe("persist storage and rehydrate", () => {
     await vi.waitFor(() => expect(useTradingStore.getState().hydrated).toBe(true));
     expect(useTradingStore.getState().chatLogId).toMatch(
       /^[0-9a-f-]{36}$/i,
+    );
+  });
+
+  it("defaults openaiReasoningEffort when missing from legacy persist", async () => {
+    const payload = {
+      state: {
+        trades: [sampleTrade()],
+        strategy: seedStrategy,
+        chat: [],
+        chatSummary: "",
+        openaiApiKey: "",
+        openaiModel: DEFAULT_OPENAI_MODEL,
+        openaiReasoningEffort: "",
+        visibleTradeColumns: [...DEFAULT_VISIBLE_TRADE_COLUMNS],
+      },
+      version: 0,
+    };
+    await idbModule.idbStorage.setItem(STORE_KEY, JSON.stringify(payload));
+
+    await useTradingStore.persist.rehydrate();
+    await vi.waitFor(() => expect(useTradingStore.getState().hydrated).toBe(true));
+    expect(useTradingStore.getState().openaiReasoningEffort).toBe(
+      DEFAULT_REASONING_EFFORT,
     );
   });
 

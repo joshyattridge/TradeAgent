@@ -76,6 +76,7 @@ export function ChatWidget() {
   const chatLogId = useTradingStore((s) => s.chatLogId);
   const openaiApiKey = useTradingStore((s) => s.openaiApiKey);
   const openaiModel = useTradingStore((s) => s.openaiModel);
+  const openaiReasoningEffort = useTradingStore((s) => s.openaiReasoningEffort);
   const chatReferencedTradeId = useTradingStore((s) => s.chatReferencedTradeId);
   const setChatReferencedTradeId = useTradingStore(
     (s) => s.setChatReferencedTradeId,
@@ -345,6 +346,7 @@ export function ChatWidget() {
           stats: computeStats(trades),
           apiKey: openaiApiKey || undefined,
           model: openaiModel,
+          reasoningEffort: openaiReasoningEffort,
           chatLogId,
           history: chat
             .filter((m) => m.role === "user" || m.role === "assistant")

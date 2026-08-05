@@ -58,3 +58,56 @@ export function resolveModelLabel(model: string) {
 export function isPresetModel(model: string): model is PresetOpenAIModelId {
   return OPENAI_MODELS.some((m) => m.id === model);
 }
+
+/** OpenAI reasoning_effort — GPT-5.6 supports up through `max`. */
+export const REASONING_EFFORTS = [
+  {
+    id: "none",
+    label: "None",
+    hint: "Fastest — no extended thinking",
+  },
+  {
+    id: "minimal",
+    label: "Minimal",
+    hint: "Slight thinking, still snappy",
+  },
+  {
+    id: "low",
+    label: "Low",
+    hint: "Light reasoning for simple asks",
+  },
+  {
+    id: "medium",
+    label: "Medium",
+    hint: "Best everyday balance (recommended)",
+  },
+  {
+    id: "high",
+    label: "High",
+    hint: "Harder analysis and multi-step reviews",
+  },
+  {
+    id: "xhigh",
+    label: "Extra high",
+    hint: "Deep research — slower and costlier",
+  },
+  {
+    id: "max",
+    label: "Max",
+    hint: "Maximum reasoning — slowest / highest cost",
+  },
+] as const;
+
+export type ReasoningEffortId = (typeof REASONING_EFFORTS)[number]["id"];
+
+/** Eval-backed default after medium clearly beat none on hard journal asks. */
+export const DEFAULT_REASONING_EFFORT: ReasoningEffortId = "medium";
+
+export function isReasoningEffort(value: string): value is ReasoningEffortId {
+  return REASONING_EFFORTS.some((o) => o.id === value);
+}
+
+export function resolveReasoningEffortLabel(effort: string) {
+  const preset = REASONING_EFFORTS.find((o) => o.id === effort);
+  return preset?.label ?? effort;
+}

@@ -12,10 +12,15 @@ import {
 import {
   CUSTOM_MODEL_OPTION,
   DEFAULT_OPENAI_MODEL,
+  DEFAULT_REASONING_EFFORT,
   OPENAI_MODELS,
+  REASONING_EFFORTS,
   isPresetModel,
+  isReasoningEffort,
   resolveModelLabel,
+  resolveReasoningEffortLabel,
   type PresetOpenAIModelId,
+  type ReasoningEffortId,
 } from "@/lib/models";
 import { useTradingStore } from "@/lib/store";
 
@@ -23,15 +28,22 @@ export default function SettingsPage() {
   const hydrated = useTradingStore((s) => s.hydrated);
   const savedKey = useTradingStore((s) => s.openaiApiKey);
   const savedModel = useTradingStore((s) => s.openaiModel);
+  const savedReasoningEffort = useTradingStore((s) => s.openaiReasoningEffort);
   const trades = useTradingStore((s) => s.trades);
   const strategy = useTradingStore((s) => s.strategy);
   const setOpenAIApiKey = useTradingStore((s) => s.setOpenAIApiKey);
   const setOpenAIModel = useTradingStore((s) => s.setOpenAIModel);
+  const setOpenAIReasoningEffort = useTradingStore(
+    (s) => s.setOpenAIReasoningEffort,
+  );
   const importJournal = useTradingStore((s) => s.importJournal);
 
   const [apiKey, setApiKey] = useState("");
   const [selection, setSelection] = useState<string>(DEFAULT_OPENAI_MODEL);
   const [customModel, setCustomModel] = useState("");
+  const [reasoningEffort, setReasoningEffort] = useState<string>(
+    DEFAULT_REASONING_EFFORT,
+  );
   const [showKey, setShowKey] = useState(false);
   const [saved, setSaved] = useState(false);
 
@@ -53,7 +65,12 @@ export default function SettingsPage() {
       setSelection(DEFAULT_OPENAI_MODEL);
       setCustomModel("");
     }
-  }, [hydrated, savedKey, savedModel]);
+    setReasoningEffort(
+      isReasoningEffort(savedReasoningEffort)
+        ? savedReasoningEffort
+        : DEFAULT_REASONING_EFFORT,
+    );
+  }, [hydrated, savedKey, savedModel, savedReasoningEffort]);
 
   const isCustom = selection === CUSTOM_MODEL_OPTION;
 
@@ -66,6 +83,11 @@ export default function SettingsPage() {
     } else {
       setOpenAIModel(selection as PresetOpenAIModelId);
     }
+    setOpenAIReasoningEffort(
+      (isReasoningEffort(reasoningEffort)
+        ? reasoningEffort
+        : DEFAULT_REASONING_EFFORT) as ReasoningEffortId,
+    );
     setOpenAIApiKey(apiKey);
     setSaved(true);
     window.setTimeout(() => setSaved(false), 1800);
@@ -158,7 +180,7 @@ export default function SettingsPage() {
           <span className={`status-dot${connected ? " is-on" : ""}`} />
           <p>
             {connected
-              ? `Connected · ${resolveModelLabel(savedModel)}`
+              ? `Connected · ${resolveModelLabel(savedModel)} · ${resolveReasoningEffortLabel(savedReasoningEffort)} reasoning`
               : "No API key — chat won't work until you add one"}
           </p>
         </div>
@@ -199,6 +221,7 @@ export default function SettingsPage() {
         <label className="field">
           <span className="field__label">Model</span>
           <select
+            aria-label="Model"
             value={selection}
             onChange={(e) => setSelection(e.target.value)}
           >
@@ -212,6 +235,25 @@ export default function SettingsPage() {
           <span className="field__hint">
             Latest GPT-5.6 family. Luna is the everyday pick; Sol for deeper trade
             reviews. Choose Custom to type any OpenAI model ID.
+          </span>
+        </label>
+
+        <label className="field">
+          <span className="field__label">Reasoning effort</span>
+          <select
+            aria-label="Reasoning effort"
+            value={reasoningEffort}
+            onChange={(e) => setReasoningEffort(e.target.value)}
+          >
+            {REASONING_EFFORTS.map((option) => (
+              <option key={option.id} value={option.id}>
+                {option.label} — {option.hint}
+              </option>
+            ))}
+          </select>
+          <span className="field__hint">
+            How hard the model thinks before answering. Medium is the recommended
+            default; Max is slowest and most expensive.
           </span>
         </label>
 
@@ -270,6 +312,7 @@ export default function SettingsPage() {
         <label className="field">
           <span className="field__label">Import mode</span>
           <select
+            aria-label="Import mode"
             value={importMode}
             onChange={(e) => setImportMode(e.target.value as ImportMode)}
           >

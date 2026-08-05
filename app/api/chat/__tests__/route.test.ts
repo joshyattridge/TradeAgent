@@ -4,9 +4,13 @@ import type { Strategy } from "@/lib/types";
 
 const mockStreamAgentLoop = vi.fn();
 
-vi.mock("@/lib/chat-agent", () => ({
-  streamAgentLoop: (...args: unknown[]) => mockStreamAgentLoop(...args),
-}));
+vi.mock("@/lib/chat-agent", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/chat-agent")>();
+  return {
+    ...actual,
+    streamAgentLoop: (...args: unknown[]) => mockStreamAgentLoop(...args),
+  };
+});
 
 vi.mock("@/lib/chat-request", () => ({
   sanitizeAttachments: vi.fn((raw: unknown) =>
@@ -168,12 +172,14 @@ describe("POST /api/chat", () => {
     await readNdjson(res);
   });
 
-  it("prefers client apiKey and model over env", async () => {
+  it("prefers client apiKey, model, and reasoningEffort over env", async () => {
     process.env.OPENAI_API_KEY = "env-key";
     process.env.OPENAI_MODEL = "env-model";
+    process.env.CHAT_REASONING_EFFORT = "low";
     mockStreamAgentLoop.mockImplementation(async function* (opts) {
       expect(opts.apiKey).toBe("client-key");
       expect(opts.model).toBe("client-model");
+      expect(opts.reasoningEffort).toBe("max");
       yield { type: "status", message: "ok" };
     });
 
@@ -183,6 +189,7 @@ describe("POST /api/chat", () => {
         strategy,
         apiKey: "client-key",
         model: "client-model",
+        reasoningEffort: "max",
       }),
     );
     expect(res.status).toBe(200);

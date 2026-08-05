@@ -14,7 +14,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ChatWidget } from "@/components/ChatWidget";
 import { buildChatProposal } from "@/lib/chat-proposals";
 import { MAX_CHAT_ATTACHMENTS } from "@/lib/chat-attachments";
-import { DEFAULT_OPENAI_MODEL } from "@/lib/models";
+import { DEFAULT_OPENAI_MODEL, DEFAULT_REASONING_EFFORT } from "@/lib/models";
 import { seedStrategy, seedTrades } from "@/lib/seed-data";
 import { useTradingStore } from "@/lib/store";
 import type { ChartSpec, Trade } from "@/lib/types";
@@ -72,6 +72,7 @@ function resetStore(overrides: Partial<ReturnType<typeof useTradingStore.getStat
     chat: [],
     openaiApiKey: "sk-test",
     openaiModel: DEFAULT_OPENAI_MODEL,
+    openaiReasoningEffort: DEFAULT_REASONING_EFFORT,
     chatReferencedTradeId: null,
     pendingProposal: null,
     proposalReviewOpen: false,
@@ -1445,6 +1446,28 @@ describe("ChatWidget", () => {
       .getState()
       .chat.find((m) => m.role === "assistant" && m.content === "Updated.");
     expect(assistant?.agentMessages).toHaveLength(1);
+  });
+
+  it("sends the selected reasoningEffort from settings on chat requests", async () => {
+    resetStore({ openaiReasoningEffort: "high" });
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      ndjsonResponse([{ type: "done", reply: "Thoughtful answer.", actions: {} }]),
+    );
+
+    const user = userEvent.setup();
+    render(<ChatWidget />);
+    await user.type(screen.getByLabelText("Message TradeAgent"), "How am I doing?");
+    await user.click(screen.getByLabelText("Send message"));
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalled();
+    });
+
+    const body = JSON.parse(
+      (fetchMock.mock.calls.at(-1)?.[1] as RequestInit).body as string,
+    );
+    expect(body.reasoningEffort).toBe("high");
+    expect(body.model).toBe(DEFAULT_OPENAI_MODEL);
   });
 
   it("submits image-only attachments without file meta", async () => {

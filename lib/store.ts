@@ -9,7 +9,7 @@ import {
   idbStorage,
   migrateLegacyLocalStorageToIdb,
 } from "./idb-storage";
-import { DEFAULT_OPENAI_MODEL } from "./models";
+import { DEFAULT_OPENAI_MODEL, DEFAULT_REASONING_EFFORT } from "./models";
 import { seedStrategy, seedTrades } from "./seed-data";
 import { normalizeStrategy, strategyNameFromMarkdown } from "./strategy-md";
 import {
@@ -80,6 +80,8 @@ interface Store {
   chatLogId: string;
   openaiApiKey: string;
   openaiModel: string;
+  /** OpenAI reasoning_effort for chat (none → max). */
+  openaiReasoningEffort: string;
   visibleTradeColumns: TradeColumnId[];
   /** Composer-only trade pin for the next chat message (not a persistent active trade). */
   chatReferencedTradeId: string | null;
@@ -91,6 +93,7 @@ interface Store {
   setHydrated: (v: boolean) => void;
   setOpenAIApiKey: (key: string) => void;
   setOpenAIModel: (model: string) => void;
+  setOpenAIReasoningEffort: (effort: string) => void;
   setChatSummary: (summary: string) => void;
   setChatReferencedTradeId: (id: string | null) => void;
   setPendingProposal: (proposal: ChatProposal | null) => void;
@@ -178,6 +181,7 @@ export const useTradingStore = create<Store>()(
       openaiApiKey: "",
       // Widen preset literal so persist middleware matches Store.openaiModel: string
       openaiModel: DEFAULT_OPENAI_MODEL as string,
+      openaiReasoningEffort: DEFAULT_REASONING_EFFORT as string,
       chatSummary: "",
       chatLogId: uid(),
       visibleTradeColumns: DEFAULT_VISIBLE_TRADE_COLUMNS,
@@ -188,6 +192,10 @@ export const useTradingStore = create<Store>()(
       setHydrated: (v) => set({ hydrated: v }),
       setOpenAIApiKey: (key) => set({ openaiApiKey: key.trim() }),
       setOpenAIModel: (model) => set({ openaiModel: model }),
+      setOpenAIReasoningEffort: (effort) =>
+        set({
+          openaiReasoningEffort: effort.trim() || DEFAULT_REASONING_EFFORT,
+        }),
       setChatSummary: (summary) => set({ chatSummary: summary }),
       setChatReferencedTradeId: (id) => set({ chatReferencedTradeId: id }),
       setPendingProposal: (proposal) =>
@@ -354,6 +362,7 @@ export const useTradingStore = create<Store>()(
         chatLogId: state.chatLogId,
         openaiApiKey: state.openaiApiKey,
         openaiModel: state.openaiModel,
+        openaiReasoningEffort: state.openaiReasoningEffort,
         visibleTradeColumns: state.visibleTradeColumns,
       }),
       onRehydrateStorage: () => (state, error) => {
@@ -366,6 +375,9 @@ export const useTradingStore = create<Store>()(
           state.strategy = normalizeStrategy(state.strategy);
           // Drop legacy chartExtract; screenshots are reattached when needed
           state.trades = persistableTrades(state.trades);
+          if (!state.openaiReasoningEffort) {
+            state.openaiReasoningEffort = DEFAULT_REASONING_EFFORT;
+          }
           // Prefer entry time over calendar date in the logs table
           let cols: TradeColumnId[] = state.visibleTradeColumns.filter(
             (id) => id !== "date",

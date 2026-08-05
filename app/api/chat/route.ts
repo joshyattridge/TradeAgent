@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
   streamAgentLoop,
+  resolveReasoningEffort,
   type AgentStreamEvent,
 } from "@/lib/chat-agent";
 import { appendChatLogTurn } from "@/lib/chat-log";
@@ -35,6 +36,7 @@ export async function POST(req: NextRequest) {
     referencedTradeId,
     apiKey: clientApiKey,
     model: clientModel,
+    reasoningEffort: clientReasoningEffort,
     chatLogId: rawChatLogId,
   }: {
     message: string;
@@ -47,6 +49,7 @@ export async function POST(req: NextRequest) {
     referencedTradeId?: string;
     apiKey?: string;
     model?: string;
+    reasoningEffort?: string;
     chatLogId?: string;
   } = body;
 
@@ -79,6 +82,9 @@ export async function POST(req: NextRequest) {
     (typeof clientModel === "string" && clientModel.trim()) ||
     process.env.OPENAI_MODEL ||
     "gpt-5.6-luna";
+  const reasoningEffort = resolveReasoningEffort(
+    typeof clientReasoningEffort === "string" ? clientReasoningEffort : undefined,
+  );
 
   if (!apiKey) {
     return NextResponse.json(
@@ -116,6 +122,7 @@ export async function POST(req: NextRequest) {
         for await (const event of streamAgentLoop({
           apiKey,
           model,
+          reasoningEffort,
           strategy,
           trades: tradeList,
           stats,

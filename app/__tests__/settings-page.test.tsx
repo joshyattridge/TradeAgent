@@ -13,6 +13,7 @@ import {
 import {
   CUSTOM_MODEL_OPTION,
   DEFAULT_OPENAI_MODEL,
+  DEFAULT_REASONING_EFFORT,
 } from "@/lib/models";
 import { seedStrategy, seedTrades } from "@/lib/seed-data";
 import { useTradingStore } from "@/lib/store";
@@ -41,6 +42,7 @@ function resetStore(overrides: Partial<ReturnType<typeof useTradingStore.getStat
     hydrated: true,
     openaiApiKey: "",
     openaiModel: DEFAULT_OPENAI_MODEL,
+    openaiReasoningEffort: DEFAULT_REASONING_EFFORT,
     ...overrides,
   });
 }
@@ -63,20 +65,61 @@ describe("SettingsPage", () => {
     render(<SettingsPage />);
 
     await user.type(screen.getByPlaceholderText("sk-..."), "sk-test-key");
-    await user.selectOptions(screen.getAllByRole("combobox")[0]!, "gpt-5.6-sol");
+    await user.selectOptions(screen.getByLabelText("Model"), "gpt-5.6-sol");
     await user.click(screen.getByRole("button", { name: "Save settings" }));
 
     expect(useTradingStore.getState().openaiApiKey).toBe("sk-test-key");
     expect(useTradingStore.getState().openaiModel).toBe("gpt-5.6-sol");
     expect(screen.getByText("Saved")).toBeInTheDocument();
-    expect(screen.getByText(/Connected · GPT-5.6 Sol/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/Connected · GPT-5.6 Sol · Medium reasoning/),
+    ).toBeInTheDocument();
+  });
+
+  it("saves reasoning effort from the dropdown", async () => {
+    const user = userEvent.setup();
+    render(<SettingsPage />);
+
+    await user.type(screen.getByPlaceholderText("sk-..."), "sk-test-key");
+    await user.selectOptions(screen.getByLabelText("Reasoning effort"), "max");
+    await user.click(screen.getByRole("button", { name: "Save settings" }));
+
+    expect(useTradingStore.getState().openaiReasoningEffort).toBe("max");
+    expect(
+      screen.getByText(/Connected · GPT-5.6 Luna · Max reasoning/),
+    ).toBeInTheDocument();
+  });
+
+  it("hydrates invalid saved reasoning effort to the default", async () => {
+    resetStore({ openaiReasoningEffort: "not-a-real-effort" });
+    render(<SettingsPage />);
+    await waitFor(() => {
+      expect(screen.getByLabelText("Reasoning effort")).toHaveValue(
+        DEFAULT_REASONING_EFFORT,
+      );
+    });
+  });
+
+  it("saves the default reasoning effort when the select value is invalid", async () => {
+    const user = userEvent.setup();
+    render(<SettingsPage />);
+
+    const select = screen.getByLabelText("Reasoning effort");
+    // Force an invalid controlled value before save (covers onSave fallback).
+    fireEvent.change(select, { target: { value: "bogus-effort" } });
+    await user.type(screen.getByPlaceholderText("sk-..."), "sk-test-key");
+    await user.click(screen.getByRole("button", { name: "Save settings" }));
+
+    expect(useTradingStore.getState().openaiReasoningEffort).toBe(
+      DEFAULT_REASONING_EFFORT,
+    );
   });
 
   it("saves custom model id", async () => {
     const user = userEvent.setup();
     render(<SettingsPage />);
 
-    await user.selectOptions(screen.getAllByRole("combobox")[0]!, CUSTOM_MODEL_OPTION);
+    await user.selectOptions(screen.getByLabelText("Model"), CUSTOM_MODEL_OPTION);
     await user.type(
       screen.getByPlaceholderText("e.g. gpt-5.6-sol or ft:…"),
       "my-custom-model",
@@ -90,7 +133,7 @@ describe("SettingsPage", () => {
     const user = userEvent.setup();
     render(<SettingsPage />);
 
-    await user.selectOptions(screen.getAllByRole("combobox")[0]!, CUSTOM_MODEL_OPTION);
+    await user.selectOptions(screen.getByLabelText("Model"), CUSTOM_MODEL_OPTION);
     await user.click(screen.getByRole("button", { name: "Save settings" }));
 
     expect(useTradingStore.getState().openaiModel).toBe(DEFAULT_OPENAI_MODEL);
@@ -100,7 +143,7 @@ describe("SettingsPage", () => {
     resetStore({ openaiModel: "" });
     render(<SettingsPage />);
     await waitFor(() => {
-      expect(screen.getAllByRole("combobox")[0]).toHaveValue(DEFAULT_OPENAI_MODEL);
+      expect(screen.getByLabelText("Model")).toHaveValue(DEFAULT_OPENAI_MODEL);
     });
   });
 
@@ -108,7 +151,7 @@ describe("SettingsPage", () => {
     resetStore({ openaiModel: "ft:custom-123" });
     render(<SettingsPage />);
 
-    expect(screen.getAllByRole("combobox")[0]).toHaveValue(CUSTOM_MODEL_OPTION);
+    expect(screen.getByLabelText("Model")).toHaveValue(CUSTOM_MODEL_OPTION);
     expect(screen.getByPlaceholderText("e.g. gpt-5.6-sol or ft:…")).toHaveValue(
       "ft:custom-123",
     );
@@ -211,7 +254,7 @@ describe("SettingsPage", () => {
     });
 
     render(<SettingsPage />);
-    await user.selectOptions(screen.getAllByRole("combobox")[1]!, "merge");
+    await user.selectOptions(screen.getByLabelText("Import mode"), "merge");
     const input = document.getElementById("backup-import") as HTMLInputElement;
     await user.upload(input, file);
 
@@ -346,7 +389,7 @@ describe("SettingsPage", () => {
     render(<SettingsPage />);
 
     await user.selectOptions(
-      screen.getAllByRole("combobox")[0]!,
+      screen.getByLabelText("Model"),
       CUSTOM_MODEL_OPTION,
     );
     const form = screen
