@@ -24,7 +24,34 @@ function resolveChatLogId(raw: unknown) {
 }
 
 export async function POST(req: NextRequest) {
-  const body = await req.json();
+  let body: {
+    message?: string;
+    images?: string[];
+    attachments?: unknown;
+    trades?: Trade[];
+    strategy?: Strategy;
+    stats?: Record<string, number>;
+    history?: unknown;
+    referencedTradeId?: string;
+    apiKey?: string;
+    model?: string;
+    reasoningEffort?: string;
+    chatLogId?: string;
+  };
+  try {
+    body = await req.json();
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : "could not parse JSON";
+    return NextResponse.json(
+      {
+        error: "Invalid JSON body",
+        reply: `Invalid chat request body: ${detail}`,
+        mode: "error",
+      },
+      { status: 400 },
+    );
+  }
+
   const {
     message,
     images = [],
@@ -38,19 +65,6 @@ export async function POST(req: NextRequest) {
     model: clientModel,
     reasoningEffort: clientReasoningEffort,
     chatLogId: rawChatLogId,
-  }: {
-    message: string;
-    images?: string[];
-    attachments?: unknown;
-    trades: Trade[];
-    strategy: Strategy;
-    stats: Record<string, number>;
-    history: unknown;
-    referencedTradeId?: string;
-    apiKey?: string;
-    model?: string;
-    reasoningEffort?: string;
-    chatLogId?: string;
   } = body;
 
   const attachments = sanitizeAttachments(rawAttachments);
@@ -67,16 +81,35 @@ export async function POST(req: NextRequest) {
   const hasAttachments = attachments.length > 0 || imageList.length > 0;
 
   if (!message?.trim() && !hasAttachments) {
-    return NextResponse.json({ error: "Empty message" }, { status: 400 });
+    return NextResponse.json(
+      {
+        error: "Empty message",
+        reply:
+          "Empty message — send text, an attachment, or a referenced trade.",
+        mode: "error",
+      },
+      { status: 400 },
+    );
   }
 
   if (!strategy || typeof strategy !== "object") {
-    return NextResponse.json({ error: "Missing strategy" }, { status: 400 });
+    return NextResponse.json(
+      {
+        error: "Missing strategy",
+        reply:
+          "Missing strategy in the chat request. Reload the app and try again.",
+        mode: "error",
+      },
+      { status: 400 },
+    );
   }
 
+  const clientKeyProvided =
+    typeof clientApiKey === "string" && clientApiKey.trim().length > 0;
+  const envKeyProvided = Boolean(process.env.OPENAI_API_KEY?.trim());
   const apiKey =
     (typeof clientApiKey === "string" && clientApiKey.trim()) ||
-    process.env.OPENAI_API_KEY ||
+    process.env.OPENAI_API_KEY?.trim() ||
     "";
   const model =
     (typeof clientModel === "string" && clientModel.trim()) ||
@@ -90,9 +123,14 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(
       {
         reply:
-          "No OpenAI API key found. Add your key in Settings to use TradeAgent chat.",
+          "No OpenAI API key found. The chat request did not include an apiKey from Settings, and OPENAI_API_KEY is not set on the server. Open Settings, paste your key, click Save (status should say Connected), or add OPENAI_API_KEY to .env.local and restart the dev server.",
+        error: "Missing OpenAI API key",
         actions: {},
         mode: "error",
+        diagnostics: {
+          clientKeyProvided,
+          envKeyProvided,
+        },
       },
       { status: 401 },
     );

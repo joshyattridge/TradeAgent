@@ -10,6 +10,11 @@ import {
   toAttachmentPayload,
   type ChatAttachment,
 } from "@/lib/chat-attachments";
+import {
+  formatChatHttpError,
+  formatChatNetworkError,
+  formatChatStreamError,
+} from "@/lib/chat-errors";
 import { resolvePendingProposalUpdate } from "@/lib/chat-proposals";
 import type { ChatAgentMessage } from "@/lib/chat-history";
 import { countToolsInAgentMessages } from "@/lib/chat-history";
@@ -362,14 +367,43 @@ export function ChatWidget() {
 
       const contentType = res.headers.get("content-type") ?? "";
 
-      // Non-stream JSON fallback (auth errors, etc.)
+      // Non-stream JSON / HTML fallback (auth errors, validation, proxy errors, etc.)
       if (!contentType.includes("ndjson")) {
-        const data = await res.json();
+        const rawText = await res.text();
+        let data: unknown;
+        try {
+          data = rawText ? JSON.parse(rawText) : undefined;
+        } catch {
+          data = undefined;
+        }
         addChatMessage({
           role: "assistant",
-          content:
-            data.reply ??
-            "No OpenAI API key found. Add your key in Settings to use TradeAgent chat.",
+          content: formatChatHttpError({
+            status: res.status,
+            contentType,
+            data,
+            rawText,
+          }),
+        });
+        return;
+      }
+
+      if (!res.ok) {
+        const rawText = res.body ? await res.text() : "";
+        let data: unknown;
+        try {
+          data = rawText ? JSON.parse(rawText) : undefined;
+        } catch {
+          data = undefined;
+        }
+        addChatMessage({
+          role: "assistant",
+          content: formatChatHttpError({
+            status: res.status,
+            contentType,
+            data,
+            rawText,
+          }),
         });
         return;
       }
@@ -446,9 +480,7 @@ export function ChatWidget() {
           } else if (event.type === "error") {
             addChatMessage({
               role: "assistant",
-              content:
-                event.reply ??
-                "OpenAI error. Check your API key and model in Settings.",
+              content: formatChatStreamError(event),
             });
             finished = true;
             break;
@@ -477,7 +509,7 @@ export function ChatWidget() {
           } else if (event.type === "error") {
             addChatMessage({
               role: "assistant",
-              content: event.reply ?? "OpenAI error.",
+              content: formatChatStreamError(event),
             });
             finished = true;
           }
@@ -492,12 +524,11 @@ export function ChatWidget() {
           content: accumulatedText.trim(),
         });
       }
-    } catch {
+    } catch (err) {
       try {
         addChatMessage({
           role: "assistant",
-          content:
-            "Couldn't reach the AI endpoint. Check your connection or OPENAI_API_KEY.",
+          content: formatChatNetworkError(err),
         });
       } catch {
         // Persist storage full or unavailable — avoid crashing the UI

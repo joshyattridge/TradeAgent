@@ -1350,7 +1350,7 @@ describe("ChatWidget", () => {
     await user.click(screen.getByLabelText("Send message"));
     await waitFor(() => {
       expect(
-        screen.getByText("OpenAI error. Check your API key and model in Settings."),
+        screen.getByText('Chat stream error: {"type":"error"}'),
       ).toBeInTheDocument();
     });
 
@@ -1365,7 +1365,7 @@ describe("ChatWidget", () => {
     await waitFor(() => {
       expect(
         screen.getByText(
-          "No OpenAI API key found. Add your key in Settings to use TradeAgent chat.",
+          "Chat request failed (200, application/json). No error details in the response.",
         ),
       ).toBeInTheDocument();
     });
@@ -1396,7 +1396,9 @@ describe("ChatWidget", () => {
     await user.type(screen.getByLabelText("Message TradeAgent"), "Buf");
     await user.click(screen.getByLabelText("Send message"));
     await waitFor(() => {
-      expect(screen.getByText("OpenAI error.")).toBeInTheDocument();
+      expect(
+        screen.getByText('Chat stream error: {"type":"error"}'),
+      ).toBeInTheDocument();
     });
 
     await user.type(screen.getByLabelText("Message TradeAgent"), "No ct");
@@ -1656,8 +1658,9 @@ describe("ChatWidget", () => {
   it("handles JSON responses when content-type header is missing", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue({
       ok: true,
+      status: 200,
       headers: { get: () => null },
-      json: async () => ({ reply: "Missing content type." }),
+      text: async () => JSON.stringify({ reply: "Missing content type." }),
     } as Response);
 
     const user = userEvent.setup();
@@ -1667,6 +1670,111 @@ describe("ChatWidget", () => {
 
     await waitFor(() => {
       expect(screen.getByText("Missing content type.")).toBeInTheDocument();
+    });
+  });
+
+  it("surfaces HTTP error and error fields from non-stream responses", async () => {
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ error: "Missing strategy" }), {
+          status: 400,
+          headers: { "Content-Type": "application/json" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response("<html>Gateway Timeout</html>", {
+          status: 504,
+          headers: { "Content-Type": "text/html" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response("", {
+          status: 500,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+
+    const user = userEvent.setup();
+    render(<ChatWidget />);
+
+    await user.type(screen.getByLabelText("Message TradeAgent"), "Bad strategy");
+    await user.click(screen.getByLabelText("Send message"));
+    await waitFor(() => {
+      expect(
+        screen.getByText("Chat request failed (400): Missing strategy"),
+      ).toBeInTheDocument();
+    });
+
+    await user.type(screen.getByLabelText("Message TradeAgent"), "Gateway");
+    await user.click(screen.getByLabelText("Send message"));
+    await waitFor(() => {
+      expect(
+        screen.getByText("Chat request failed (504): <html>Gateway Timeout</html>"),
+      ).toBeInTheDocument();
+    });
+
+    await user.type(screen.getByLabelText("Message TradeAgent"), "Empty body");
+    await user.click(screen.getByLabelText("Send message"));
+    await waitFor(() => {
+      expect(
+        screen.getByText(
+          "Chat request failed (500, application/json). No error details in the response.",
+        ),
+      ).toBeInTheDocument();
+    });
+  });
+
+  it("surfaces failed NDJSON HTTP responses before streaming", async () => {
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ error: "upstream failed" }), {
+          status: 502,
+          headers: { "Content-Type": "application/x-ndjson" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response("not-json-body", {
+          status: 503,
+          headers: { "Content-Type": "application/x-ndjson" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        {
+          ok: false,
+          status: 500,
+          headers: { get: () => "application/x-ndjson" },
+          body: null,
+          text: async () => "",
+        } as unknown as Response,
+      );
+
+    const user = userEvent.setup();
+    render(<ChatWidget />);
+
+    await user.type(screen.getByLabelText("Message TradeAgent"), "Ndjson fail");
+    await user.click(screen.getByLabelText("Send message"));
+    await waitFor(() => {
+      expect(
+        screen.getByText("Chat request failed (502): upstream failed"),
+      ).toBeInTheDocument();
+    });
+
+    await user.type(screen.getByLabelText("Message TradeAgent"), "Ndjson junk");
+    await user.click(screen.getByLabelText("Send message"));
+    await waitFor(() => {
+      expect(
+        screen.getByText("Chat request failed (503): not-json-body"),
+      ).toBeInTheDocument();
+    });
+
+    await user.type(screen.getByLabelText("Message TradeAgent"), "Ndjson empty");
+    await user.click(screen.getByLabelText("Send message"));
+    await waitFor(() => {
+      expect(
+        screen.getByText(
+          "Chat request failed (500, application/x-ndjson). No error details in the response.",
+        ),
+      ).toBeInTheDocument();
     });
   });
 });

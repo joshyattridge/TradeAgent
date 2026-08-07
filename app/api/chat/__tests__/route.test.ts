@@ -62,13 +62,21 @@ describe("POST /api/chat", () => {
   it("returns 400 for empty message with no attachments", async () => {
     const res = await POST(makeRequest({ message: "   ", strategy }));
     expect(res.status).toBe(400);
-    expect(await res.json()).toEqual({ error: "Empty message" });
+    expect(await res.json()).toMatchObject({
+      error: "Empty message",
+      reply: expect.stringContaining("Empty message"),
+      mode: "error",
+    });
   });
 
   it("returns 400 when strategy is missing", async () => {
     const res = await POST(makeRequest({ message: "hello", strategy: null }));
     expect(res.status).toBe(400);
-    expect(await res.json()).toEqual({ error: "Missing strategy" });
+    expect(await res.json()).toMatchObject({
+      error: "Missing strategy",
+      reply: expect.stringContaining("Missing strategy"),
+      mode: "error",
+    });
   });
 
   it("returns 401 when no API key is available", async () => {
@@ -76,7 +84,39 @@ describe("POST /api/chat", () => {
     expect(res.status).toBe(401);
     expect(await res.json()).toMatchObject({
       mode: "error",
+      error: "Missing OpenAI API key",
       reply: expect.stringContaining("No OpenAI API key"),
+      diagnostics: { clientKeyProvided: false, envKeyProvided: false },
+    });
+  });
+
+  it("returns 400 for invalid JSON bodies", async () => {
+    const res = await POST(
+      new NextRequest("http://localhost/api/chat", {
+        method: "POST",
+        body: "{not-json",
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({
+      error: "Invalid JSON body",
+      reply: expect.stringContaining("Invalid chat request body"),
+      mode: "error",
+    });
+  });
+
+  it("handles non-Error JSON parse failures", async () => {
+    const res = await POST({
+      json: async () => {
+        throw "parse exploded";
+      },
+    } as unknown as NextRequest);
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({
+      error: "Invalid JSON body",
+      reply: "Invalid chat request body: could not parse JSON",
+      mode: "error",
     });
   });
 
