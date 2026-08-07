@@ -37,7 +37,7 @@ export type RunChatTurnOptions = {
 };
 
 /**
- * Drive the same agent loop the /api/chat route uses, collecting tools + final reply.
+ * Drive the same agent loop the chat UI uses, collecting tools + final reply.
  */
 export async function runChatTurn(
   opts: RunChatTurnOptions,

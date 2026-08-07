@@ -1,4 +1,4 @@
-/** Build a chat-visible message from a non-streaming `/api/chat` response. */
+/** Build a chat-visible message from a failed OpenAI / proxy response. */
 export function formatChatHttpError(opts: {
   status: number;
   contentType?: string | null;

@@ -31,7 +31,7 @@ export type ChatAttachment =
       dataUrl: string;
     };
 
-/** Wire format sent to /api/chat (no client ids). */
+/** Wire format for agent-loop attachments (no client ids). */
 export type ChatAttachmentPayload =
   | { kind: "image"; name: string; dataUrl: string; mime?: string }
   | { kind: "text"; name: string; text: string; mime?: string }

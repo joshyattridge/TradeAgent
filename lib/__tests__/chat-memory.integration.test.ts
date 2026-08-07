@@ -9,7 +9,7 @@ import { sanitizeHistory } from "@/lib/chat-request";
 
 /**
  * Simulates what ChatWidget stores after turn 1, then what turn 2 sends
- * through /api/chat sanitize → model message expansion.
+ * through chat sanitize → model message expansion.
  */
 describe("multi-turn chat memory (Cursor-style)", () => {
   const csvBody = [

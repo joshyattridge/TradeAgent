@@ -21,6 +21,8 @@ import {
 } from "@/lib/chat-attachments";
 import type { ChatAgentMessage } from "@/lib/chat-history";
 import { sanitizeJsonValue } from "@/lib/chat-history";
+import type { LlmCallLog } from "@/lib/chat-log-format";
+import { sanitizeLlmMessagesForLog } from "@/lib/chat-log-format";
 import {
   annotateTradeSchema,
   deleteTradeSchema,
@@ -85,8 +87,10 @@ export type AgentStreamEvent =
       reattachedScreenshotCount: number;
       /** Full tool transcript for this turn (replayed on later turns). */
       agentMessages?: ChatAgentMessage[];
+      /** Full LLM request/response traces for local chat logs. */
+      llmCalls?: LlmCallLog[];
     }
-  | { type: "error"; reply: string };
+  | { type: "error"; reply: string; llmCalls?: LlmCallLog[] };
 
 const TOOL_LABELS: Record<string, string> = {
   log_trade: "Logging trade",
@@ -362,6 +366,9 @@ function isWeakReply(reply?: string | null) {
 /**
  * Streaming multi-step tool loop via Vercel AI SDK streamText.
  * Yields NDJSON-friendly events for UI progress + final actions.
+ *
+ * In the browser, set `baseURL` to `/api/openai/v1` so model HTTP is same-origin
+ * (OpenAI CORS blocks direct browser calls). Tool execute stays in-process.
  */
 export async function* streamAgentLoop(opts: {
   apiKey: string;
@@ -375,8 +382,16 @@ export async function* streamAgentLoop(opts: {
   attachments?: ChatAttachmentPayload[];
   referencedTradeId?: string;
   reasoningEffort?: ReasoningEffortId | string;
+  /** OpenAI SDK base URL. Browser default: `/api/openai/v1`. */
+  baseURL?: string;
 }): AsyncGenerator<AgentStreamEvent> {
-  const openai = createOpenAI({ apiKey: opts.apiKey });
+  const baseURL =
+    opts.baseURL ??
+    (typeof window !== "undefined" ? "/api/openai/v1" : undefined);
+  const openai = createOpenAI({
+    apiKey: opts.apiKey,
+    ...(baseURL ? { baseURL } : {}),
+  });
   const model = openai(opts.model);
   const reasoningEffort = resolveReasoningEffort(opts.reasoningEffort);
 
@@ -461,11 +476,16 @@ export async function* streamAgentLoop(opts: {
 
   yield { type: "status", message: "Thinking…" };
 
+  const tools = createJournalTools(session);
+  const toolNames = Object.keys(tools);
+  const modelMessages: ModelMessage[] = [...historyMessages, userMessage];
+  const requestMessages = sanitizeLlmMessagesForLog(modelMessages);
+
   const result = streamText({
     model,
     system,
-    messages: [...historyMessages, userMessage],
-    tools: createJournalTools(session),
+    messages: modelMessages,
+    tools,
     stopWhen: stepCountIs(MAX_AGENT_STEPS),
     providerOptions: {
       openai: {
@@ -483,6 +503,17 @@ export async function* streamAgentLoop(opts: {
     toolName: string;
     input: unknown;
   }> = [];
+
+  const agentCallBase = {
+    kind: "agent" as const,
+    model: opts.model,
+    reasoningEffort,
+    request: {
+      system,
+      messages: requestMessages,
+      tools: toolNames,
+    },
+  };
 
   try {
     for await (const part of result.fullStream) {
@@ -593,9 +624,16 @@ export async function* streamAgentLoop(opts: {
           part.error instanceof Error
             ? part.error.message
             : "Stream error from model";
+        const llmCalls: LlmCallLog[] = [
+          {
+            ...agentCallBase,
+            response: { error: message },
+          },
+        ];
         yield {
           type: "error",
           reply: `OpenAI error: ${message}\n\nCheck your API key and model in Settings.`,
+          llmCalls,
         };
         return;
       }
@@ -604,9 +642,16 @@ export async function* streamAgentLoop(opts: {
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "OpenAI request failed";
+    const llmCalls: LlmCallLog[] = [
+      {
+        ...agentCallBase,
+        response: { error: message },
+      },
+    ];
     yield {
       type: "error",
       reply: `OpenAI error: ${message}\n\nCheck your API key and model in Settings.`,
+      llmCalls,
     };
     return;
   }
@@ -618,31 +663,74 @@ export async function* streamAgentLoop(opts: {
     agentMessages = sanitizeAgentMessages(collectedAgentMessages);
   }
 
+  const llmCalls: LlmCallLog[] = [
+    {
+      ...agentCallBase,
+      response: {
+        text: reply,
+        steps,
+        messages: agentMessages,
+      },
+    },
+  ];
+
   if (isWeakReply(reply)) {
     yield { type: "status", message: "Polishing reply…" };
-    const nudge = await generateText({
-      model,
-      system,
-      messages: [
-        ...historyMessages,
-        userMessage,
-        {
-          role: "assistant",
-          content: `Tool outcomes this turn: ${JSON.stringify(session.toActions())}. Steps: ${steps}.`,
-        },
-        {
-          role: "user",
-          content:
-            "Write the final user-facing reply now in 2–5 short sentences max. Confirm what actually succeeded (use real ids/values). Ask only for fields that were NOT visible. Plain text only. No 'Trade logged.' stubs.",
-        },
-      ],
-      providerOptions: {
-        openai: { reasoningEffort },
+    const polishMessages: ModelMessage[] = [
+      ...historyMessages,
+      userMessage,
+      {
+        role: "assistant",
+        content: `Tool outcomes this turn: ${JSON.stringify(session.toActions())}. Steps: ${steps}.`,
       },
-    });
-    reply =
-      nudge.text?.trim() ||
-      "Which trade should I update? Name the symbol (and date/result if there are several).";
+      {
+        role: "user",
+        content:
+          "Write the final user-facing reply now in 2–5 short sentences max. Confirm what actually succeeded (use real ids/values). Ask only for fields that were NOT visible. Plain text only. No 'Trade logged.' stubs.",
+      },
+    ];
+    try {
+      const nudge = await generateText({
+        model,
+        system,
+        messages: polishMessages,
+        providerOptions: {
+          openai: { reasoningEffort },
+        },
+      });
+      reply =
+        nudge.text?.trim() ||
+        "Which trade should I update? Name the symbol (and date/result if there are several).";
+      llmCalls.push({
+        kind: "polish",
+        model: opts.model,
+        reasoningEffort,
+        request: {
+          system,
+          messages: sanitizeLlmMessagesForLog(polishMessages),
+        },
+        response: { text: reply },
+      });
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "OpenAI polish failed";
+      llmCalls.push({
+        kind: "polish",
+        model: opts.model,
+        reasoningEffort,
+        request: {
+          system,
+          messages: sanitizeLlmMessagesForLog(polishMessages),
+        },
+        response: { error: message },
+      });
+      yield {
+        type: "error",
+        reply: `OpenAI error: ${message}\n\nCheck your API key and model in Settings.`,
+        llmCalls,
+      };
+      return;
+    }
   }
 
   agentMessages = ensureFinalAssistantText(agentMessages, reply);
@@ -654,5 +742,6 @@ export async function* streamAgentLoop(opts: {
     steps,
     reattachedScreenshotCount: reattached.length,
     agentMessages,
+    llmCalls,
   };
 }

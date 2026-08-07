@@ -1,5 +1,5 @@
 /**
- * Shared request sanitizers used by /api/chat — exported for tests.
+ * Shared chat request sanitizers — exported for tests and the agent loop.
  */
 import type { ChatAttachmentPayload } from "@/lib/chat-attachments";
 import type { HistoryMessage } from "@/lib/chat-history";

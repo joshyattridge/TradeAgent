@@ -198,6 +198,29 @@ describe("streamAgentLoop", () => {
     expect(mockStepCountIs).toHaveBeenCalledWith(MAX_AGENT_STEPS);
   });
 
+  it("passes an explicit OpenAI baseURL through to the provider", async () => {
+    mockStreamText.mockReturnValue(makeStreamResult([]));
+    await collectEvents(baseLoopOpts({ baseURL: "/api/openai/v1" }));
+    expect(mockCreateOpenAI).toHaveBeenCalledWith({
+      apiKey: "test-key",
+      baseURL: "/api/openai/v1",
+    });
+  });
+
+  it("defaults baseURL to the app proxy when window is defined", async () => {
+    vi.stubGlobal("window", {} as Window & typeof globalThis);
+    mockStreamText.mockReturnValue(makeStreamResult([]));
+    try {
+      await collectEvents(baseLoopOpts());
+      expect(mockCreateOpenAI).toHaveBeenCalledWith({
+        apiKey: "test-key",
+        baseURL: "/api/openai/v1",
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("announces attached files and reattached screenshots", async () => {
     mockStreamText.mockReturnValue(makeStreamResult([]));
 
@@ -638,10 +661,11 @@ describe("streamAgentLoop", () => {
     });
 
     const streamErrorEvents = await collectEvents(baseLoopOpts());
-    expect(streamErrorEvents.at(-1)).toEqual({
+    expect(streamErrorEvents.at(-1)).toMatchObject({
       type: "error",
       reply:
         "OpenAI error: rate limited\n\nCheck your API key and model in Settings.",
+      llmCalls: [expect.objectContaining({ kind: "agent", response: { error: "rate limited" } })],
     });
 
     mockStreamText.mockReturnValueOnce({
@@ -654,10 +678,11 @@ describe("streamAgentLoop", () => {
     });
 
     const caughtEvents = await collectEvents(baseLoopOpts());
-    expect(caughtEvents.at(-1)).toEqual({
+    expect(caughtEvents.at(-1)).toMatchObject({
       type: "error",
       reply:
         "OpenAI error: network down\n\nCheck your API key and model in Settings.",
+      llmCalls: [expect.objectContaining({ kind: "agent", response: { error: "network down" } })],
     });
 
     mockStreamText.mockReturnValueOnce({
@@ -670,10 +695,16 @@ describe("streamAgentLoop", () => {
     });
 
     const nonErrorCatch = await collectEvents(baseLoopOpts());
-    expect(nonErrorCatch.at(-1)).toEqual({
+    expect(nonErrorCatch.at(-1)).toMatchObject({
       type: "error",
       reply:
         "OpenAI error: OpenAI request failed\n\nCheck your API key and model in Settings.",
+      llmCalls: [
+        expect.objectContaining({
+          kind: "agent",
+          response: { error: "OpenAI request failed" },
+        }),
+      ],
     });
   });
 
@@ -688,10 +719,16 @@ describe("streamAgentLoop", () => {
     });
 
     const events = await collectEvents(baseLoopOpts());
-    expect(events.at(-1)).toEqual({
+    expect(events.at(-1)).toMatchObject({
       type: "error",
       reply:
         "OpenAI error: Stream error from model\n\nCheck your API key and model in Settings.",
+      llmCalls: [
+        expect.objectContaining({
+          kind: "agent",
+          response: { error: "Stream error from model" },
+        }),
+      ],
     });
   });
 
@@ -710,6 +747,20 @@ describe("streamAgentLoop", () => {
     expect(polished.at(-1)).toMatchObject({
       type: "done",
       reply: "Proposed logging NQ long with id trade-1.",
+      llmCalls: [
+        expect.objectContaining({
+          kind: "agent",
+          request: expect.objectContaining({
+            system: expect.stringContaining("TradeAgent"),
+            tools: expect.arrayContaining(["get_stats", "query_trades"]),
+          }),
+          response: expect.objectContaining({ text: "Trade logged." }),
+        }),
+        expect.objectContaining({
+          kind: "polish",
+          response: { text: "Proposed logging NQ long with id trade-1." },
+        }),
+      ],
     });
     expect(mockGenerateText).toHaveBeenCalled();
 
@@ -723,6 +774,52 @@ describe("streamAgentLoop", () => {
       type: "done",
       reply:
         "Which trade should I update? Name the symbol (and date/result if there are several).",
+      llmCalls: [
+        expect.objectContaining({ kind: "agent" }),
+        expect.objectContaining({
+          kind: "polish",
+          response: {
+            text: "Which trade should I update? Name the symbol (and date/result if there are several).",
+          },
+        }),
+      ],
+    });
+  });
+
+  it("logs polish failures as error events with both LLM calls", async () => {
+    mockStreamText.mockReturnValue(
+      makeStreamResult([], { text: "Done.", responseMessages: [] }),
+    );
+    mockGenerateText.mockRejectedValueOnce(new Error("polish boom"));
+
+    const events = await collectEvents(baseLoopOpts());
+    expect(events.at(-1)).toMatchObject({
+      type: "error",
+      reply:
+        "OpenAI error: polish boom\n\nCheck your API key and model in Settings.",
+      llmCalls: [
+        expect.objectContaining({ kind: "agent" }),
+        expect.objectContaining({
+          kind: "polish",
+          response: { error: "polish boom" },
+        }),
+      ],
+    });
+
+    mockStreamText.mockReturnValueOnce(
+      makeStreamResult([], { text: "Logged.", responseMessages: [] }),
+    );
+    mockGenerateText.mockRejectedValueOnce("non-error polish fail");
+    const nonErrorPolish = await collectEvents(baseLoopOpts());
+    expect(nonErrorPolish.at(-1)).toMatchObject({
+      type: "error",
+      llmCalls: [
+        expect.objectContaining({ kind: "agent" }),
+        expect.objectContaining({
+          kind: "polish",
+          response: { error: "OpenAI polish failed" },
+        }),
+      ],
     });
   });
 

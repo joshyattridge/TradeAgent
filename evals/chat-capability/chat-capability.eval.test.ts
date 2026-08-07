@@ -18,7 +18,7 @@ export { assertScenarioCatalog, scenarioEnvironment };
 /**
  * Live end-to-end chat capability suite.
  *
- * Runs every scenario through streamAgentLoop (same path as /api/chat)
+ * Runs every scenario through streamAgentLoop (same path as the chat UI)
  * against fixture journals, then checks tool use + reply facts vs ground truth.
  *
  *   OPENAI_API_KEY=sk-... npm run test:chat-capability

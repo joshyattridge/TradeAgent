@@ -11,10 +11,11 @@ import {
   type ChatAttachment,
 } from "@/lib/chat-attachments";
 import {
-  formatChatHttpError,
-  formatChatNetworkError,
-  formatChatStreamError,
-} from "@/lib/chat-errors";
+  streamAgentLoop,
+} from "@/lib/chat-agent";
+import { formatChatNetworkError, formatChatStreamError } from "@/lib/chat-errors";
+import { appendChatLogTurnIdb } from "@/lib/chat-log-idb";
+import type { LlmCallLog } from "@/lib/chat-log-format";
 import { resolvePendingProposalUpdate } from "@/lib/chat-proposals";
 import type { ChatAgentMessage } from "@/lib/chat-history";
 import { countToolsInAgentMessages } from "@/lib/chat-history";
@@ -287,7 +288,7 @@ export function ChatWidget() {
 
     addChatMessage({
       role: "assistant",
-      content: data.reply ?? "Done.",
+      content: data.reply,
       charts: charts.length ? charts : undefined,
       agentMessages: data.agentMessages?.length
         ? data.agentMessages
@@ -334,187 +335,111 @@ export function ChatWidget() {
     setLoading(true);
     resetStreamUi();
 
+    const attachmentPayloads = attachments.map(toAttachmentPayload);
+    const attachmentNames = attachments.map((a) => a.name).filter(Boolean);
+    const history = chat
+      .filter((m) => m.role === "user" || m.role === "assistant")
+      .map((m) => ({
+        role: m.role,
+        content: m.content,
+        images: m.images,
+        attachments: m.attachments,
+        agentMessages: m.agentMessages,
+      }));
+
     try {
-      const res = await fetch("/api/chat", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Accept: "application/x-ndjson",
-        },
-        body: JSON.stringify({
-          message: apiMessage,
-          images,
-          attachments: attachments.map(toAttachmentPayload),
-          referencedTradeId: refTrade?.id,
-          trades,
-          strategy,
-          stats: computeStats(trades),
-          apiKey: openaiApiKey || undefined,
-          model: openaiModel,
-          reasoningEffort: openaiReasoningEffort,
-          chatLogId,
-          history: chat
-            .filter((m) => m.role === "user" || m.role === "assistant")
-            .map((m) => ({
-              role: m.role,
-              content: m.content,
-              images: m.images,
-              attachments: m.attachments,
-              agentMessages: m.agentMessages,
-            })),
-        }),
-      });
-
-      const contentType = res.headers.get("content-type") ?? "";
-
-      // Non-stream JSON / HTML fallback (auth errors, validation, proxy errors, etc.)
-      if (!contentType.includes("ndjson")) {
-        const rawText = await res.text();
-        let data: unknown;
-        try {
-          data = rawText ? JSON.parse(rawText) : undefined;
-        } catch {
-          data = undefined;
-        }
+      if (!openaiApiKey.trim()) {
         addChatMessage({
           role: "assistant",
-          content: formatChatHttpError({
-            status: res.status,
-            contentType,
-            data,
-            rawText,
-          }),
+          content:
+            "No OpenAI API key found. Open Settings, paste your key, click Save (status should say Connected).",
         });
         return;
       }
 
-      if (!res.ok) {
-        const rawText = res.body ? await res.text() : "";
-        let data: unknown;
-        try {
-          data = rawText ? JSON.parse(rawText) : undefined;
-        } catch {
-          data = undefined;
-        }
-        addChatMessage({
-          role: "assistant",
-          content: formatChatHttpError({
-            status: res.status,
-            contentType,
-            data,
-            rawText,
-          }),
-        });
-        return;
-      }
-
-      if (!res.body) {
-        throw new Error("No response body");
-      }
-
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
       let finished = false;
       let accumulatedText = "";
+      let lastLlmCalls: LlmCallLog[] | undefined;
 
-      while (!finished) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n");
-        buffer = lines.pop() || "";
-
-        for (const line of lines) {
-          const trimmed = line.trim();
-          if (!trimmed) continue;
-          let event: {
-            type: string;
-            message?: string;
-            text?: string;
-            toolCallId?: string;
-            name?: string;
-            label?: string;
-            ok?: boolean;
-            detail?: string;
-            reply?: string;
-            actions?: StreamDonePayload["actions"];
-            agentMessages?: ChatAgentMessage[];
-          };
+      for await (const event of streamAgentLoop({
+        apiKey: openaiApiKey.trim(),
+        model: openaiModel,
+        reasoningEffort: openaiReasoningEffort,
+        strategy,
+        trades,
+        stats: computeStats(trades),
+        history,
+        userText: apiMessage,
+        images,
+        attachments: attachmentPayloads,
+        referencedTradeId: refTrade?.id,
+        baseURL: "/api/openai/v1",
+      })) {
+        if (event.type === "status" && event.message) {
+          setStatusMessage(event.message);
+        } else if (event.type === "text-delta" && event.text) {
+          accumulatedText += event.text;
+          setStreamingText((prev) => prev + event.text);
+        } else if (event.type === "tool-start") {
+          upsertToolStatus({
+            toolCallId: event.toolCallId,
+            name: event.name,
+            label: event.label,
+            state: "running",
+          });
+        } else if (event.type === "tool-result") {
+          upsertToolStatus({
+            toolCallId: event.toolCallId,
+            name: event.name,
+            label: event.label,
+            state: event.ok === false ? "error" : "done",
+            detail: event.detail,
+          });
+        } else if (event.type === "error") {
+          lastLlmCalls = event.llmCalls;
+          addChatMessage({
+            role: "assistant",
+            content: formatChatStreamError(event),
+          });
           try {
-            event = JSON.parse(trimmed);
-          } catch {
-            continue;
+            await appendChatLogTurnIdb({
+              chatLogId,
+              userText: apiMessage,
+              error: event.reply,
+              llmCalls: event.llmCalls,
+              model: openaiModel,
+              attachmentNames,
+            });
+          } catch (logError) {
+            console.warn("[TradeAgent] chat log write failed", logError);
           }
-
-          if (event.type === "status" && event.message) {
-            setStatusMessage(event.message);
-          } else if (event.type === "text-delta" && event.text) {
-            accumulatedText += event.text;
-            setStreamingText((prev) => prev + event.text!);
-          } else if (
-            event.type === "tool-start" &&
-            event.toolCallId &&
-            event.name &&
-            event.label
-          ) {
-            upsertToolStatus({
-              toolCallId: event.toolCallId,
-              name: event.name,
-              label: event.label,
-              state: "running",
+          finished = true;
+          break;
+        } else if (event.type === "done") {
+          lastLlmCalls = event.llmCalls;
+          applyDone(
+            {
+              reply: event.reply?.trim() || "Done.",
+              actions: event.actions,
+              agentMessages: event.agentMessages,
+            },
+            images,
+          );
+          try {
+            await appendChatLogTurnIdb({
+              chatLogId,
+              userText: apiMessage,
+              reply: event.reply,
+              agentMessages: event.agentMessages,
+              llmCalls: event.llmCalls,
+              model: openaiModel,
+              attachmentNames,
             });
-          } else if (
-            event.type === "tool-result" &&
-            event.toolCallId &&
-            event.name &&
-            event.label
-          ) {
-            upsertToolStatus({
-              toolCallId: event.toolCallId,
-              name: event.name,
-              label: event.label,
-              state: event.ok === false ? "error" : "done",
-              detail: event.detail,
-            });
-          } else if (event.type === "error") {
-            addChatMessage({
-              role: "assistant",
-              content: formatChatStreamError(event),
-            });
-            finished = true;
-            break;
-          } else if (event.type === "done") {
-            applyDone(
-              {
-                reply: event.reply?.trim() || "Done.",
-                actions: event.actions,
-                agentMessages: event.agentMessages,
-              },
-              images,
-            );
-            finished = true;
-            break;
+          } catch (logError) {
+            console.warn("[TradeAgent] chat log write failed", logError);
           }
-        }
-      }
-
-      // Flush trailing buffer if stream ended without explicit done
-      if (!finished && buffer.trim()) {
-        try {
-          const event = JSON.parse(buffer.trim());
-          if (event.type === "done") {
-            applyDone(event, images);
-            finished = true;
-          } else if (event.type === "error") {
-            addChatMessage({
-              role: "assistant",
-              content: formatChatStreamError(event),
-            });
-            finished = true;
-          }
-        } catch {
-          // ignore
+          finished = true;
+          break;
         }
       }
 
@@ -523,6 +448,18 @@ export function ChatWidget() {
           role: "assistant",
           content: accumulatedText.trim(),
         });
+        try {
+          await appendChatLogTurnIdb({
+            chatLogId,
+            userText: apiMessage,
+            reply: accumulatedText.trim(),
+            llmCalls: lastLlmCalls,
+            model: openaiModel,
+            attachmentNames,
+          });
+        } catch (logError) {
+          console.warn("[TradeAgent] chat log write failed", logError);
+        }
       }
     } catch (err) {
       try {

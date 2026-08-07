@@ -9,6 +9,7 @@ import {
   formatChatLogTurn,
   getChatLogDir,
   safeChatLogId,
+  sanitizeLlmMessagesForLog,
 } from "@/lib/chat-log";
 
 describe("chat-log", () => {
@@ -37,7 +38,75 @@ describe("chat-log", () => {
     expect(getChatLogDir()).toBe(path.resolve("/tmp/chat-logs"));
   });
 
-  it("formats a turn with tool calls and results", () => {
+  it("formats full LLM request/response traces including polish calls", () => {
+    const text = formatChatLogTurn({
+      at: "2026-08-07T10:00:00.000Z",
+      model: "gpt-test",
+      userText: "should I take partials?",
+      attachmentNames: ["chart.png"],
+      reply: "Yes, scale out half at +1R.",
+      llmCalls: [
+        {
+          kind: "agent",
+          model: "gpt-test",
+          reasoningEffort: "medium",
+          request: {
+            system: "You are TradeAgent.",
+            messages: [
+              {
+                role: "user",
+                content: [
+                  { type: "text", text: "should I take partials?" },
+                  { type: "image", image: "data:image/png;base64,abc" },
+                ],
+              },
+            ],
+            tools: ["get_stats", "query_trades"],
+          },
+          response: {
+            text: "Trade logged.",
+            steps: 2,
+            messages: [
+              {
+                role: "assistant",
+                content: [
+                  {
+                    type: "tool-call",
+                    toolCallId: "c1",
+                    toolName: "get_stats",
+                    input: { closedOnly: true },
+                  },
+                ],
+              },
+            ],
+          },
+        },
+        {
+          kind: "polish",
+          model: "gpt-test",
+          reasoningEffort: "medium",
+          request: {
+            system: "You are TradeAgent.",
+            messages: [{ role: "user", content: "Write the final reply." }],
+          },
+          response: { text: "Yes, scale out half at +1R." },
+        },
+      ],
+    });
+
+    expect(text).toContain("======== LLM AGENT ========");
+    expect(text).toContain("======== LLM POLISH ========");
+    expect(text).toContain("system:\nYou are TradeAgent.");
+    expect(text).toContain("tools: get_stats, query_trades");
+    expect(text).toContain("reasoningEffort: medium");
+    expect(text).toContain("[image omitted]");
+    expect(text).toContain("TOOL CALL get_stats (c1)");
+    expect(text).toContain("text:\nTrade logged.");
+    expect(text).toContain("text:\nYes, scale out half at +1R.");
+    expect(text).not.toContain("FINAL REPLY:");
+  });
+
+  it("falls back to agentMessages formatting when llmCalls are absent", () => {
     const text = formatChatLogTurn({
       at: "2026-08-01T10:00:00.000Z",
       model: "gpt-test",
@@ -96,6 +165,84 @@ describe("chat-log", () => {
     expect(text).toContain("ASSISTANT:\nYou are down overall.");
     expect(text).toContain("ASSISTANT:\nFinal spoken line.");
     expect(text).toContain("ASSISTANT:\ndifferent final");
+  });
+
+  it("formats LLM error responses and final reply when polish differs", () => {
+    const text = formatChatLogTurn({
+      userText: "hi",
+      reply: "final spoken",
+      llmCalls: [
+        {
+          kind: "agent",
+          model: "gpt-test",
+          request: { system: "sys", messages: [] },
+          response: { error: "rate limited" },
+        },
+        {
+          kind: "polish",
+          model: "gpt-test",
+          request: { system: "sys", messages: [] },
+          response: { text: "polished only" },
+        },
+      ],
+      error: "surface error",
+    });
+    expect(text).toContain("error: rate limited");
+    expect(text).toContain("FINAL REPLY:\nfinal spoken");
+    expect(text).toContain("ERROR:\nsurface error");
+  });
+
+  it("covers LLM response branches without text or final reply echo", () => {
+    const noText = formatChatLogTurn({
+      userText: "ping",
+      llmCalls: [
+        {
+          kind: "agent",
+          model: "gpt-test",
+          request: { system: "sys", messages: [] },
+          response: {
+            steps: 1,
+            messages: [{ role: "assistant", content: "tool-only turn" }],
+            text: "   ",
+          },
+        },
+      ],
+    });
+    expect(noText).toContain("steps: 1");
+    expect(noText).toContain("ASSISTANT:\ntool-only turn");
+    expect(noText).not.toContain("text:");
+    expect(noText).not.toContain("FINAL REPLY:");
+
+    const blankReply = formatChatLogTurn({
+      userText: "ping",
+      reply: "   ",
+      llmCalls: [
+        {
+          kind: "agent",
+          model: "gpt-test",
+          request: { system: "sys", messages: [] },
+          response: { text: "kept" },
+        },
+      ],
+    });
+    expect(blankReply).toContain("text:\nkept");
+    expect(blankReply).not.toContain("FINAL REPLY:");
+  });
+
+  it("sanitizes LLM messages for logging", () => {
+    expect(
+      sanitizeLlmMessagesForLog([
+        {
+          role: "user",
+          content: [{ type: "image", image: "data:image/png;base64,abc" }],
+        },
+      ]),
+    ).toEqual([
+      {
+        role: "user",
+        content: [{ type: "image", image: "[image omitted]" }],
+      },
+    ]);
   });
 
   it("formats error turns and falls back when JSON stringify fails", () => {

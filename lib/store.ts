@@ -76,7 +76,7 @@ interface Store {
   chat: ChatMessage[];
   /** Rolling summary of older chat turns (server-maintained) */
   chatSummary: string;
-  /** Server log file id — one .log per chat session under logs/chats/ */
+  /** Chat session id — one IndexedDB log key per cleared chat session */
   chatLogId: string;
   openaiApiKey: string;
   openaiModel: string;
