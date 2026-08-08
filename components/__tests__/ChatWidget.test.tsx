@@ -368,6 +368,8 @@ describe("ChatWidget", () => {
 
   it("clears chat from the panel", async () => {
     resetStore({
+      trades: [sampleTrade()],
+      chatReferencedTradeId: "t-ref",
       chat: [
         {
           id: "m1",
@@ -377,13 +379,30 @@ describe("ChatWidget", () => {
         },
       ],
     });
+    mockFileToChatAttachment.mockResolvedValueOnce(
+      makeImageAttachment("keep-1", "shot.png"),
+    );
     const user = userEvent.setup();
     render(<ChatWidget />);
     await user.click(screen.getByLabelText("Message TradeAgent"));
     expect(screen.getByText("Old message")).toBeInTheDocument();
+
+    const fileInput = document.querySelector(
+      'input[type="file"][hidden]',
+    ) as HTMLInputElement;
+    await user.upload(
+      fileInput,
+      new File(["img"], "shot.png", { type: "image/png" }),
+    );
+    await waitFor(() => {
+      expect(screen.getByAltText("shot.png")).toBeInTheDocument();
+    });
+
     await user.click(screen.getByLabelText("Clear chat"));
     expect(useTradingStore.getState().chat).toHaveLength(0);
     expect(screen.queryByText("Old message")).not.toBeInTheDocument();
+    expect(useTradingStore.getState().chatReferencedTradeId).toBe("t-ref");
+    expect(screen.getByAltText("shot.png")).toBeInTheDocument();
   });
 
   it("handles attach errors and max attachments", async () => {

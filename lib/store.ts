@@ -341,7 +341,6 @@ export const useTradingStore = create<Store>()(
           chat: [],
           chatSummary: "",
           chatLogId: uid(),
-          chatReferencedTradeId: null,
           pendingProposal: null,
           proposalReviewOpen: false,
         }),

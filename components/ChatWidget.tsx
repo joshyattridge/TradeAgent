@@ -512,7 +512,6 @@ export function ChatWidget() {
                 className="chat-float-btn"
                 onClick={() => {
                   clearChat();
-                  setPendingAttachments([]);
                   setAttachError(null);
                   setExpanded(false);
                 }}

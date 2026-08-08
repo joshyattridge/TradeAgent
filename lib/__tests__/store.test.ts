@@ -374,6 +374,7 @@ describe("useTradingStore actions", () => {
     expect(useTradingStore.getState().chatLogId).not.toBe("test-chat-log");
     expect(useTradingStore.getState().pendingProposal).toBeNull();
     expect(useTradingStore.getState().proposalReviewOpen).toBe(false);
+    expect(useTradingStore.getState().chatReferencedTradeId).toBe("t1");
   });
 
   it("resetDemoData restores seeded trades and strategy", () => {
