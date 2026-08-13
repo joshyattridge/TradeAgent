@@ -3,7 +3,11 @@
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 import { mergeTrades, type ImportMode } from "./backup";
-import type { ChatActionPayload, ChatProposal } from "./chat-proposals";
+import {
+  MAX_SCREENSHOTS_PER_TRADE,
+  type ChatActionPayload,
+  type ChatProposal,
+} from "./chat-proposals";
 import {
   clearLegacyLocalStorage,
   idbStorage,
@@ -46,7 +50,6 @@ function normalizeTradeTimes<T extends Partial<Trade>>(
 }
 
 const STORE_KEY = "tradeagent-store-v4";
-const MAX_SCREENSHOTS_PER_TRADE = 10;
 
 /** Persist chat as-is — keep images and full file attachments for conversation replay. */
 function persistableChat(chat: ChatMessage[]): ChatMessage[] {

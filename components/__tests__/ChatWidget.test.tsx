@@ -298,6 +298,45 @@ describe("ChatWidget", () => {
     });
   });
 
+  it("proposes attaching a turn screenshot to the referenced trade", async () => {
+    resetStore({
+      trades: [sampleTrade()],
+      chatReferencedTradeId: "t-ref",
+    });
+    mockLoop([
+      {
+        type: "done",
+        reply: "I proposed attaching the screenshot.",
+        actions: {},
+      },
+    ]);
+    const user = userEvent.setup();
+    render(<ChatWidget />);
+    mockFileToChatAttachment.mockResolvedValueOnce(
+      makeImageAttachment("img-1", "chart.png"),
+    );
+    const fileInput = document.querySelector(
+      'input[type="file"][hidden]',
+    ) as HTMLInputElement;
+    await user.upload(
+      fileInput,
+      new File(["img"], "chart.png", { type: "image/png" }),
+    );
+    await waitFor(() => {
+      expect(screen.getByAltText("chart.png")).toBeInTheDocument();
+    });
+    await user.type(screen.getByLabelText("Message TradeAgent"), "attach this");
+    await user.click(screen.getByLabelText("Send message"));
+    await waitFor(() => {
+      const proposal = useTradingStore.getState().pendingProposal;
+      expect(proposal).not.toBeNull();
+      expect(proposal?.changes[0]).toMatchObject({
+        kind: "update",
+        id: "t-ref",
+      });
+    });
+  });
+
   it("sends referenced trade prefix and clears the pin", async () => {
     resetStore({
       trades: [sampleTrade()],

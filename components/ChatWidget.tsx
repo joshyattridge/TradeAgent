@@ -16,7 +16,11 @@ import {
 import { formatChatNetworkError, formatChatStreamError } from "@/lib/chat-errors";
 import { appendChatLogTurnIdb } from "@/lib/chat-log-idb";
 import type { LlmCallLog } from "@/lib/chat-log-format";
-import { resolvePendingProposalUpdate } from "@/lib/chat-proposals";
+import {
+  ensureScreenshotAttachTarget,
+  resolvePendingProposalUpdate,
+  type ChatActionPayload,
+} from "@/lib/chat-proposals";
 import type { ChatAgentMessage } from "@/lib/chat-history";
 import { countToolsInAgentMessages } from "@/lib/chat-history";
 import { applyChatActions, useTradingStore } from "@/lib/store";
@@ -240,20 +244,19 @@ export function ChatWidget() {
     });
   }
 
-  function applyDone(data: StreamDonePayload, images: string[]) {
+  function applyDone(
+    data: StreamDonePayload,
+    images: string[],
+    referencedTradeId?: string,
+  ) {
     let charts: ChartSpec[] = [];
-    const rawActions = data.actions
-      ? {
-          addTrade: data.actions.addTrade as never,
-          addTrades: data.actions.addTrades as never,
-          updateTrade: data.actions.updateTrade as never,
-          updateTrades: data.actions.updateTrades as never,
-          deleteTradeIds: data.actions.deleteTradeIds,
-          updateStrategy: data.actions.updateStrategy as never,
-          charts: data.actions.charts ?? [],
-          screenshots: images.length ? images : undefined,
-        }
-      : null;
+    const rawActions = ensureScreenshotAttachTarget(
+      data.actions as ChatActionPayload | undefined,
+      {
+        screenshots: images.length ? images : undefined,
+        referencedTradeId,
+      },
+    );
 
     if (rawActions) {
       const state = useTradingStore.getState();
@@ -424,6 +427,7 @@ export function ChatWidget() {
               agentMessages: event.agentMessages,
             },
             images,
+            refTrade?.id,
           );
           try {
             await appendChatLogTurnIdb({

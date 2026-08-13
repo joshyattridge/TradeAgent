@@ -2,6 +2,13 @@ import { normalizeStrategy, strategyNameFromMarkdown } from "@/lib/strategy-md";
 import { formatTradeDateTime, normalizeTradeDateTime } from "@/lib/trade-format";
 import type { ChartSpec, Strategy, Trade } from "@/lib/types";
 
+/** Cap screenshot arrays so one trade can't dominate storage. */
+export const MAX_SCREENSHOTS_PER_TRADE = 10;
+
+function capScreenshots(shots: string[]): string[] {
+  return shots.filter((s) => s && s !== "pending").slice(0, MAX_SCREENSHOTS_PER_TRADE);
+}
+
 export interface ChatActionPayload {
   addTrade?: Omit<Trade, "id"> | Trade;
   addTrades?: Array<Omit<Trade, "id"> | Trade>;
@@ -224,12 +231,41 @@ export function gatedActionsSlice(
   return next;
 }
 
+function uniqueUpdateIds(actions: ChatActionPayload): string[] {
+  const updates = [
+    ...(actions.updateTrades ?? []),
+    ...(actions.updateTrade?.id && !actions.updateTrades?.length
+      ? [actions.updateTrade]
+      : []),
+  ];
+  return [...new Set(updates.map((u) => u.id).filter(Boolean))];
+}
+
+/**
+ * When the user pins a trade and attaches images, make sure those shots can
+ * land on that row even if the model never emitted a patch (screenshot-only).
+ */
+export function ensureScreenshotAttachTarget(
+  actions: ChatActionPayload | null | undefined,
+  opts: { screenshots?: string[]; referencedTradeId?: string | null },
+): ChatActionPayload | null {
+  const shots = capScreenshots(opts.screenshots ?? []);
+  if (!shots.length) return actions ?? null;
+
+  const next: ChatActionPayload = { ...(actions ?? {}), screenshots: shots };
+  const hasAdd = Boolean(next.addTrades?.length || next.addTrade);
+  if (!hasAdd && uniqueUpdateIds(next).length === 0 && opts.referencedTradeId) {
+    next.updateTrade = { id: opts.referencedTradeId };
+  }
+  return next;
+}
+
 function asTrade(incoming: Omit<Trade, "id"> | Trade, screenshots?: string[]): Trade {
   const id = "id" in incoming && incoming.id ? incoming.id : `proposed-${crypto.randomUUID()}`;
-  const shots = [
-    ...(incoming.screenshots ?? []).filter((s) => s && s !== "pending"),
+  const shots = capScreenshots([
+    ...(incoming.screenshots ?? []),
     ...(screenshots ?? []),
-  ].slice(0, 2);
+  ]);
   return {
     ...incoming,
     id,
@@ -281,11 +317,11 @@ export function buildChatProposal(opts: {
   ];
 
   // Preview screenshot attach for single-update turns (mirrors applyChatActions)
-  const uniqueUpdateIds = [...new Set(updates.map((u) => u.id).filter(Boolean))];
+  const updateIds = uniqueUpdateIds(gated);
   const attachShots =
     gated.screenshots?.length &&
     !adds.length &&
-    uniqueUpdateIds.length === 1
+    updateIds.length === 1
       ? gated.screenshots
       : undefined;
 
@@ -294,12 +330,13 @@ export function buildChatProposal(opts: {
     if (!before) continue;
     const { id, ...patch } = update;
     let after = mergeTradePatch(before, patch);
-    if (attachShots?.length && id === uniqueUpdateIds[0]) {
+    if (attachShots?.length && id === updateIds[0]) {
       after = {
         ...after,
-        screenshots: [...(after.screenshots ?? []), ...attachShots]
-          .filter((s) => s && s !== "pending")
-          .slice(0, 2),
+        screenshots: capScreenshots([
+          ...(after.screenshots ?? []),
+          ...attachShots,
+        ]),
       };
     }
     const keys = changedTradeKeys(before, after);

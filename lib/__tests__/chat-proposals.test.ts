@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   buildChatProposal,
   chartOnlyActions,
+  ensureScreenshotAttachTarget,
   formatTradeFieldValue,
   gatedActionsSlice,
   hasGatedJournalWrites,
@@ -10,6 +11,7 @@ import {
   mergeStrategyPatch,
   mergeTradePatch,
   changedTradeKeys,
+  MAX_SCREENSHOTS_PER_TRADE,
   planChatDone,
   resolvePendingProposalUpdate,
 } from "@/lib/chat-proposals";
@@ -267,6 +269,102 @@ describe("chat proposals", () => {
         expect.arrayContaining(["session", "screenshots"]),
       );
     }
+  });
+
+  it("attaches a screenshot-only update when no other fields change", () => {
+    const before = sampleTrade({
+      screenshots: ["data:image/jpeg;base64,a", "data:image/jpeg;base64,b"],
+    });
+    const proposal = buildChatProposal({
+      actions: { updateTrade: { id: "t1" } },
+      trades: [before],
+      strategy: seedStrategy,
+      screenshots: ["data:image/jpeg;base64,c"],
+    });
+    const change = proposal?.changes[0];
+    expect(change?.kind).toBe("update");
+    if (change?.kind === "update") {
+      expect(change.after.screenshots).toEqual([
+        "data:image/jpeg;base64,a",
+        "data:image/jpeg;base64,b",
+        "data:image/jpeg;base64,c",
+      ]);
+      expect(change.changedKeys).toEqual(["screenshots"]);
+    }
+  });
+
+  it("caps attached screenshots at MAX_SCREENSHOTS_PER_TRADE", () => {
+    const existing = Array.from(
+      { length: MAX_SCREENSHOTS_PER_TRADE },
+      (_, i) => `data:image/jpeg;base64,old-${i}`,
+    );
+    const proposal = buildChatProposal({
+      actions: { updateTrade: { id: "t1" } },
+      trades: [sampleTrade({ screenshots: existing })],
+      strategy: seedStrategy,
+      screenshots: ["data:image/jpeg;base64,new"],
+    });
+    expect(proposal).toBeNull();
+  });
+
+  it("ensureScreenshotAttachTarget pins shots onto the referenced trade", () => {
+    expect(
+      ensureScreenshotAttachTarget(null, {
+        screenshots: ["data:image/png;base64,x"],
+        referencedTradeId: "t-ref",
+      }),
+    ).toEqual({
+      screenshots: ["data:image/png;base64,x"],
+      updateTrade: { id: "t-ref" },
+    });
+    expect(
+      ensureScreenshotAttachTarget(
+        { updateTrade: { id: "other", session: "London" } },
+        {
+          screenshots: ["data:image/png;base64,x"],
+          referencedTradeId: "t-ref",
+        },
+      )?.updateTrade,
+    ).toEqual({ id: "other", session: "London" });
+    expect(
+      ensureScreenshotAttachTarget(
+        { addTrade: sampleTrade({ id: "new" }) },
+        {
+          screenshots: ["data:image/png;base64,x"],
+          referencedTradeId: "t-ref",
+        },
+      )?.updateTrade,
+    ).toBeUndefined();
+    expect(
+      ensureScreenshotAttachTarget(
+        { addTrades: [sampleTrade({ id: "new" })] },
+        {
+          screenshots: ["data:image/png;base64,x"],
+          referencedTradeId: "t-ref",
+        },
+      )?.updateTrade,
+    ).toBeUndefined();
+    expect(
+      ensureScreenshotAttachTarget(
+        { updateTrades: [{ id: "other" }] },
+        {
+          screenshots: ["data:image/png;base64,x"],
+          referencedTradeId: "t-ref",
+        },
+      )?.updateTrade,
+    ).toBeUndefined();
+    expect(
+      ensureScreenshotAttachTarget(
+        { updateTrade: { id: "t1" } },
+        { referencedTradeId: "t-ref" },
+      ),
+    ).toEqual({ updateTrade: { id: "t1" } });
+    expect(
+      ensureScreenshotAttachTarget(undefined, {
+        screenshots: ["data:image/png;base64,x"],
+      }),
+    ).toEqual({ screenshots: ["data:image/png;base64,x"] });
+    expect(ensureScreenshotAttachTarget(null, {})).toBeNull();
   });
 
   it("builds delete + multi-change proposals", () => {
