@@ -135,10 +135,15 @@ describe("useTradingStore actions", () => {
       target: 1.265,
       rMultiple: 2,
       result: "win",
-      screenshots: ["pending", "shot-a", "shot-b", "shot-c"],
+      screenshots: [
+        "pending",
+        ...Array.from({ length: 11 }, (_, i) => `shot-${i + 1}`),
+      ],
     });
     expect(added.id).toBeTruthy();
-    expect(added.screenshots).toEqual(["shot-a", "shot-b"]);
+    expect(added.screenshots).toEqual(
+      Array.from({ length: 10 }, (_, i) => `shot-${i + 1}`),
+    );
 
     const withId = useTradingStore.getState().addTrade(
       sampleTrade({ id: "fixed-id", symbol: "XAUUSD" }),
@@ -175,7 +180,7 @@ describe("useTradingStore actions", () => {
     expect(trade?.rMultiple).toBe(2);
     expect(trade?.notes).toBe("Clean");
     expect(trade?.entryTime).toBeTruthy();
-    expect(trade?.screenshots).toEqual(["a", "b"]);
+    expect(trade?.screenshots).toEqual(["a", "b", "c"]);
   });
 
   it("updateTrade clears checklist when patched to an empty array", () => {
@@ -614,7 +619,7 @@ describe("persist storage and rehydrate", () => {
       chartExtract?: unknown;
     };
     expect(trade.chartExtract).toBeUndefined();
-    expect(trade.screenshots).toEqual(["a", "b"]);
+    expect(trade.screenshots).toEqual(["a", "b", "c"]);
   });
 
   it("assigns a chatLogId when rehydrating legacy state without one", async () => {

@@ -46,7 +46,7 @@ function normalizeTradeTimes<T extends Partial<Trade>>(
 }
 
 const STORE_KEY = "tradeagent-store-v4";
-const MAX_SCREENSHOTS_PER_TRADE = 2;
+const MAX_SCREENSHOTS_PER_TRADE = 10;
 
 /** Persist chat as-is — keep images and full file attachments for conversation replay. */
 function persistableChat(chat: ChatMessage[]): ChatMessage[] {
