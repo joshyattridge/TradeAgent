@@ -8,6 +8,7 @@ import type { Trade } from "@/lib/types";
 
 const toggleTradeColumn = vi.fn();
 const resetTradeColumns = vi.fn();
+const addChatReferencedTradeIds = vi.fn();
 
 let visibleTradeColumns: TradeColumnId[] = TRADE_COLUMNS.map((c) => c.id);
 
@@ -17,6 +18,7 @@ vi.mock("@/lib/store", () => ({
       visibleTradeColumns,
       toggleTradeColumn,
       resetTradeColumns,
+      addChatReferencedTradeIds,
     }),
 }));
 
@@ -213,6 +215,28 @@ describe("TradeTable", () => {
     firstRow.focus();
     await user.keyboard("{Tab}");
     expect(screen.queryByTestId("trade-detail")).not.toBeInTheDocument();
+  });
+
+  it("selects multiple rows and references them in chat", async () => {
+    const user = userEvent.setup();
+    render(<TradeTable trades={trades} />);
+
+    await user.click(screen.getByLabelText("Select AAA trade"));
+    await user.click(screen.getByLabelText("Select AAA trade"));
+    expect(screen.queryByRole("button", { name: /Reference \d+ in chat/i })).not.toBeInTheDocument();
+
+    await user.click(screen.getByLabelText("Select AAA trade"));
+    await user.click(screen.getByLabelText("Select ZZZ trade"));
+    expect(screen.getByText(/2 selected/)).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /Reference 2 in chat/i }));
+    expect(addChatReferencedTradeIds).toHaveBeenCalledWith(["a", "b"]);
+    expect(screen.queryByRole("button", { name: /Reference 2 in chat/i })).not.toBeInTheDocument();
+
+    await user.click(screen.getByLabelText("Select all trades"));
+    expect(screen.getByRole("button", { name: /Reference 4 in chat/i })).toBeInTheDocument();
+    await user.click(screen.getByLabelText("Select all trades"));
+    expect(screen.queryByRole("button", { name: /Reference \d+ in chat/i })).not.toBeInTheDocument();
   });
 
   it("toggles column picker and reset defaults", async () => {

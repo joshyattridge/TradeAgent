@@ -35,8 +35,16 @@ function tradeRefLabel(trade: Trade) {
   return `${trade.symbol} ${trade.side} · ${when}`;
 }
 
-function buildReferencedTradePrefix(trade: Trade) {
-  return `[Referenced trade: ${trade.symbol} ${trade.side} · ${trade.date} · id=${trade.id}]`;
+function buildReferencedTradePrefix(trades: Trade[]) {
+  if (trades.length === 1) {
+    const trade = trades[0];
+    return `[Referenced trade: ${trade.symbol} ${trade.side} · ${trade.date} · id=${trade.id}]`;
+  }
+  const lines = trades.map(
+    (trade) =>
+      `- ${trade.symbol} ${trade.side} · ${trade.date} · id=${trade.id}`,
+  );
+  return `[Referenced trades:\n${lines.join("\n")}]`;
 }
 
 type ToolStatus = {
@@ -87,9 +95,14 @@ export function ChatWidget() {
   const openaiApiKey = useTradingStore((s) => s.openaiApiKey);
   const openaiModel = useTradingStore((s) => s.openaiModel);
   const openaiReasoningEffort = useTradingStore((s) => s.openaiReasoningEffort);
-  const chatReferencedTradeId = useTradingStore((s) => s.chatReferencedTradeId);
-  const setChatReferencedTradeId = useTradingStore(
-    (s) => s.setChatReferencedTradeId,
+  const chatReferencedTradeIds = useTradingStore(
+    (s) => s.chatReferencedTradeIds,
+  );
+  const removeChatReferencedTradeId = useTradingStore(
+    (s) => s.removeChatReferencedTradeId,
+  );
+  const clearChatReferencedTradeIds = useTradingStore(
+    (s) => s.clearChatReferencedTradeIds,
   );
   const addChatMessage = useTradingStore((s) => s.addChatMessage);
   const clearChat = useTradingStore((s) => s.clearChat);
@@ -98,9 +111,10 @@ export function ChatWidget() {
   const setPendingProposal = useTradingStore((s) => s.setPendingProposal);
   const openProposalReview = useTradingStore((s) => s.openProposalReview);
 
-  const referencedTrade = chatReferencedTradeId
-    ? trades.find((t) => t.id === chatReferencedTradeId)
-    : undefined;
+  const referencedTrades = chatReferencedTradeIds
+    .map((id) => trades.find((t) => t.id === id))
+    .filter((t): t is Trade => Boolean(t));
+  const referencedTradeKey = chatReferencedTradeIds.join(",");
 
   useEffect(() => {
     if (!pendingProposal) return;
@@ -110,18 +124,19 @@ export function ChatWidget() {
   }, [pendingProposal?.id]);
 
   useEffect(() => {
-    if (!chatReferencedTradeId) return;
+    if (!referencedTradeKey) return;
     setExpanded(true);
     const t = window.setTimeout(() => inputRef.current?.focus(), 50);
     return () => window.clearTimeout(t);
-  }, [chatReferencedTradeId]);
+  }, [referencedTradeKey]);
 
   useEffect(() => {
-    // Drop stale pins if the trade was removed elsewhere
-    if (chatReferencedTradeId && !referencedTrade) {
-      setChatReferencedTradeId(null);
+    // Drop stale pins if a trade was removed elsewhere
+    const live = new Set(trades.map((t) => t.id));
+    for (const id of chatReferencedTradeIds) {
+      if (!live.has(id)) removeChatReferencedTradeId(id);
     }
-  }, [chatReferencedTradeId, referencedTrade, setChatReferencedTradeId]);
+  }, [chatReferencedTradeIds, trades, removeChatReferencedTradeId]);
 
   useEffect(() => {
     if (!expanded) return;
@@ -247,14 +262,14 @@ export function ChatWidget() {
   function applyDone(
     data: StreamDonePayload,
     images: string[],
-    referencedTradeId?: string,
+    referencedTradeIds?: string[],
   ) {
     let charts: ChartSpec[] = [];
     const rawActions = ensureScreenshotAttachTarget(
       data.actions as ChatActionPayload | undefined,
       {
         screenshots: images.length ? images : undefined,
-        referencedTradeId,
+        referencedTradeIds,
       },
     );
 
@@ -309,22 +324,28 @@ export function ChatWidget() {
     const fileMeta = attachments
       .filter((a) => a.kind !== "image")
       .map(attachmentMeta);
-    const refTrade = referencedTrade;
-    if ((!text && !attachments.length && !refTrade) || loading) return;
+    const refTrades = referencedTrades;
+    if ((!text && !attachments.length && !refTrades.length) || loading) return;
 
-    const refPrefix = refTrade ? buildReferencedTradePrefix(refTrade) : "";
+    const refPrefix = refTrades.length
+      ? buildReferencedTradePrefix(refTrades)
+      : "";
     const bodyText =
       text ||
-      (refTrade ? "Regarding this trade." : "Review the attached file(s).");
-    const displayText = refTrade
-      ? `Referenced: ${tradeRefLabel(refTrade)}\n${bodyText}`
+      (refTrades.length === 1
+        ? "Regarding this trade."
+        : refTrades.length > 1
+          ? "Regarding these trades."
+          : "Review the attached file(s).");
+    const displayText = refTrades.length
+      ? `Referenced: ${refTrades.map(tradeRefLabel).join(" · ")}\n${bodyText}`
       : bodyText;
     const apiMessage = refPrefix ? `${refPrefix}\n${bodyText}` : bodyText;
 
     setInput("");
     setPendingAttachments([]);
     setAttachError(null);
-    setChatReferencedTradeId(null);
+    clearChatReferencedTradeIds();
     setExpanded(true);
     addChatMessage({
       role: "user",
@@ -375,7 +396,7 @@ export function ChatWidget() {
         userText: apiMessage,
         images,
         attachments: attachmentPayloads,
-        referencedTradeId: refTrade?.id,
+        referencedTradeIds: refTrades.map((t) => t.id),
         baseURL: "/api/openai/v1",
       })) {
         if (event.type === "status" && event.message) {
@@ -427,7 +448,7 @@ export function ChatWidget() {
               agentMessages: event.agentMessages,
             },
             images,
-            refTrade?.id,
+            refTrades.map((t) => t.id),
           );
           try {
             await appendChatLogTurnIdb({
@@ -487,7 +508,7 @@ export function ChatWidget() {
     !loading &&
     (Boolean(input.trim()) ||
       pendingAttachments.length > 0 ||
-      Boolean(referencedTrade));
+      referencedTrades.length > 0);
 
   return (
     <div
@@ -636,26 +657,27 @@ export function ChatWidget() {
           </p>
         ) : null}
 
-        {pendingAttachments.length || referencedTrade ? (
+        {pendingAttachments.length || referencedTrades.length ? (
           <div className="chat-attach-preview">
-            {referencedTrade ? (
+            {referencedTrades.map((trade) => (
               <div
+                key={trade.id}
                 className="chat-trade-ref"
-                title={`Trade id ${referencedTrade.id}`}
+                title={`Trade id ${trade.id}`}
               >
                 <span className="chat-trade-ref__label">
-                  {tradeRefLabel(referencedTrade)}
+                  {tradeRefLabel(trade)}
                 </span>
                 <button
                   type="button"
                   className="chat-attach-preview__remove"
-                  onClick={() => setChatReferencedTradeId(null)}
-                  aria-label="Remove trade reference"
+                  onClick={() => removeChatReferencedTradeId(trade.id)}
+                  aria-label={`Remove trade reference ${trade.symbol}`}
                 >
                   <X size={12} />
                 </button>
               </div>
-            ) : null}
+            ))}
             {pendingAttachments.map((att) =>
               att.kind === "image" ? (
                 <div className="chat-attach-preview__item" key={att.id}>
@@ -720,7 +742,7 @@ export function ChatWidget() {
               if (
                 chat.length > 0 ||
                 pendingAttachments.length ||
-                referencedTrade
+                referencedTrades.length
               ) {
                 setExpanded(true);
               }
@@ -743,7 +765,7 @@ export function ChatWidget() {
               if (
                 chat.length > 0 ||
                 pendingAttachments.length ||
-                referencedTrade
+                referencedTrades.length
               ) {
                 setExpanded(true);
               }
@@ -765,9 +787,11 @@ export function ChatWidget() {
               if (files?.length) void addFiles(files);
             }}
             placeholder={
-              referencedTrade
-                ? "Ask about this trade…"
-                : "Ask TradeAgent — attach charts, CSV, PDF…"
+              referencedTrades.length > 1
+                ? "Ask about these trades…"
+                : referencedTrades.length === 1
+                  ? "Ask about this trade…"
+                  : "Ask TradeAgent — attach charts, CSV, PDF…"
             }
             aria-label="Message TradeAgent"
           />

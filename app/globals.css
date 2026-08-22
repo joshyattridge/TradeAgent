@@ -460,8 +460,31 @@ textarea {
   font-size: 0.88rem;
 }
 
+.trade-log__toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-shrink: 0;
+}
+
 .trade-log__column-wrap {
   position: relative;
+}
+
+.trade-table__check {
+  width: 2.2rem;
+  padding-left: 0.7rem !important;
+  padding-right: 0.2rem !important;
+}
+
+.trade-table__check input {
+  margin: 0;
+  accent-color: var(--teal);
+  cursor: pointer;
+}
+
+.trade-table--interactive tbody tr.is-checked {
+  background: rgba(13, 148, 136, 0.08);
 }
 
 .column-picker {
@@ -1606,6 +1629,7 @@ textarea {
   padding: 0.65rem 0.85rem 0;
   overflow-x: auto;
   align-items: center;
+  flex-wrap: wrap;
 }
 
 .chat-trade-ref {

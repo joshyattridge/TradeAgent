@@ -11,7 +11,7 @@ import {
   DEFAULT_VISIBLE_TRADE_COLUMNS,
   type TradeColumnId,
 } from "@/lib/trade-columns";
-import { applyChatActions, useTradingStore } from "@/lib/store";
+import { applyChatActions, MAX_CHAT_TRADE_REFS, useTradingStore } from "@/lib/store";
 import type { ChartSpec, Strategy, Trade } from "@/lib/types";
 
 const STORE_KEY = "tradeagent-store-v4";
@@ -59,7 +59,7 @@ function resetStore(overrides: Partial<ReturnType<typeof useTradingStore.getStat
     openaiModel: DEFAULT_OPENAI_MODEL,
     openaiReasoningEffort: DEFAULT_REASONING_EFFORT,
     visibleTradeColumns: [...DEFAULT_VISIBLE_TRADE_COLUMNS],
-    chatReferencedTradeId: null,
+    chatReferencedTradeIds: [],
     pendingProposal: null,
     proposalReviewOpen: false,
     hydrated: true,
@@ -110,11 +110,31 @@ describe("useTradingStore actions", () => {
     );
   });
 
-  it("setChatReferencedTradeId updates composer pin", () => {
-    useTradingStore.getState().setChatReferencedTradeId("t1");
-    expect(useTradingStore.getState().chatReferencedTradeId).toBe("t1");
-    useTradingStore.getState().setChatReferencedTradeId(null);
-    expect(useTradingStore.getState().chatReferencedTradeId).toBeNull();
+  it("add/remove chat trade refs keeps unique composer pins", () => {
+    useTradingStore.getState().addChatReferencedTradeId("t1");
+    useTradingStore.getState().addChatReferencedTradeId("t1");
+    useTradingStore.getState().addChatReferencedTradeIds(["t2", "t1", "t3"]);
+    expect(useTradingStore.getState().chatReferencedTradeIds).toEqual([
+      "t1",
+      "t2",
+      "t3",
+    ]);
+    useTradingStore.getState().removeChatReferencedTradeId("t2");
+    expect(useTradingStore.getState().chatReferencedTradeIds).toEqual([
+      "t1",
+      "t3",
+    ]);
+    useTradingStore.getState().clearChatReferencedTradeIds();
+    expect(useTradingStore.getState().chatReferencedTradeIds).toEqual([]);
+  });
+
+  it("caps composer trade pins", () => {
+    useTradingStore.getState().addChatReferencedTradeIds(
+      Array.from({ length: 20 }, (_, i) => `t${i}`),
+    );
+    expect(useTradingStore.getState().chatReferencedTradeIds).toHaveLength(
+      MAX_CHAT_TRADE_REFS,
+    );
   });
 
   it("setHydrated toggles hydration flag", () => {
@@ -198,38 +218,38 @@ describe("useTradingStore actions", () => {
   });
 
   it("deleteTrade removes trade and clears composer pin when matched", () => {
-    useTradingStore.setState({ chatReferencedTradeId: "t1" });
+    useTradingStore.setState({ chatReferencedTradeIds: ["t1"] });
     useTradingStore.getState().deleteTrade("t1");
     expect(useTradingStore.getState().trades.find((t) => t.id === "t1")).toBeUndefined();
-    expect(useTradingStore.getState().chatReferencedTradeId).toBeNull();
+    expect(useTradingStore.getState().chatReferencedTradeIds).toEqual([]);
   });
 
   it("deleteTrade keeps composer pin when deleting a different trade", () => {
     useTradingStore.setState({
       trades: [sampleTrade({ id: "a" }), sampleTrade({ id: "b", symbol: "GBPUSD" })],
-      chatReferencedTradeId: "a",
+      chatReferencedTradeIds: ["a"],
     });
     useTradingStore.getState().deleteTrade("b");
-    expect(useTradingStore.getState().chatReferencedTradeId).toBe("a");
+    expect(useTradingStore.getState().chatReferencedTradeIds).toEqual(["a"]);
   });
 
-  it("deleteTrades removes multiple and clears pin when referenced id deleted", () => {
+  it("deleteTrades removes multiple and drops deleted referenced ids", () => {
     useTradingStore.setState({
       trades: [sampleTrade({ id: "a" }), sampleTrade({ id: "b", symbol: "GBPUSD" })],
-      chatReferencedTradeId: "b",
+      chatReferencedTradeIds: ["a", "b"],
     });
     useTradingStore.getState().deleteTrades(["a", "b"]);
     expect(useTradingStore.getState().trades).toHaveLength(0);
-    expect(useTradingStore.getState().chatReferencedTradeId).toBeNull();
+    expect(useTradingStore.getState().chatReferencedTradeIds).toEqual([]);
   });
 
-  it("deleteTrades keeps composer pin when referenced trade survives", () => {
+  it("deleteTrades keeps surviving composer pins", () => {
     useTradingStore.setState({
       trades: [sampleTrade({ id: "a" }), sampleTrade({ id: "b", symbol: "GBPUSD" })],
-      chatReferencedTradeId: "a",
+      chatReferencedTradeIds: ["a", "b"],
     });
     useTradingStore.getState().deleteTrades(["b"]);
-    expect(useTradingStore.getState().chatReferencedTradeId).toBe("a");
+    expect(useTradingStore.getState().chatReferencedTradeIds).toEqual(["a"]);
   });
 
   it("updateStrategy merges markdown and derives name from heading", () => {
@@ -260,17 +280,17 @@ describe("useTradingStore actions", () => {
   });
 
   it("importJournal replace mode drops composer pin when trade missing", () => {
-    useTradingStore.setState({ chatReferencedTradeId: "t1" });
+    useTradingStore.setState({ chatReferencedTradeIds: ["t1"] });
     useTradingStore.getState().importJournal([], seedStrategy, "replace");
     expect(useTradingStore.getState().trades).toHaveLength(0);
-    expect(useTradingStore.getState().chatReferencedTradeId).toBeNull();
+    expect(useTradingStore.getState().chatReferencedTradeIds).toEqual([]);
   });
 
   it("importJournal replace mode keeps composer pin when trade still exists", () => {
     const incoming = sampleTrade({ id: "t1", notes: "Imported" });
-    useTradingStore.setState({ chatReferencedTradeId: "t1" });
+    useTradingStore.setState({ chatReferencedTradeIds: ["t1"] });
     useTradingStore.getState().importJournal([incoming], seedStrategy, "replace");
-    expect(useTradingStore.getState().chatReferencedTradeId).toBe("t1");
+    expect(useTradingStore.getState().chatReferencedTradeIds).toEqual(["t1"]);
     expect(useTradingStore.getState().trades[0].notes).toBe("Imported");
   });
 
@@ -369,7 +389,7 @@ describe("useTradingStore actions", () => {
     });
     useTradingStore.setState({
       chatSummary: "summary",
-      chatReferencedTradeId: "t1",
+      chatReferencedTradeIds: ["t1"],
       pendingProposal: proposal,
       proposalReviewOpen: true,
     });
@@ -379,7 +399,7 @@ describe("useTradingStore actions", () => {
     expect(useTradingStore.getState().chatLogId).not.toBe("test-chat-log");
     expect(useTradingStore.getState().pendingProposal).toBeNull();
     expect(useTradingStore.getState().proposalReviewOpen).toBe(false);
-    expect(useTradingStore.getState().chatReferencedTradeId).toBe("t1");
+    expect(useTradingStore.getState().chatReferencedTradeIds).toEqual(["t1"]);
   });
 
   it("resetDemoData restores seeded trades and strategy", () => {

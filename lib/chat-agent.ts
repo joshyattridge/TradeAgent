@@ -269,7 +269,7 @@ On-demand context (IMPORTANT):
 
 Identifying which trade to update:
 - There is NO persistent active trade. Multiple trades (even same symbol) can exist at once.
-- Exception this turn only: if a User-selected trade reference id is provided below, treat "this trade" / the open detail as that exact id — call get_trade / patch_trade / annotate_trade with it. Still use find_trade when the user clearly means a different row.
+- Exception this turn only: if User-selected trade reference id(s) are provided below, treat "this trade" / "these trades" / the referenced rows as those exact ids — call get_trade / patch_trade / annotate_trade with them. Still use find_trade when the user clearly means a different row.
 - When the user asks to update a trade / fill details from a screenshot without a UI reference: extract levels from the image, call find_trade with those hints (symbol, side, entry, stop, target, exit, result, date, size, pnl, ticket text), then patch_trade / annotate_trade with bestMatchId (if confident) or the chosen candidate id.
 - Prefer find_trade over guessing. Same-symbol duplicates are normal; match on entry/SL/TP/exit/time/result.
 - Exact id or fail — tools never silently retarget to another trade.
@@ -331,9 +331,11 @@ Hard rules for mutations:
 - There is NO persistent active/selected trade. Multiple open trades (and multiple of the same symbol) are normal.
 - Journal size: ${ctx.tradeCount} trades. Strategy name: ${ctx.strategyName ?? "unset"}.
 ${
-  ctx.referencedTradeId
-    ? `- User-selected trade reference (this turn only): id=${ctx.referencedTradeId}. For "this trade" / coaching / updates on the referenced row, use get_trade, patch_trade, and annotate_trade with that exact id. Do not invent another id.`
-    : "- Always resolve the target with find_trade (pass screenshot levels) or query_trades, then patch_trade / annotate_trade with that id."
+  ctx.referencedTradeIds.length === 1
+    ? `- User-selected trade reference (this turn only): id=${ctx.referencedTradeIds[0]}. For "this trade" / coaching / updates on the referenced row, use get_trade, patch_trade, and annotate_trade with that exact id. Do not invent another id.`
+    : ctx.referencedTradeIds.length > 1
+      ? `- User-selected trade references (this turn only): ids=${ctx.referencedTradeIds.join(", ")}. For "these trades" / comparing / coaching on the referenced rows, use get_trade, patch_trade, and annotate_trade with those exact ids. Do not invent other ids. If the user says "this trade", ask which of the referenced ids they mean unless the rest of the message makes it obvious.`
+      : "- Always resolve the target with find_trade (pass screenshot levels) or query_trades, then patch_trade / annotate_trade with that id."
 }
 - Trade identity is sacred: NEVER apply one symbol's fields onto another pair's row.
 - Only use log_trade for a brand new position.
@@ -380,7 +382,7 @@ export async function* streamAgentLoop(opts: {
   userText: string;
   images: string[];
   attachments?: ChatAttachmentPayload[];
-  referencedTradeId?: string;
+  referencedTradeIds?: string[];
   reasoningEffort?: ReasoningEffortId | string;
   /** OpenAI SDK base URL. Browser default: `/api/openai/v1`. */
   baseURL?: string;
@@ -442,7 +444,7 @@ export async function* streamAgentLoop(opts: {
     strategy: session.strategy,
     trades: session.trades,
     reattachedScreenshotCount: reattached.length,
-    referencedTradeId: opts.referencedTradeId ?? null,
+    referencedTradeIds: opts.referencedTradeIds ?? [],
   });
 
   const system = buildSystemPrompt(ctx);

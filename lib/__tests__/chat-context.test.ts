@@ -534,7 +534,7 @@ describe("buildChatContextPack", () => {
       tradeCount: seedTrades.length,
       strategyName: "My Plan",
       reattachedScreenshotCount: 0,
-      referencedTradeId: null,
+      referencedTradeIds: [],
     });
   });
 
@@ -550,13 +550,21 @@ describe("buildChatContextPack", () => {
         strategy,
         trades: [],
         reattachedScreenshotCount: 2,
-        referencedTradeId: "t99",
+        referencedTradeIds: ["t99"],
       }),
     ).toEqual({
       tradeCount: 0,
       strategyName: null,
       reattachedScreenshotCount: 2,
-      referencedTradeId: "t99",
+      referencedTradeIds: ["t99"],
     });
+
+    expect(
+      buildChatContextPack({
+        strategy,
+        trades: [],
+        referencedTradeIds: ["t1", "t1", "t2"],
+      }).referencedTradeIds,
+    ).toEqual(["t1", "t2"]);
   });
 });

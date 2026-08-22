@@ -54,8 +54,8 @@ export function TradeDetail({
     s.trades.find((t) => t.id === tradeProp.id),
   );
   const trade = liveTrade ?? tradeProp;
-  const setChatReferencedTradeId = useTradingStore(
-    (s) => s.setChatReferencedTradeId,
+  const addChatReferencedTradeId = useTradingStore(
+    (s) => s.addChatReferencedTradeId,
   );
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [mounted, setMounted] = useState(false);
@@ -116,7 +116,7 @@ export function TradeDetail({
   }
 
   function onReferenceInChat() {
-    setChatReferencedTradeId(trade.id);
+    addChatReferencedTradeId(trade.id);
     onClose();
   }
 

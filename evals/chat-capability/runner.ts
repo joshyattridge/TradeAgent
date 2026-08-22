@@ -32,6 +32,7 @@ export type RunChatTurnOptions = {
   message: string;
   history?: HistoryMessage[];
   referencedTradeId?: string;
+  referencedTradeIds?: string[];
   images?: string[];
   reasoningEffort?: string;
 };
@@ -61,7 +62,9 @@ export async function runChatTurn(
     history: opts.history ?? [],
     userText: opts.message,
     images: opts.images ?? [],
-    referencedTradeId: opts.referencedTradeId,
+    referencedTradeIds:
+      opts.referencedTradeIds ??
+      (opts.referencedTradeId ? [opts.referencedTradeId] : undefined),
     reasoningEffort: opts.reasoningEffort,
   })) {
     rawEvents.push(event);

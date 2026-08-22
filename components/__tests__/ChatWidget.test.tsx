@@ -88,7 +88,7 @@ function resetStore(overrides: Partial<ReturnType<typeof useTradingStore.getStat
     openaiApiKey: "sk-test",
     openaiModel: DEFAULT_OPENAI_MODEL,
     openaiReasoningEffort: DEFAULT_REASONING_EFFORT,
-    chatReferencedTradeId: null,
+    chatReferencedTradeIds: [],
     pendingProposal: null,
     proposalReviewOpen: false,
     hydrated: true,
@@ -301,7 +301,7 @@ describe("ChatWidget", () => {
   it("proposes attaching a turn screenshot to the referenced trade", async () => {
     resetStore({
       trades: [sampleTrade()],
-      chatReferencedTradeId: "t-ref",
+      chatReferencedTradeIds: ["t-ref"],
     });
     mockLoop([
       {
@@ -340,7 +340,7 @@ describe("ChatWidget", () => {
   it("sends referenced trade prefix and clears the pin", async () => {
     resetStore({
       trades: [sampleTrade()],
-      chatReferencedTradeId: "t-ref",
+      chatReferencedTradeIds: ["t-ref"],
     });
     mockLoop([{ type: "done", reply: "Seen.", actions: {} }]);
 
@@ -353,11 +353,69 @@ describe("ChatWidget", () => {
       expect(mockStreamAgentLoop).toHaveBeenCalledWith(
         expect.objectContaining({
           userText: expect.stringContaining("[Referenced trade:"),
-          referencedTradeId: "t-ref",
+          referencedTradeIds: ["t-ref"],
         }),
       );
     });
-    expect(useTradingStore.getState().chatReferencedTradeId).toBeNull();
+    expect(useTradingStore.getState().chatReferencedTradeIds).toEqual([]);
+  });
+
+  it("sends multiple referenced trades in one message", async () => {
+    resetStore({
+      trades: [
+        sampleTrade({ id: "t-a", symbol: "EURUSD" }),
+        sampleTrade({
+          id: "t-b",
+          symbol: "GBPUSD",
+          side: "short",
+          date: "2026-07-02",
+        }),
+      ],
+      chatReferencedTradeIds: ["t-a", "t-b"],
+    });
+    mockLoop([{ type: "done", reply: "Compared.", actions: {} }]);
+
+    const user = userEvent.setup();
+    render(<ChatWidget />);
+    expect(screen.getByLabelText("Remove trade reference EURUSD")).toBeInTheDocument();
+    expect(screen.getByLabelText("Remove trade reference GBPUSD")).toBeInTheDocument();
+
+    await user.type(screen.getByLabelText("Message TradeAgent"), "compare these");
+    await user.click(screen.getByLabelText("Send message"));
+
+    await waitFor(() => {
+      expect(mockStreamAgentLoop).toHaveBeenCalledWith(
+        expect.objectContaining({
+          userText: expect.stringContaining("[Referenced trades:"),
+          referencedTradeIds: ["t-a", "t-b"],
+        }),
+      );
+    });
+    expect(useTradingStore.getState().chatReferencedTradeIds).toEqual([]);
+  });
+
+  it("sends a default prompt when only multiple trade refs are pinned", async () => {
+    resetStore({
+      trades: [
+        sampleTrade({ id: "t-a", symbol: "EURUSD" }),
+        sampleTrade({ id: "t-b", symbol: "GBPUSD", side: "short" }),
+      ],
+      chatReferencedTradeIds: ["t-a", "t-b"],
+    });
+    mockLoop([{ type: "done", reply: "Noted.", actions: {} }]);
+
+    const user = userEvent.setup();
+    render(<ChatWidget />);
+    await user.click(screen.getByLabelText("Send message"));
+
+    await waitFor(() => {
+      expect(mockStreamAgentLoop).toHaveBeenCalledWith(
+        expect.objectContaining({
+          userText: expect.stringContaining("Regarding these trades."),
+          referencedTradeIds: ["t-a", "t-b"],
+        }),
+      );
+    });
   });
 
   it("submits attachments-only messages", async () => {
@@ -408,7 +466,7 @@ describe("ChatWidget", () => {
   it("clears chat from the panel", async () => {
     resetStore({
       trades: [sampleTrade()],
-      chatReferencedTradeId: "t-ref",
+      chatReferencedTradeIds: ["t-ref"],
       chat: [
         {
           id: "m1",
@@ -440,7 +498,7 @@ describe("ChatWidget", () => {
     await user.click(screen.getByLabelText("Clear chat"));
     expect(useTradingStore.getState().chat).toHaveLength(0);
     expect(screen.queryByText("Old message")).not.toBeInTheDocument();
-    expect(useTradingStore.getState().chatReferencedTradeId).toBe("t-ref");
+    expect(useTradingStore.getState().chatReferencedTradeIds).toEqual(["t-ref"]);
     expect(screen.getByAltText("shot.png")).toBeInTheDocument();
   });
 
@@ -632,11 +690,11 @@ describe("ChatWidget", () => {
     });
     resetStore({
       trades: [sampleTrade({ id: "t1" })],
-      chatReferencedTradeId: "missing",
+      chatReferencedTradeIds: ["missing"],
       pendingProposal: proposal,
     });
     render(<ChatWidget />);
-    expect(useTradingStore.getState().chatReferencedTradeId).toBeNull();
+    expect(useTradingStore.getState().chatReferencedTradeIds).toEqual([]);
     await vi.runAllTimersAsync();
     expect(screen.getByLabelText("TradeAgent chat")).toBeInTheDocument();
     vi.useRealTimers();
@@ -821,7 +879,7 @@ describe("ChatWidget", () => {
   it("renders history images, files, tools and referenced-trade-only send", async () => {
     resetStore({
       trades: [sampleTrade({ id: "t-ref", entryTime: undefined })],
-      chatReferencedTradeId: "t-ref",
+      chatReferencedTradeIds: ["t-ref"],
       chat: [
         {
           id: "h1",
@@ -860,10 +918,10 @@ describe("ChatWidget", () => {
     expect(screen.getByText("log.csv")).toBeInTheDocument();
     expect(screen.getByText(/Used 1 tool/)).toBeInTheDocument();
 
-    await user.click(screen.getByLabelText("Remove trade reference"));
-    expect(useTradingStore.getState().chatReferencedTradeId).toBeNull();
+    await user.click(screen.getByLabelText("Remove trade reference EURUSD"));
+    expect(useTradingStore.getState().chatReferencedTradeIds).toEqual([]);
 
-    useTradingStore.setState({ chatReferencedTradeId: "t-ref" });
+    useTradingStore.setState({ chatReferencedTradeIds: ["t-ref"] });
     await user.click(screen.getByLabelText("Send message"));
     await waitFor(() => {
       expect(mockStreamAgentLoop).toHaveBeenCalledWith(
@@ -1062,7 +1120,7 @@ describe("ChatWidget", () => {
   it("expands attach for referenced trade and empty-content history", async () => {
     resetStore({
       trades: [sampleTrade()],
-      chatReferencedTradeId: "t-ref",
+      chatReferencedTradeIds: ["t-ref"],
       chat: [
         {
           id: "empty",
@@ -1077,7 +1135,7 @@ describe("ChatWidget", () => {
     render(<ChatWidget />);
     expect(screen.getByTestId("chart-equity-1")).toBeInTheDocument();
     await user.click(screen.getByLabelText("Attach file"));
-    expect(screen.getByLabelText("Remove trade reference")).toBeInTheDocument();
+    expect(screen.getByLabelText("Remove trade reference EURUSD")).toBeInTheDocument();
   });
 
   it("covers empty submit, loading guard, attach expand edges, and running tools", async () => {

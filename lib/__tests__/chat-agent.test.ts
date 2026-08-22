@@ -69,7 +69,7 @@ function baseCtx(overrides: Partial<ChatContextPack> = {}): ChatContextPack {
     tradeCount: 3,
     strategyName: "NQ Breakout",
     reattachedScreenshotCount: 0,
-    referencedTradeId: null,
+    referencedTradeIds: [],
     ...overrides,
   };
 }
@@ -154,7 +154,7 @@ describe("buildSystemPrompt", () => {
 
   it("includes referenced trade guidance when a UI pin is present", () => {
     const prompt = buildSystemPrompt(
-      baseCtx({ referencedTradeId: "trade-abc" }),
+      baseCtx({ referencedTradeIds: ["trade-abc"] }),
     );
     expect(prompt).toContain("User-selected trade reference (this turn only): id=trade-abc");
     expect(prompt).toContain("use get_trade, patch_trade, and annotate_trade with that exact id");
@@ -162,11 +162,21 @@ describe("buildSystemPrompt", () => {
   });
 
   it("includes find_trade guidance when no referenced trade is pinned", () => {
-    const prompt = buildSystemPrompt(baseCtx({ referencedTradeId: null }));
+    const prompt = buildSystemPrompt(baseCtx({ referencedTradeIds: [] }));
     expect(prompt).toContain(
       "Always resolve the target with find_trade (pass screenshot levels)",
     );
     expect(prompt).not.toContain("id=trade-abc");
+  });
+
+  it("lists multiple referenced trade ids in the system prompt", () => {
+    const prompt = buildSystemPrompt(
+      baseCtx({ referencedTradeIds: ["trade-a", "trade-b"] }),
+    );
+    expect(prompt).toContain(
+      "User-selected trade references (this turn only): ids=trade-a, trade-b",
+    );
+    expect(prompt).toContain("those exact ids");
   });
 });
 
@@ -923,10 +933,10 @@ describe("streamAgentLoop", () => {
     });
   });
 
-  it("includes referencedTradeId in the system prompt context", async () => {
+  it("includes referencedTradeIds in the system prompt context", async () => {
     mockStreamText.mockReturnValue(makeStreamResult([]));
 
-    await collectEvents(baseLoopOpts({ referencedTradeId: "pinned-trade" }));
+    await collectEvents(baseLoopOpts({ referencedTradeIds: ["pinned-trade"] }));
 
     const system = mockStreamText.mock.calls[0]?.[0]?.system as string;
     expect(system).toContain("id=pinned-trade");

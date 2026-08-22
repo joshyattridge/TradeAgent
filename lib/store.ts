@@ -50,6 +50,19 @@ function normalizeTradeTimes<T extends Partial<Trade>>(
 }
 
 const STORE_KEY = "tradeagent-store-v4";
+export const MAX_CHAT_TRADE_REFS = 12;
+
+function uniqueTradeIds(ids: string[], max = MAX_CHAT_TRADE_REFS): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const id of ids) {
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    out.push(id);
+    if (out.length >= max) break;
+  }
+  return out;
+}
 
 /** Persist chat as-is — keep images and full file attachments for conversation replay. */
 function persistableChat(chat: ChatMessage[]): ChatMessage[] {
@@ -86,8 +99,8 @@ interface Store {
   /** OpenAI reasoning_effort for chat (none → max). */
   openaiReasoningEffort: string;
   visibleTradeColumns: TradeColumnId[];
-  /** Composer-only trade pin for the next chat message (not a persistent active trade). */
-  chatReferencedTradeId: string | null;
+  /** Composer-only trade pins for the next chat message (not a persistent active trade). */
+  chatReferencedTradeIds: string[];
   /** Chat journal writes waiting for Accept/Reject (not persisted). */
   pendingProposal: ChatProposal | null;
   /** Whether the proposal review panel is visible. */
@@ -98,7 +111,10 @@ interface Store {
   setOpenAIModel: (model: string) => void;
   setOpenAIReasoningEffort: (effort: string) => void;
   setChatSummary: (summary: string) => void;
-  setChatReferencedTradeId: (id: string | null) => void;
+  addChatReferencedTradeId: (id: string) => void;
+  addChatReferencedTradeIds: (ids: string[]) => void;
+  removeChatReferencedTradeId: (id: string) => void;
+  clearChatReferencedTradeIds: () => void;
   setPendingProposal: (proposal: ChatProposal | null) => void;
   openProposalReview: () => void;
   closeProposalReview: () => void;
@@ -188,7 +204,7 @@ export const useTradingStore = create<Store>()(
       chatSummary: "",
       chatLogId: uid(),
       visibleTradeColumns: DEFAULT_VISIBLE_TRADE_COLUMNS,
-      chatReferencedTradeId: null as string | null,
+      chatReferencedTradeIds: [] as string[],
       pendingProposal: null as ChatProposal | null,
       proposalReviewOpen: false,
       hydrated: false,
@@ -200,7 +216,27 @@ export const useTradingStore = create<Store>()(
           openaiReasoningEffort: effort.trim() || DEFAULT_REASONING_EFFORT,
         }),
       setChatSummary: (summary) => set({ chatSummary: summary }),
-      setChatReferencedTradeId: (id) => set({ chatReferencedTradeId: id }),
+      addChatReferencedTradeId: (id) =>
+        set({
+          chatReferencedTradeIds: uniqueTradeIds([
+            ...get().chatReferencedTradeIds,
+            id,
+          ]),
+        }),
+      addChatReferencedTradeIds: (ids) =>
+        set({
+          chatReferencedTradeIds: uniqueTradeIds([
+            ...get().chatReferencedTradeIds,
+            ...ids,
+          ]),
+        }),
+      removeChatReferencedTradeId: (id) =>
+        set({
+          chatReferencedTradeIds: get().chatReferencedTradeIds.filter(
+            (current) => current !== id,
+          ),
+        }),
+      clearChatReferencedTradeIds: () => set({ chatReferencedTradeIds: [] }),
       setPendingProposal: (proposal) =>
         set({
           pendingProposal: proposal,
@@ -273,17 +309,17 @@ export const useTradingStore = create<Store>()(
       deleteTrade: (id) =>
         set({
           trades: get().trades.filter((t) => t.id !== id),
-          chatReferencedTradeId:
-            get().chatReferencedTradeId === id
-              ? null
-              : get().chatReferencedTradeId,
+          chatReferencedTradeIds: get().chatReferencedTradeIds.filter(
+            (current) => current !== id,
+          ),
         }),
       deleteTrades: (ids) => {
         const remove = new Set(ids);
-        const ref = get().chatReferencedTradeId;
         set({
           trades: get().trades.filter((t) => !remove.has(t.id)),
-          chatReferencedTradeId: ref && remove.has(ref) ? null : ref,
+          chatReferencedTradeIds: get().chatReferencedTradeIds.filter(
+            (current) => !remove.has(current),
+          ),
         });
       },
       updateStrategy: (patch) => {
@@ -310,7 +346,8 @@ export const useTradingStore = create<Store>()(
           mode === "replace"
             ? persistableTrades(trades)
             : persistableTrades(mergeTrades(get().trades, trades));
-        const ref = get().chatReferencedTradeId;
+        const refs = get().chatReferencedTradeIds;
+        const nextIds = new Set(nextTrades.map((t) => t.id));
         const nextStrategy = normalizeStrategy({
           ...strategy,
           updatedAt: strategy.updatedAt || new Date().toISOString(),
@@ -318,8 +355,7 @@ export const useTradingStore = create<Store>()(
         set({
           trades: nextTrades,
           strategy: nextStrategy,
-          chatReferencedTradeId:
-            ref && nextTrades.some((t) => t.id === ref) ? ref : null,
+          chatReferencedTradeIds: refs.filter((id) => nextIds.has(id)),
         });
       },
       addChatMessage: (message) =>

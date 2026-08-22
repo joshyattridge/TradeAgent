@@ -311,7 +311,7 @@ describe("chat proposals", () => {
     expect(
       ensureScreenshotAttachTarget(null, {
         screenshots: ["data:image/png;base64,x"],
-        referencedTradeId: "t-ref",
+        referencedTradeIds: ["t-ref"],
       }),
     ).toEqual({
       screenshots: ["data:image/png;base64,x"],
@@ -322,7 +322,7 @@ describe("chat proposals", () => {
         { updateTrade: { id: "other", session: "London" } },
         {
           screenshots: ["data:image/png;base64,x"],
-          referencedTradeId: "t-ref",
+          referencedTradeIds: ["t-ref"],
         },
       )?.updateTrade,
     ).toEqual({ id: "other", session: "London" });
@@ -331,7 +331,7 @@ describe("chat proposals", () => {
         { addTrade: sampleTrade({ id: "new" }) },
         {
           screenshots: ["data:image/png;base64,x"],
-          referencedTradeId: "t-ref",
+          referencedTradeIds: ["t-ref"],
         },
       )?.updateTrade,
     ).toBeUndefined();
@@ -340,7 +340,7 @@ describe("chat proposals", () => {
         { addTrades: [sampleTrade({ id: "new" })] },
         {
           screenshots: ["data:image/png;base64,x"],
-          referencedTradeId: "t-ref",
+          referencedTradeIds: ["t-ref"],
         },
       )?.updateTrade,
     ).toBeUndefined();
@@ -349,14 +349,14 @@ describe("chat proposals", () => {
         { updateTrades: [{ id: "other" }] },
         {
           screenshots: ["data:image/png;base64,x"],
-          referencedTradeId: "t-ref",
+          referencedTradeIds: ["t-ref"],
         },
       )?.updateTrade,
     ).toBeUndefined();
     expect(
       ensureScreenshotAttachTarget(
         { updateTrade: { id: "t1" } },
-        { referencedTradeId: "t-ref" },
+        { referencedTradeIds: ["t-ref"] },
       ),
     ).toEqual({ updateTrade: { id: "t1" } });
     expect(
@@ -365,6 +365,12 @@ describe("chat proposals", () => {
       }),
     ).toEqual({ screenshots: ["data:image/png;base64,x"] });
     expect(ensureScreenshotAttachTarget(null, {})).toBeNull();
+    expect(
+      ensureScreenshotAttachTarget(null, {
+        screenshots: ["data:image/png;base64,x"],
+        referencedTradeIds: ["t-ref", "t-other"],
+      }),
+    ).toEqual({ screenshots: ["data:image/png;base64,x"] });
   });
 
   it("builds delete + multi-change proposals", () => {
@@ -740,7 +746,7 @@ describe("pending proposal accept / reject store flow", () => {
       strategy: seedStrategy,
       pendingProposal: null,
       proposalReviewOpen: false,
-      chatReferencedTradeId: null,
+      chatReferencedTradeIds: [],
       hydrated: true,
     });
   });

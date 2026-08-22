@@ -82,6 +82,7 @@ describe.skipIf(!enabled)("chat capability (live LLM)", () => {
             trades: env.trades,
             message: scenario.message,
             referencedTradeId: scenario.referencedTradeId,
+            referencedTradeIds: scenario.referencedTradeIds,
           });
 
           const failures = assertTurn(turn, scenario.expect).map(

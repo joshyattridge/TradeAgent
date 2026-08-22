@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { ArrowDown, ArrowUp, ArrowUpDown, Columns3 } from "lucide-react";
+import { ArrowDown, ArrowUp, ArrowUpDown, Columns3, MessageSquare } from "lucide-react";
 import { TradeDetail } from "@/components/TradeDetail";
 import {
   TRADE_COLUMNS,
@@ -266,7 +266,11 @@ export function TradeTable({ trades }: { trades: Trade[] }) {
   const visibleTradeColumns = useTradingStore((s) => s.visibleTradeColumns);
   const toggleTradeColumn = useTradingStore((s) => s.toggleTradeColumn);
   const resetTradeColumns = useTradingStore((s) => s.resetTradeColumns);
+  const addChatReferencedTradeIds = useTradingStore(
+    (s) => s.addChatReferencedTradeIds,
+  );
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [checkedIds, setCheckedIds] = useState<string[]>([]);
   const [columnsOpen, setColumnsOpen] = useState(false);
   const [sortColumn, setSortColumn] = useState<TradeColumnId>("entryTime");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
@@ -296,6 +300,28 @@ export function TradeTable({ trades }: { trades: Trade[] }) {
   }, [trades, sortColumn, sortDir]);
 
   const selected = sortedTrades.find((t) => t.id === selectedId) ?? null;
+  const liveIds = useMemo(
+    () => new Set(sortedTrades.map((t) => t.id)),
+    [sortedTrades],
+  );
+  const checkedLive = checkedIds.filter((id) => liveIds.has(id));
+  const allChecked =
+    sortedTrades.length > 0 && checkedLive.length === sortedTrades.length;
+
+  function toggleChecked(id: string) {
+    setCheckedIds((prev) =>
+      prev.includes(id) ? prev.filter((current) => current !== id) : [...prev, id],
+    );
+  }
+
+  function toggleAllChecked() {
+    setCheckedIds(allChecked ? [] : sortedTrades.map((t) => t.id));
+  }
+
+  function onReferenceChecked() {
+    addChatReferencedTradeIds(checkedLive);
+    setCheckedIds([]);
+  }
 
   function onSort(column: TradeColumnId) {
     if (sortColumn === column) {
@@ -315,8 +341,21 @@ export function TradeTable({ trades }: { trades: Trade[] }) {
     <div className="trade-log">
       <div className="trade-log__toolbar">
         <p className="trade-log__hint">
-          Click a column header to sort · click a row for full notes, tags, and details
+          {checkedLive.length
+            ? `${checkedLive.length} selected · reference them in chat or open a row for details`
+            : "Click a column header to sort · check rows to reference several in chat · click a row for details"}
         </p>
+        <div className="trade-log__toolbar-actions">
+          {checkedLive.length ? (
+            <button
+              type="button"
+              className="ghost-btn trade-log__ref-btn"
+              onClick={onReferenceChecked}
+            >
+              <MessageSquare size={14} style={{ marginRight: 6, verticalAlign: "-2px" }} />
+              Reference {checkedLive.length} in chat
+            </button>
+          ) : null}
         <div className="trade-log__column-wrap">
           <button
             type="button"
@@ -353,12 +392,21 @@ export function TradeTable({ trades }: { trades: Trade[] }) {
             </div>
           ) : null}
         </div>
+        </div>
       </div>
 
       <div className="table-wrap">
         <table className="trade-table trade-table--interactive">
           <thead>
             <tr>
+              <th className="trade-table__check">
+                <input
+                  type="checkbox"
+                  checked={allChecked}
+                  onChange={toggleAllChecked}
+                  aria-label="Select all trades"
+                />
+              </th>
               {visible.map((col) => {
                 const active = sortColumn === col.id;
                 return (
@@ -381,7 +429,12 @@ export function TradeTable({ trades }: { trades: Trade[] }) {
               <tr
                 key={trade.id}
                 tabIndex={0}
-                className={selectedId === trade.id ? "is-selected" : undefined}
+                className={[
+                  selectedId === trade.id ? "is-selected" : "",
+                  checkedLive.includes(trade.id) ? "is-checked" : "",
+                ]
+                  .filter(Boolean)
+                  .join(" ") || undefined}
                 onClick={() => setSelectedId(trade.id)}
                 onKeyDown={(e) => {
                   if (e.key === "Enter" || e.key === " ") {
@@ -390,6 +443,15 @@ export function TradeTable({ trades }: { trades: Trade[] }) {
                   }
                 }}
               >
+                <td className="trade-table__check">
+                  <input
+                    type="checkbox"
+                    checked={checkedLive.includes(trade.id)}
+                    onChange={() => toggleChecked(trade.id)}
+                    onClick={(e) => e.stopPropagation()}
+                    aria-label={`Select ${trade.symbol} trade`}
+                  />
+                </td>
                 {visible.map((col) => (
                   <td key={col.id}>{cellValue(trade, col.id)}</td>
                 ))}

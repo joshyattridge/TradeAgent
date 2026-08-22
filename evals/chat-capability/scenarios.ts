@@ -20,6 +20,7 @@ export type ChatScenario = {
   /** Optional follow-up user message (multi-turn). */
   followUp?: string;
   referencedTradeId?: string;
+  referencedTradeIds?: string[];
   /** Expectations for the first (or only) turn. */
   expect: ScenarioExpectation;
   /** Expectations for followUp turn when present. */

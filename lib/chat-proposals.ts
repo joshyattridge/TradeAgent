@@ -247,15 +247,17 @@ function uniqueUpdateIds(actions: ChatActionPayload): string[] {
  */
 export function ensureScreenshotAttachTarget(
   actions: ChatActionPayload | null | undefined,
-  opts: { screenshots?: string[]; referencedTradeId?: string | null },
+  opts: { screenshots?: string[]; referencedTradeIds?: string[] },
 ): ChatActionPayload | null {
   const shots = capScreenshots(opts.screenshots ?? []);
   if (!shots.length) return actions ?? null;
 
   const next: ChatActionPayload = { ...(actions ?? {}), screenshots: shots };
   const hasAdd = Boolean(next.addTrades?.length || next.addTrade);
-  if (!hasAdd && uniqueUpdateIds(next).length === 0 && opts.referencedTradeId) {
-    next.updateTrade = { id: opts.referencedTradeId };
+  const refs = [...new Set((opts.referencedTradeIds ?? []).filter(Boolean))];
+  // Only auto-target when exactly one trade is pinned — multiple refs are ambiguous.
+  if (!hasAdd && uniqueUpdateIds(next).length === 0 && refs.length === 1) {
+    next.updateTrade = { id: refs[0] };
   }
   return next;
 }

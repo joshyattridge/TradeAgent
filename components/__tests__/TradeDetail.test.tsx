@@ -7,7 +7,7 @@ import type { StrategyChecklistItem, Trade } from "@/lib/types";
 
 const deleteTrade = vi.fn();
 const updateTrade = vi.fn();
-const setChatReferencedTradeId = vi.fn();
+const addChatReferencedTradeId = vi.fn();
 
 let strategyChecklist: StrategyChecklistItem[] = [];
 let storeTrades: Trade[] = [];
@@ -17,7 +17,7 @@ vi.mock("@/lib/store", () => ({
     selector({
       deleteTrade,
       updateTrade,
-      setChatReferencedTradeId,
+      addChatReferencedTradeId,
       strategy: { checklist: strategyChecklist },
       trades: storeTrades,
     }),
@@ -196,7 +196,7 @@ describe("TradeDetail", () => {
     });
 
     await user.click(screen.getByRole("button", { name: /Reference in chat/i }));
-    expect(setChatReferencedTradeId).toHaveBeenCalledWith("ref-1");
+    expect(addChatReferencedTradeId).toHaveBeenCalledWith("ref-1");
     expect(onClose).toHaveBeenCalled();
   });
 

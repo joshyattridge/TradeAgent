@@ -46,8 +46,8 @@ export type ChatContextPack = {
   tradeCount: number;
   strategyName: string | null;
   reattachedScreenshotCount: number;
-  /** One-turn UI pin from trade detail → chat (not a persistent active trade). */
-  referencedTradeId: string | null;
+  /** One-turn UI pins from the journal → chat (not a persistent active trade). */
+  referencedTradeIds: string[];
 };
 
 export function tradeSnapshot(trade: Trade): TradeSnapshot {
@@ -355,12 +355,12 @@ export function buildChatContextPack(opts: {
   strategy: Strategy;
   trades: Trade[];
   reattachedScreenshotCount?: number;
-  referencedTradeId?: string | null;
+  referencedTradeIds?: string[];
 }): ChatContextPack {
   return {
     tradeCount: opts.trades.length,
     strategyName: opts.strategy?.name ?? null,
     reattachedScreenshotCount: opts.reattachedScreenshotCount ?? 0,
-    referencedTradeId: opts.referencedTradeId ?? null,
+    referencedTradeIds: [...new Set((opts.referencedTradeIds ?? []).filter(Boolean))],
   };
 }
