@@ -57,7 +57,6 @@ const TRADE_COMPARE_KEYS: (keyof Trade)[] = [
   "date",
   "symbol",
   "side",
-  "setup",
   "entry",
   "stop",
   "target",
@@ -71,13 +70,13 @@ const TRADE_COMPARE_KEYS: (keyof Trade)[] = [
   "riskUsd",
   "size",
   "feesUsd",
-  "rMultiple",
   "result",
   "notes",
   "session",
   "tags",
   "screenshots",
   "checklist",
+  "hidden",
 ];
 
 function valuesEqual(a: unknown, b: unknown): boolean {
@@ -429,7 +428,6 @@ export const TRADE_FIELD_LABELS: Partial<Record<keyof Trade, string>> = {
   date: "Date",
   symbol: "Symbol",
   side: "Side",
-  setup: "Setup",
   entry: "Entry",
   stop: "Stop",
   target: "Target",
@@ -443,7 +441,6 @@ export const TRADE_FIELD_LABELS: Partial<Record<keyof Trade, string>> = {
   riskUsd: "Risk ($)",
   size: "Size",
   feesUsd: "Fees (comm+swap $)",
-  rMultiple: "R",
   result: "Result",
   notes: "Notes",
   session: "Session",
@@ -484,9 +481,6 @@ export function formatTradeFieldValue(
   if ((key === "entryTime" || key === "exitTime") && typeof value === "string") {
     return formatTradeDateTime(value, trade.date, "MMM d, yyyy HH:mm:ss");
   }
-  if (key === "rMultiple" && typeof value === "number") {
-    return `${value > 0 ? "+" : ""}${value.toFixed(2)}R`;
-  }
   if (
     (key === "pnlUsd" || key === "riskUsd" || key === "feesUsd") &&
     typeof value === "number"
@@ -503,13 +497,11 @@ export const PROPOSED_TRADE_KEYS: (keyof Trade)[] = [
   "date",
   "symbol",
   "side",
-  "setup",
   "result",
   "entry",
   "stop",
   "target",
   "exit",
-  "rMultiple",
   "pnlUsd",
   "riskUsd",
   "size",

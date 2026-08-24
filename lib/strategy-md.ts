@@ -198,3 +198,40 @@ export function insertMarkdownImage(
   const next = `${markdown.slice(0, at)}${snippet}${markdown.slice(at)}`;
   return { markdown: next, cursor: at + snippet.length };
 }
+
+export type StrategyEmbeddedImage = {
+  id: string;
+  alt: string;
+  dataUrl: string;
+};
+
+const DATA_IMAGE_RE = /!\[([^\]]*)\]\((data:image\/[^)]+)\)/gi;
+
+/** Editor display: keep markdown editable without dumping base64 into the textarea. */
+export function splitStrategyImages(markdown: string): {
+  display: string;
+  images: StrategyEmbeddedImage[];
+} {
+  const images: StrategyEmbeddedImage[] = [];
+  const display = markdown.replace(
+    DATA_IMAGE_RE,
+    (_full, alt: string, dataUrl: string) => {
+      const id = `strategy-image-${images.length + 1}`;
+      images.push({ id, alt: alt?.trim() || "strategy image", dataUrl });
+      return `![${alt?.trim() || "strategy image"}](${id})`;
+    },
+  );
+  return { display, images };
+}
+
+export function joinStrategyImages(
+  display: string,
+  images: StrategyEmbeddedImage[],
+): string {
+  let next = display;
+  for (const image of images) {
+    const needle = `(${image.id})`;
+    next = next.replaceAll(needle, `(${image.dataUrl})`);
+  }
+  return next;
+}

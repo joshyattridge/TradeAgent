@@ -56,11 +56,9 @@ function parseTrade(raw: unknown, index: number): Trade | string {
     date,
     symbol,
     side,
-    setup,
     entry,
     stop,
     target,
-    rMultiple,
     result,
   } = raw;
 
@@ -76,13 +74,12 @@ function parseTrade(raw: unknown, index: number): Trade | string {
   if (typeof side !== "string" || !TRADE_SIDES.includes(side as TradeSide)) {
     return `Trade ${id} has an invalid side`;
   }
-  if (typeof setup !== "string") {
-    return `Trade ${id} is missing a setup`;
-  }
   if (!isFiniteNumber(entry)) return `Trade ${id} has an invalid entry`;
   if (!isFiniteNumber(stop)) return `Trade ${id} has an invalid stop`;
   if (!isFiniteNumber(target)) return `Trade ${id} has an invalid target`;
-  if (!isFiniteNumber(rMultiple)) return `Trade ${id} has an invalid rMultiple`;
+  if (raw.rMultiple !== undefined && !isOptionalNumber(raw.rMultiple)) {
+    return `Trade ${id} has an invalid rMultiple`;
+  }
   if (
     typeof result !== "string" ||
     !TRADE_RESULTS.includes(result as TradeResult)
@@ -125,15 +122,18 @@ function parseTrade(raw: unknown, index: number): Trade | string {
   }
   const checklist = normalizeTradeChecklist(raw.checklist);
 
-  // Drop legacy chartExtract from older backups — screenshots are re-sent when needed.
-  const { chartExtract: _legacyExtract, ...trade } = raw;
+  // Drop legacy chartExtract / setup from older backups.
+  const { chartExtract: _legacyExtract, setup: _setup, ...trade } = raw;
   void _legacyExtract;
+  void _setup;
   const next = trade as unknown as Trade;
   if (checklist.length) {
     next.checklist = checklist;
   } else {
     delete next.checklist;
   }
+  if (raw.hidden === true) next.hidden = true;
+  else delete next.hidden;
   return next;
 }
 

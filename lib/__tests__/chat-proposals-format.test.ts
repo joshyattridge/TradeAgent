@@ -12,7 +12,6 @@ function trade(overrides: Partial<Trade> = {}): Trade {
     date: "2026-07-30",
     symbol: "EURUSD",
     side: "long",
-    setup: "FVG",
     entry: 1.1,
     stop: 1.09,
     target: 1.12,
@@ -50,12 +49,6 @@ describe("formatTradeFieldValue", () => {
         "entryTime",
       ),
     ).toMatch(/2026/);
-    expect(formatTradeFieldValue(trade({ rMultiple: 1.25 }), "rMultiple")).toBe(
-      "+1.25R",
-    );
-    expect(formatTradeFieldValue(trade({ rMultiple: -1 }), "rMultiple")).toBe(
-      "-1.00R",
-    );
     expect(formatTradeFieldValue(trade({ pnlUsd: 12.5 }), "pnlUsd")).toBe(
       "+$12.50",
     );

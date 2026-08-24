@@ -16,7 +16,6 @@ function fullTrade(overrides: Partial<Trade> = {}): Trade {
     date: "2026-07-20",
     symbol: "EURUSD",
     side: "long",
-    setup: "1H FVG Continuation",
     entry: 1.1682,
     stop: 1.1658,
     target: 1.173,
@@ -45,7 +44,6 @@ function siblingTrade(): Trade {
     id: "trade-b",
     symbol: "GBPJPY",
     side: "short",
-    setup: "Order Block",
     entry: 195.5,
     stop: 196.0,
     target: 194.0,
@@ -116,7 +114,6 @@ const PATCHABLE_SCALAR_CASES: Array<{
 }> = [
   { field: "date", value: "2026-07-22" },
   { field: "side", value: "short" },
-  { field: "setup", value: "Liquidity Sweep Reversal" },
   { field: "entry", value: 1.1699 },
   { field: "stop", value: 1.1644 },
   { field: "target", value: 1.18 },
@@ -130,7 +127,6 @@ const PATCHABLE_SCALAR_CASES: Array<{
   { field: "riskUsd", value: 125 },
   { field: "size", value: "0.80 lots" },
   { field: "feesUsd", value: 4.25 },
-  { field: "rMultiple", value: 2.4 },
   { field: "result", value: "loss" },
   { field: "session", value: "New York" },
 ];
@@ -141,7 +137,6 @@ describe("trade mutation schemas", () => {
       date: "2026-07-30",
       symbol: "AUDUSD",
       side: "short",
-      setup: "1H FVG",
       entry: 0.65,
       stop: 0.652,
       target: 0.64,
@@ -252,7 +247,6 @@ describe("log_trade", () => {
       date: "2026-07-30",
       symbol: "XAUUSD",
       side: "long",
-      setup: "FVG",
       entry: 2400,
       stop: 2390,
       target: 2420,
@@ -286,7 +280,6 @@ describe("log_trade", () => {
       date: "2026-07-30",
       symbol: "EURUSD",
       side: "long",
-      setup: "1H FVG Continuation",
       entry: 1.1682,
       stop: 1.1658,
       target: 1.173,
@@ -308,7 +301,6 @@ describe("log_trade", () => {
       date: "2026-07-30",
       symbol: "NQ",
       side: "long",
-      setup: "FVG",
       entry: 21000,
       stop: 20950,
       target: 21100,
@@ -324,7 +316,6 @@ describe("log_trade", () => {
       date: "2026-07-30",
       symbol: "EURUSD",
       side: "long",
-      setup: "FVG",
       entry: 1.1,
       stop: 1.09,
       target: 1.12,
@@ -389,7 +380,6 @@ describe("patch_trade — per-field updates preserve everything else", () => {
     expect(after.pnlUsd).toBe(200);
     expect(after.notes).toBe("Keep this note forever");
     expect(after.tags).toEqual(["fvg", "london", "a+"]);
-    expect(after.setup).toBe(before.setup);
     expect(after.entry).toBe(before.entry);
     expect(after.screenshots).toEqual(before.screenshots);
   });
@@ -473,7 +463,6 @@ describe("annotate_trade — notes/tags only, never field overwrites", () => {
     "date",
     "symbol",
     "side",
-    "setup",
     "entry",
     "stop",
     "target",
@@ -745,7 +734,6 @@ describe("combined workflows and overwrite safety", () => {
       date: "2026-07-30",
       symbol: "GBPJPY",
       side: "long",
-      setup: "FVG",
       entry: 195,
       stop: 194.5,
       target: 196,
@@ -873,14 +861,13 @@ describe("LLM misuse / accidental wipe defenses", () => {
     expect(session.trades[0].exitTime).toBe("2026-07-30T16:40:00");
   });
 
-  it("empty-string filler on patch does not wipe session/setup/size", () => {
+  it("empty-string filler on patch does not wipe session/size", () => {
     const before = fullTrade();
     const session = makeSession([before]);
     const res = session.patchTrade({
       id: before.id,
       result: "loss",
       session: "",
-      setup: "   ",
       size: "",
       entryTime: "",
       exitTime: "",
@@ -889,7 +876,6 @@ describe("LLM misuse / accidental wipe defenses", () => {
     const after = session.trades[0];
     expect(after.result).toBe("loss");
     expect(after.session).toBe("London");
-    expect(after.setup).toBe(before.setup);
     expect(after.size).toBe(before.size);
     expect(after.entryTime).toBe(before.entryTime);
     expect(after.exitTime).toBe(before.exitTime);
@@ -904,7 +890,6 @@ describe("LLM misuse / accidental wipe defenses", () => {
       id: before.id,
       session: "",
       size: "",
-      setup: "  ",
     } as never);
     expect(res.ok).toBe(false);
     expect(session.trades[0]).toEqual(before);
@@ -1012,7 +997,6 @@ describe("LLM misuse / accidental wipe defenses", () => {
       date: "2026-07-30",
       symbol: "EURUSD",
       side: "long",
-      setup: "FVG",
       entry: 1.1,
       stop: 1.09,
       target: 1.12,
@@ -1059,7 +1043,6 @@ describe("strategy checklist on trades", () => {
       date: "2026-07-30",
       symbol: "EURUSD",
       side: "long",
-      setup: "1H FVG",
       entry: 1.1,
       stop: 1.09,
       target: 1.12,
@@ -1082,7 +1065,6 @@ describe("strategy checklist on trades", () => {
       date: "2026-07-30",
       symbol: "EURUSD",
       side: "long",
-      setup: "1H FVG",
       entry: 1.1,
       stop: 1.09,
       target: 1.12,
@@ -1115,7 +1097,6 @@ describe("strategy checklist on trades", () => {
       date: "2026-07-30",
       symbol: "EURUSD",
       side: "long",
-      setup: "1H FVG",
       entry: 1.1,
       stop: 1.09,
       target: 1.12,
@@ -1135,7 +1116,6 @@ describe("strategy checklist on trades", () => {
       date: "2026-07-30",
       symbol: "EURUSD",
       side: "long",
-      setup: "1H FVG",
       entry: 1.1,
       stop: 1.09,
       target: 1.12,

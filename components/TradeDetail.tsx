@@ -1,11 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ChangeEvent } from "react";
 import { createPortal } from "react-dom";
-import { Check, MessageSquare, Trash2, X } from "lucide-react";
+import { Check, Eye, EyeOff, MessageSquare, Trash2, X } from "lucide-react";
 import { checklistDisplayRows } from "@/lib/checklist";
 import { useTradingStore } from "@/lib/store";
-import type { Trade } from "@/lib/types";
+import type { Trade, TradeResult, TradeSide } from "@/lib/types";
 import {
   formatDuration,
   formatPips,
@@ -40,6 +40,17 @@ function Row({
   );
 }
 
+function parseOptionalNumber(raw: string): number | undefined {
+  const t = raw.trim();
+  if (!t) return undefined;
+  const n = Number(t);
+  return Number.isFinite(n) ? n : undefined;
+}
+
+function numberInputValue(value: number | undefined): string {
+  return value == null || !Number.isFinite(value) ? "" : String(value);
+}
+
 export function TradeDetail({
   trade: tradeProp,
   onClose,
@@ -49,6 +60,8 @@ export function TradeDetail({
 }) {
   const deleteTrade = useTradingStore((s) => s.deleteTrade);
   const updateTrade = useTradingStore((s) => s.updateTrade);
+  const hideTrade = useTradingStore((s) => s.hideTrade);
+  const unhideTrade = useTradingStore((s) => s.unhideTrade);
   const strategyChecklist = useTradingStore((s) => s.strategy.checklist);
   const liveTrade = useTradingStore((s) =>
     s.trades.find((t) => t.id === tradeProp.id),
@@ -59,6 +72,9 @@ export function TradeDetail({
   );
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [mounted, setMounted] = useState(false);
+  const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
+  const [tagDraft, setTagDraft] = useState((trade.tags ?? []).join(", "));
+  const [notesDraft, setNotesDraft] = useState(trade.notes ?? "");
 
   useEffect(() => {
     setMounted(true);
@@ -66,7 +82,12 @@ export function TradeDetail({
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") onClose();
+      if (e.key !== "Escape") return;
+      if (lightboxSrc) {
+        setLightboxSrc(null);
+        return;
+      }
+      onClose();
     }
     window.addEventListener("keydown", onKey);
     const prev = document.body.style.overflow;
@@ -75,11 +96,22 @@ export function TradeDetail({
       window.removeEventListener("keydown", onKey);
       document.body.style.overflow = prev;
     };
-  }, [onClose]);
+  }, [onClose, lightboxSrc]);
 
   useEffect(() => {
     setConfirmDelete(false);
+    setLightboxSrc(null);
+    setTagDraft((trade.tags ?? []).join(", "));
+    setNotesDraft(trade.notes ?? "");
   }, [trade.id]);
+
+  useEffect(() => {
+    setTagDraft((trade.tags ?? []).join(", "));
+  }, [trade.tags]);
+
+  useEffect(() => {
+    setNotesDraft(trade.notes ?? "");
+  }, [trade.notes]);
 
   const duration = getTimeInTradeMinutes(trade);
   const slPips = getSlPips(trade);
@@ -93,6 +125,34 @@ export function TradeDetail({
   );
   const doneCount = checklistRows.filter((row) => row.checked === true).length;
 
+  function commit(patch: Partial<Trade>) {
+    updateTrade(trade.id, patch);
+  }
+
+  function onTextBlur(key: keyof Trade, raw: string, current: string | undefined) {
+    const next = raw.trim();
+    const prev = current?.trim() ?? "";
+    if (next === prev) return;
+    commit({ [key]: next || undefined } as Partial<Trade>);
+  }
+
+  function onNumberBlur(
+    key: keyof Trade,
+    raw: string,
+    current: number | undefined,
+  ) {
+    const parsed = parseOptionalNumber(raw);
+    if (parsed === current) return;
+    if (raw.trim() && parsed == null) return;
+    commit({ [key]: parsed } as Partial<Trade>);
+  }
+
+  function onRequiredNumberBlur(key: keyof Trade, raw: string, current: number) {
+    const parsed = parseOptionalNumber(raw);
+    if (parsed == null || parsed === current) return;
+    commit({ [key]: parsed } as Partial<Trade>);
+  }
+
   function toggleChecklistDone(id: string, label: string, done: boolean) {
     const byId = new Map(
       (trade.checklist ?? []).map((item) => [item.id, item]),
@@ -102,7 +162,6 @@ export function TradeDetail({
     } else {
       byId.delete(id);
     }
-    // Always pass an array (including []) — store skips undefined patches.
     updateTrade(trade.id, { checklist: [...byId.values()] });
   }
 
@@ -120,6 +179,23 @@ export function TradeDetail({
     onClose();
   }
 
+  function onSaveTags() {
+    const tags = tagDraft
+      .split(",")
+      .map((t) => t.trim())
+      .filter(Boolean);
+    const current = trade.tags ?? [];
+    if (tags.join("\0") === current.join("\0")) return;
+    commit({ tags: tags.length ? tags : undefined });
+  }
+
+  function onSaveNotes() {
+    const next = notesDraft.trim();
+    const prev = trade.notes?.trim() ?? "";
+    if (next === prev) return;
+    commit({ notes: next || undefined });
+  }
+
   if (!mounted) return null;
 
   return createPortal(
@@ -134,11 +210,25 @@ export function TradeDetail({
         <header className="trade-detail__header">
           <div>
             <p className="trade-detail__eyebrow">Trade detail</p>
-            <h2>
-              {trade.symbol}{" "}
-              <span className={trade.side === "long" ? "side-long" : "side-short"}>
-                {trade.side}
-              </span>
+            <h2 className="trade-detail__title-edit">
+              <input
+                className="trade-detail__input trade-detail__input--title"
+                aria-label="Symbol"
+                defaultValue={trade.symbol}
+                key={`${trade.id}-symbol`}
+                onBlur={(e) => onTextBlur("symbol", e.target.value, trade.symbol)}
+              />
+              <select
+                className="trade-detail__input trade-detail__input--select"
+                aria-label="Side"
+                value={trade.side}
+                onChange={(e: ChangeEvent<HTMLSelectElement>) =>
+                  commit({ side: e.target.value as TradeSide })
+                }
+              >
+                <option value="long">long</option>
+                <option value="short">short</option>
+              </select>
             </h2>
           </div>
           <button
@@ -153,62 +243,188 @@ export function TradeDetail({
 
         <div className="trade-detail__body">
           <div className="trade-detail__status">
-            <span className={badgeClass(trade.result)}>{trade.result}</span>
-            <span className={`mono ${trade.rMultiple >= 0 ? "pos" : "neg"}`}>
-              {trade.rMultiple > 0 ? "+" : ""}
-              {trade.rMultiple.toFixed(1)}R
-            </span>
+            <select
+              className={`trade-detail__input trade-detail__input--select ${badgeClass(trade.result)}`}
+              aria-label="Result"
+              value={trade.result}
+              onChange={(e: ChangeEvent<HTMLSelectElement>) =>
+                commit({ result: e.target.value as TradeResult })
+              }
+            >
+              <option value="win">win</option>
+              <option value="loss">loss</option>
+              <option value="breakeven">breakeven</option>
+              <option value="open">open</option>
+            </select>
             <span className={`mono ${pnlClass}`}>{formatPnlUsd(trade.pnlUsd)}</span>
           </div>
 
           <div className="trade-detail__grid">
-            <Row label="Session">{trade.session ?? "—"}</Row>
-            <Row label="Setup" wide>
-              {trade.setup}
+            <Row label="Date">
+              <input
+                className="trade-detail__input"
+                aria-label="Date"
+                defaultValue={trade.date}
+                key={`${trade.id}-date`}
+                onBlur={(e) => onTextBlur("date", e.target.value, trade.date)}
+              />
             </Row>
-            <Row label="Size">{trade.size ?? "—"}</Row>
+            <Row label="Session">
+              <input
+                className="trade-detail__input"
+                aria-label="Session"
+                defaultValue={trade.session ?? ""}
+                key={`${trade.id}-session`}
+                onBlur={(e) => onTextBlur("session", e.target.value, trade.session)}
+              />
+            </Row>
+            <Row label="Size">
+              <input
+                className="trade-detail__input"
+                aria-label="Size"
+                defaultValue={trade.size ?? ""}
+                key={`${trade.id}-size`}
+                onBlur={(e) => onTextBlur("size", e.target.value, trade.size)}
+              />
+            </Row>
             <Row label="Risk $">
-              <span className="mono">
-                {trade.riskUsd != null ? `$${trade.riskUsd.toFixed(0)}` : "—"}
-              </span>
+              <input
+                className="trade-detail__input mono"
+                aria-label="Risk $"
+                inputMode="decimal"
+                defaultValue={numberInputValue(trade.riskUsd)}
+                key={`${trade.id}-riskUsd`}
+                onBlur={(e) => onNumberBlur("riskUsd", e.target.value, trade.riskUsd)}
+              />
             </Row>
             <Row label="Entry">
-              <span className="mono">{trade.entry}</span>
+              <input
+                className="trade-detail__input mono"
+                aria-label="Entry"
+                inputMode="decimal"
+                defaultValue={numberInputValue(trade.entry)}
+                key={`${trade.id}-entry`}
+                onBlur={(e) => onRequiredNumberBlur("entry", e.target.value, trade.entry)}
+              />
             </Row>
             <Row label="Exit">
-              <span className="mono">{trade.exit ?? "—"}</span>
+              <input
+                className="trade-detail__input mono"
+                aria-label="Exit"
+                inputMode="decimal"
+                defaultValue={numberInputValue(trade.exit)}
+                key={`${trade.id}-exit`}
+                onBlur={(e) => onNumberBlur("exit", e.target.value, trade.exit)}
+              />
             </Row>
             <Row label="SL">
-              <span className="mono neg">{trade.stop}</span>
+              <input
+                className="trade-detail__input mono"
+                aria-label="SL"
+                inputMode="decimal"
+                defaultValue={numberInputValue(trade.stop)}
+                key={`${trade.id}-stop`}
+                onBlur={(e) => onRequiredNumberBlur("stop", e.target.value, trade.stop)}
+              />
             </Row>
             <Row label="TP">
-              <span className="mono pos">{trade.target}</span>
+              <input
+                className="trade-detail__input mono"
+                aria-label="TP"
+                inputMode="decimal"
+                defaultValue={numberInputValue(trade.target)}
+                key={`${trade.id}-target`}
+                onBlur={(e) =>
+                  onRequiredNumberBlur("target", e.target.value, trade.target)
+                }
+              />
             </Row>
             <Row label="SL pips">
-              <span className="mono">{formatPips(slPips)}</span>
+              <input
+                className="trade-detail__input mono"
+                aria-label="SL pips"
+                inputMode="decimal"
+                defaultValue={numberInputValue(slPips)}
+                key={`${trade.id}-slPips-${trade.slPips ?? "x"}`}
+                onBlur={(e) => onNumberBlur("slPips", e.target.value, trade.slPips)}
+              />
             </Row>
             <Row label="TP pips">
-              <span className="mono">{formatPips(tpPips)}</span>
+              <input
+                className="trade-detail__input mono"
+                aria-label="TP pips"
+                inputMode="decimal"
+                defaultValue={numberInputValue(tpPips)}
+                key={`${trade.id}-tpPips-${trade.tpPips ?? "x"}`}
+                onBlur={(e) => onNumberBlur("tpPips", e.target.value, trade.tpPips)}
+              />
             </Row>
             <Row label="Entry time">
-              <span className="mono">
-                {formatTradeDateTime(trade.entryTime, trade.date)}
-              </span>
+              <input
+                className="trade-detail__input mono"
+                aria-label="Entry time"
+                defaultValue={trade.entryTime ?? ""}
+                key={`${trade.id}-entryTime`}
+                onBlur={(e) =>
+                  onTextBlur("entryTime", e.target.value, trade.entryTime)
+                }
+              />
             </Row>
             <Row label="Exit time">
-              <span className="mono">
-                {formatTradeDateTime(trade.exitTime, trade.date)}
-              </span>
+              <input
+                className="trade-detail__input mono"
+                aria-label="Exit time"
+                defaultValue={trade.exitTime ?? ""}
+                key={`${trade.id}-exitTime`}
+                onBlur={(e) =>
+                  onTextBlur("exitTime", e.target.value, trade.exitTime)
+                }
+              />
             </Row>
             <Row label="Duration">
-              <span className="mono">{formatDuration(duration)}</span>
+              <input
+                className="trade-detail__input mono"
+                aria-label="Duration minutes"
+                inputMode="numeric"
+                defaultValue={numberInputValue(trade.timeInTradeMinutes ?? duration)}
+                key={`${trade.id}-duration`}
+                onBlur={(e) =>
+                  onNumberBlur(
+                    "timeInTradeMinutes",
+                    e.target.value,
+                    trade.timeInTradeMinutes,
+                  )
+                }
+              />
             </Row>
             <Row label="Fees $ (comm+swap)">
-              <span className="mono">
-                {trade.feesUsd != null ? `$${trade.feesUsd.toFixed(2)}` : "—"}
-              </span>
+              <input
+                className="trade-detail__input mono"
+                aria-label="Fees $"
+                inputMode="decimal"
+                defaultValue={numberInputValue(trade.feesUsd)}
+                key={`${trade.id}-feesUsd`}
+                onBlur={(e) => onNumberBlur("feesUsd", e.target.value, trade.feesUsd)}
+              />
+            </Row>
+            <Row label="$ P&L" wide>
+              <input
+                className="trade-detail__input mono"
+                aria-label="$ P&L"
+                inputMode="decimal"
+                defaultValue={numberInputValue(trade.pnlUsd)}
+                key={`${trade.id}-pnlUsd`}
+                onBlur={(e) => onNumberBlur("pnlUsd", e.target.value, trade.pnlUsd)}
+              />
             </Row>
           </div>
+          <p className="trade-detail__hint">
+            {formatPips(slPips)} SL · {formatPips(tpPips)} TP ·{" "}
+            {formatDuration(duration)}
+            {trade.entryTime
+              ? ` · ${formatTradeDateTime(trade.entryTime, trade.date)}`
+              : ""}
+          </p>
 
           {checklistRows.length ? (
             <div className="trade-detail__checklist">
@@ -260,33 +476,44 @@ export function TradeDetail({
               <p className="trade-detail__eyebrow">Screenshots</p>
               <div className="trade-detail__shot-grid">
                 {trade.screenshots.map((src, i) => (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
+                  <button
+                    type="button"
+                    className="trade-detail__shot-btn"
                     key={`${trade.id}-shot-${i}`}
-                    src={src}
-                    alt={`Trade chart ${i + 1}`}
-                  />
+                    onClick={() => setLightboxSrc(src)}
+                    aria-label={`View trade chart ${i + 1} full screen`}
+                  >
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={src} alt={`Trade chart ${i + 1}`} />
+                  </button>
                 ))}
               </div>
             </div>
           ) : null}
 
-          {trade.tags?.length ? (
-            <div className="trade-detail__tags">
-              <p className="trade-detail__eyebrow">Tags</p>
-              <div className="trade-detail__tag-list">
-                {trade.tags.map((tag) => (
-                  <span className="trade-tag" key={tag}>
-                    {tag}
-                  </span>
-                ))}
-              </div>
-            </div>
-          ) : null}
+          <div className="trade-detail__tags">
+            <p className="trade-detail__eyebrow">Tags</p>
+            <input
+              className="trade-detail__input"
+              aria-label="Tags"
+              value={tagDraft}
+              onChange={(e) => setTagDraft(e.target.value)}
+              onBlur={onSaveTags}
+              placeholder="comma, separated, tags"
+            />
+          </div>
 
           <div className="trade-detail__notes">
             <p className="trade-detail__eyebrow">Notes</p>
-            <p>{trade.notes?.trim() ? trade.notes : "No notes yet."}</p>
+            <textarea
+              className="trade-detail__input trade-detail__notes-input"
+              aria-label="Notes"
+              value={notesDraft}
+              onChange={(e) => setNotesDraft(e.target.value)}
+              onBlur={onSaveNotes}
+              rows={4}
+              placeholder="No notes yet."
+            />
           </div>
         </div>
 
@@ -316,6 +543,16 @@ export function TradeDetail({
                 <MessageSquare size={14} />
                 Reference in chat
               </button>
+              <button
+                type="button"
+                className="ghost-btn"
+                onClick={() =>
+                  trade.hidden ? unhideTrade(trade.id) : hideTrade(trade.id)
+                }
+              >
+                {trade.hidden ? <Eye size={14} /> : <EyeOff size={14} />}
+                {trade.hidden ? "Unhide trade" : "Hide trade"}
+              </button>
               <button type="button" className="danger-btn" onClick={onDelete}>
                 <Trash2 size={14} />
                 Delete trade
@@ -324,6 +561,30 @@ export function TradeDetail({
           )}
         </footer>
       </aside>
+      {lightboxSrc ? (
+        <div
+          className="trade-lightbox"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Screenshot"
+          onClick={() => setLightboxSrc(null)}
+        >
+          <button
+            type="button"
+            className="trade-lightbox__close"
+            aria-label="Close screenshot"
+            onClick={() => setLightboxSrc(null)}
+          >
+            <X size={18} />
+          </button>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={lightboxSrc}
+            alt="Trade screenshot"
+            onClick={(e) => e.stopPropagation()}
+          />
+        </div>
+      ) : null}
     </div>,
     document.body,
   );

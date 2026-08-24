@@ -25,7 +25,6 @@ function sampleTrade(overrides: Partial<Trade> = {}): Trade {
     date: "2026-07-01",
     symbol: "EURUSD",
     side: "long",
-    setup: "1H FVG Continuation",
     entry: 1.1682,
     stop: 1.1658,
     target: 1.173,

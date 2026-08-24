@@ -9,7 +9,6 @@ function trade(overrides: Partial<Trade> = {}): Trade {
     date: "2026-07-10",
     symbol: "EURUSD",
     side: "long",
-    setup: "1H FVG Continuation",
     entry: 1.17,
     stop: 1.168,
     target: 1.174,
@@ -36,10 +35,21 @@ function makeSession(
 
 describe("filterTrades", () => {
   const pool = [
-    trade({ id: "a", date: "2026-07-01", symbol: "EURUSD", side: "long", result: "win", setup: "FVG", session: "London", tags: ["fvg", "a+"], notes: "alpha note" }),
-    trade({ id: "b", date: "2026-07-05", symbol: "GBPUSD", side: "short", result: "loss", setup: "Order Block", session: "New York", tags: ["ob"], notes: "beta sweep" }),
-    trade({ id: "c", date: "2026-07-15", symbol: "XAUUSD", side: "long", result: "open", setup: "Continuation", session: "Asian", tags: ["gold", "a+"], notes: "gamma open" }),
+    trade({ id: "a", date: "2026-07-01", symbol: "EURUSD", side: "long", result: "win", session: "London", tags: ["fvg", "a+"], notes: "alpha note" }),
+    trade({ id: "b", date: "2026-07-05", symbol: "GBPUSD", side: "short", result: "loss", session: "New York", tags: ["ob"], notes: "beta sweep" }),
+    trade({ id: "c", date: "2026-07-15", symbol: "XAUUSD", side: "long", result: "open", session: "Asian", tags: ["gold", "a+"], notes: "gamma open" }),
   ];
+
+  it("excludes hidden trades from filters and stats", () => {
+    const hidden = trade({ id: "h", hidden: true, notes: "alpha note" });
+    expect(filterTrades([...pool, hidden], {}).map((t) => t.id)).toEqual([
+      "a",
+      "b",
+      "c",
+    ]);
+    const session = makeSession([...pool, hidden]);
+    expect(session.getStats().totalTrades).toBe(3);
+  });
 
   it("returns all trades when filter is empty", () => {
     expect(filterTrades(pool, {})).toHaveLength(3);
@@ -49,7 +59,6 @@ describe("filterTrades", () => {
     expect(
       filterTrades(pool, {
         symbol: "  ",
-        setup: "",
         session: "",
         text: "",
         dateFrom: "",
@@ -72,10 +81,10 @@ describe("filterTrades", () => {
     expect(filterTrades(pool, { symbol: "gbp" }).map((t) => t.id)).toEqual(["b"]);
   });
 
-  it("filters by side, result, setup, and session", () => {
+  it("filters by side, result, tags, and session", () => {
     expect(filterTrades(pool, { side: "short" }).map((t) => t.id)).toEqual(["b"]);
     expect(filterTrades(pool, { result: "open" }).map((t) => t.id)).toEqual(["c"]);
-    expect(filterTrades(pool, { setup: "order" }).map((t) => t.id)).toEqual(["b"]);
+    expect(filterTrades(pool, { tags: ["ob"] }).map((t) => t.id)).toEqual(["b"]);
     expect(filterTrades(pool, { session: "asian" }).map((t) => t.id)).toEqual(["c"]);
   });
 
@@ -91,9 +100,9 @@ describe("filterTrades", () => {
     expect(filterTrades(pool, { tags: ["fvg", "missing"] })).toEqual([]);
   });
 
-  it("filters by text across notes, setup, symbol, and tags", () => {
+  it("filters by text across notes, symbol, and tags", () => {
     expect(filterTrades(pool, { text: "alpha" }).map((t) => t.id)).toEqual(["a"]);
-    expect(filterTrades(pool, { text: "order block" }).map((t) => t.id)).toEqual(["b"]);
+    expect(filterTrades(pool, { text: "beta sweep" }).map((t) => t.id)).toEqual(["b"]);
     expect(filterTrades(pool, { text: "xauusd" }).map((t) => t.id)).toEqual(["c"]);
     expect(filterTrades(pool, { text: "gold" }).map((t) => t.id)).toEqual(["c"]);
   });
@@ -141,9 +150,9 @@ describe("JournalSession.queryTrades", () => {
 
   it("sorts newest, oldest, bestR, and worstR", () => {
     const trades = [
-      trade({ id: "old", date: "2026-07-01", rMultiple: 0.5 }),
-      trade({ id: "mid", date: "2026-07-10", rMultiple: 2.0 }),
-      trade({ id: "new", date: "2026-07-20", rMultiple: -1.0 }),
+      trade({ id: "old", date: "2026-07-01", pnlUsd: 50 }),
+      trade({ id: "mid", date: "2026-07-10", pnlUsd: 200 }),
+      trade({ id: "new", date: "2026-07-20", pnlUsd: -100 }),
     ];
     const session = makeSession(trades);
 
@@ -166,6 +175,19 @@ describe("JournalSession.queryTrades", () => {
       "new",
       "old",
       "mid",
+    ]);
+    expect(session.queryTrades({ sort: "bestPnl" }).trades.map((t) => t.id)).toEqual([
+      "mid",
+      "old",
+      "new",
+    ]);
+    const missingPnl = makeSession([
+      trade({ id: "none", pnlUsd: undefined }),
+      trade({ id: "has", pnlUsd: 10 }),
+    ]);
+    expect(missingPnl.queryTrades({ sort: "worstPnl" }).trades.map((t) => t.id)).toEqual([
+      "none",
+      "has",
     ]);
   });
 
@@ -482,12 +504,11 @@ describe("updateStrategy edge cases", () => {
 });
 
 describe("toActions read-path branches", () => {
-  it("ships live setup/session when those fields were patched", () => {
+  it("ships live session when that field was patched", () => {
     const before = trade({ id: "patch-me" });
     const session = makeSession([before]);
-    session.patchTrade({ id: before.id, setup: "Liquidity Sweep", session: "New York" });
+    session.patchTrade({ id: before.id, session: "New York" });
     const update = session.toActions().updateTrades?.find((u) => u.id === before.id);
-    expect(update?.setup).toBe("Liquidity Sweep");
     expect(update?.session).toBe("New York");
   });
 

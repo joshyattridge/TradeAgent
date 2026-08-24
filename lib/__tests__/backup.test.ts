@@ -17,7 +17,6 @@ function sampleTrade(overrides: Partial<Trade> = {}): Trade {
     date: "2026-07-01",
     symbol: "EURUSD",
     side: "long",
-    setup: "1H FVG Continuation",
     entry: 1.1682,
     stop: 1.1658,
     target: 1.173,
@@ -28,6 +27,23 @@ function sampleTrade(overrides: Partial<Trade> = {}): Trade {
 }
 
 describe("journal backup", () => {
+  it("preserves hidden trades and drops hidden:false", () => {
+    const hidden = sampleTrade({ id: "hid", hidden: true });
+    const parsed = parseJournalBackup({
+      ...buildJournalBackup([hidden], seedStrategy),
+      trades: [hidden, { ...sampleTrade({ id: "vis" }), hidden: false }],
+    });
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    expect(parsed.backup.trades.find((t) => t.id === "hid")?.hidden).toBe(true);
+    expect(
+      Object.prototype.hasOwnProperty.call(
+        parsed.backup.trades.find((t) => t.id === "vis"),
+        "hidden",
+      ),
+    ).toBe(false);
+  });
+
   it("round-trips trades and strategy", () => {
     const trades = [sampleTrade(), sampleTrade({ id: "t2", symbol: "GBPJPY" })];
     const backup = buildJournalBackup(trades, seedStrategy);
@@ -221,7 +237,6 @@ describe("journal backup", () => {
       [{ id: "" }, /missing a valid id/i],
       [{ date: "" }, /missing a date/i],
       [{ symbol: "" }, /missing a symbol/i],
-      [{ setup: 123 }, /missing a setup/i],
       [{ result: "unknown" as Trade["result"] }, /invalid result/i],
     ];
     for (const [patch, pattern] of cases) {

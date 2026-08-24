@@ -18,7 +18,6 @@ export type TradeSnapshot = {
   date: string;
   symbol: string;
   side: Trade["side"];
-  setup: string;
   entry: number;
   stop: number;
   target: number;
@@ -32,13 +31,13 @@ export type TradeSnapshot = {
   riskUsd?: number;
   size?: string;
   feesUsd?: number;
-  rMultiple: number;
   result: Trade["result"];
   session?: string;
   notes?: string;
   tags?: string[];
   checklist?: Trade["checklist"];
   hasScreenshots: boolean;
+  hidden?: boolean;
 };
 
 export type ChatContextPack = {
@@ -56,7 +55,6 @@ export function tradeSnapshot(trade: Trade): TradeSnapshot {
     date: trade.date,
     symbol: trade.symbol,
     side: trade.side,
-    setup: trade.setup,
     entry: trade.entry,
     stop: trade.stop,
     target: trade.target,
@@ -70,7 +68,6 @@ export function tradeSnapshot(trade: Trade): TradeSnapshot {
     riskUsd: trade.riskUsd,
     size: trade.size,
     feesUsd: trade.feesUsd,
-    rMultiple: trade.rMultiple,
     result: trade.result,
     session: trade.session,
     notes: trade.notes,
@@ -79,6 +76,7 @@ export function tradeSnapshot(trade: Trade): TradeSnapshot {
     hasScreenshots: Boolean(
       trade.screenshots?.some((s) => s && s !== "pending"),
     ),
+    hidden: trade.hidden || undefined,
   };
 }
 
@@ -122,7 +120,7 @@ export function buildStrategyDigest(strategy: Strategy) {
 export function buildTradeIndexLine(trade: Trade) {
   const pnl =
     trade.pnlUsd != null ? ` $${trade.pnlUsd}` : "";
-  return `${trade.id} | ${trade.date} | ${trade.symbol} | ${trade.side} | ${trade.result} | ${trade.rMultiple}R${pnl} | ${trade.setup}${trade.session ? ` | ${trade.session}` : ""}`;
+  return `${trade.id} | ${trade.date} | ${trade.symbol} | ${trade.side} | ${trade.result}${pnl}${trade.session ? ` | ${trade.session}` : ""}`;
 }
 
 function escapeRegExp(value: string) {
@@ -211,7 +209,7 @@ function scoreTrade(
 
   if (opts.dates.has(trade.date)) score += 35;
 
-  const hay = `${trade.setup} ${trade.session ?? ""} ${trade.notes ?? ""}`.toLowerCase();
+  const hay = `${trade.session ?? ""} ${trade.notes ?? ""}`.toLowerCase();
   for (const hint of opts.setupHints) {
     if (hay.includes(hint)) score += 12;
   }
@@ -298,7 +296,7 @@ export function selectRelevantTrades(
     notes.push(`Date filters: ${[...dates].join(", ")}`);
   }
   if (setupHints.length) {
-    notes.push(`Setup/session hints: ${setupHints.slice(0, 6).join(", ")}`);
+    notes.push(`Session/notes hints: ${setupHints.slice(0, 6).join(", ")}`);
   }
   notes.push(`Selected ${picked.length} of ${trades.length} trades for detail.`);
 

@@ -23,7 +23,6 @@ function makeTrade(overrides: Partial<Trade> = {}): Trade {
     date: "2026-01-01",
     symbol: "EURUSD",
     side: "long",
-    setup: "Test setup",
     entry: 1.1,
     stop: 1.09,
     target: 1.12,
@@ -138,12 +137,11 @@ describe("buildTradeIndexLine", () => {
         id: "t1",
         pnlUsd: 200,
         session: "London",
-        setup: "FVG",
         rMultiple: 2,
       }),
     );
     expect(line).toBe(
-      "t1 | 2026-01-01 | EURUSD | long | win | 2R $200 | FVG | London",
+      "t1 | 2026-01-01 | EURUSD | long | win $200 | London",
     );
   });
 
@@ -157,7 +155,7 @@ describe("buildTradeIndexLine", () => {
         rMultiple: 0,
       }),
     );
-    expect(line).toBe("t-open | 2026-01-01 | EURUSD | long | open | 0R | Test setup");
+    expect(line).toBe("t-open | 2026-01-01 | EURUSD | long | open");
   });
 });
 
@@ -175,7 +173,6 @@ describe("selectRelevantTrades", () => {
         id: "low",
         date: "2026-07-01",
         symbol: "AUDUSD",
-        setup: "Range",
         result: "breakeven",
         notes: "Unrelated",
       }),
@@ -183,7 +180,6 @@ describe("selectRelevantTrades", () => {
         id: "winner",
         date: "2026-07-10",
         symbol: "EURUSD",
-        setup: "1H FVG Continuation",
         result: "win",
         session: "London",
         notes: "London liquidity sweep",
@@ -192,7 +188,6 @@ describe("selectRelevantTrades", () => {
         id: "loser",
         date: "2026-07-10",
         symbol: "EURUSD",
-        setup: "IFVG reversal",
         result: "loss",
         notes: "Bad fill",
       }),
@@ -200,7 +195,6 @@ describe("selectRelevantTrades", () => {
         id: "open-one",
         date: "2026-07-11",
         symbol: "GBPUSD",
-        setup: "Continuation",
         result: "open",
       }),
     ];
@@ -220,7 +214,7 @@ describe("selectRelevantTrades", () => {
       "Show fvg and london session examples",
     );
     expect(setupPick.trades[0]?.id).toBe("winner");
-    expect(setupPick.notes.some((n) => n.startsWith("Setup/session hints:"))).toBe(
+    expect(setupPick.notes.some((n) => n.startsWith("Session/notes hints:"))).toBe(
       true,
     );
 
@@ -239,8 +233,8 @@ describe("selectRelevantTrades", () => {
 
   it("resolves alias symbols and partial symbol matches while scoring", () => {
     const trades = [
-      makeTrade({ id: "nas", symbol: "NAS100", setup: "Index continuation" }),
-      makeTrade({ id: "btc", symbol: "BTCUSD", setup: "Crypto breakout" }),
+      makeTrade({ id: "nas", symbol: "NAS100", notes: "Index continuation" }),
+      makeTrade({ id: "btc", symbol: "BTCUSD", notes: "Crypto breakout" }),
     ];
     const aliasPick = selectRelevantTrades(trades, "Review NQ performance");
     expect(aliasPick.trades[0]?.id).toBe("nas");
@@ -259,7 +253,6 @@ describe("selectRelevantTrades", () => {
         id: `t${i}`,
         date: `2026-07-${String(i + 1).padStart(2, "0")}`,
         symbol: `SYM${i}`,
-        setup: "Generic",
         result: "breakeven",
         notes: `note-${i}`,
       }),
@@ -274,9 +267,9 @@ describe("selectRelevantTrades", () => {
     expect(notes.at(-1)).toBe(`Selected ${RELEVANT_TRADES_LIMIT} of 12 trades for detail.`);
 
     const tieTrades = [
-      makeTrade({ id: "a", date: "2026-07-01", symbol: "AAA", setup: "x" }),
-      makeTrade({ id: "b", date: "2026-07-02", symbol: "AAA", setup: "x" }),
-      makeTrade({ id: "c", date: "2026-07-02", symbol: "AAA", setup: "x" }),
+      makeTrade({ id: "a", date: "2026-07-01", symbol: "AAA", notes: "x" }),
+      makeTrade({ id: "b", date: "2026-07-02", symbol: "AAA", notes: "x" }),
+      makeTrade({ id: "c", date: "2026-07-02", symbol: "AAA", notes: "x" }),
     ];
     const tied = selectRelevantTrades(tieTrades, "AAA", 3);
     expect(tied.trades.map((t) => t.id)).toEqual(["b", "c", "a"]);
@@ -345,7 +338,7 @@ describe("selectRelevantTrades", () => {
   it("skips duplicate trade ids in the scored list", () => {
     const duplicate = makeTrade({ id: "dup", symbol: "AAA" });
     const { trades: picked } = selectRelevantTrades(
-      [duplicate, { ...duplicate, setup: "Other" }],
+      [duplicate, { ...duplicate, notes: "Other" }],
       "AAA",
       10,
     );

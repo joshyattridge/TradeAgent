@@ -1,4 +1,4 @@
-import { buildChartFromRequest, computeStats } from "@/lib/stats";
+import { buildChartFromRequest, computeStats, visibleJournalTrades } from "@/lib/stats";
 import { normalizeSymbol, tradeSnapshot } from "@/lib/chat-context";
 import type {
   AnnotateTradeInput,
@@ -262,7 +262,6 @@ export function normalizeTradeFilter(filter: TradeFilterInput = {}): TradeFilter
     symbol: nonEmptyString(filter.symbol),
     side,
     result,
-    setup: nonEmptyString(filter.setup),
     session: nonEmptyString(filter.session),
     dateFrom: nonEmptyString(filter.dateFrom),
     dateTo: nonEmptyString(filter.dateTo),
@@ -277,7 +276,6 @@ function filterIsActive(filter: TradeFilterInput) {
     filter.symbol ||
       filter.side ||
       filter.result ||
-      filter.setup ||
       filter.session ||
       filter.dateFrom ||
       filter.dateTo ||
@@ -290,15 +288,13 @@ function filterIsActive(filter: TradeFilterInput) {
 export function filterTrades(trades: Trade[], filter: TradeFilterInput): Trade[] {
   const f = normalizeTradeFilter(filter);
   return trades.filter((t) => {
+    if (t.hidden) return false;
     if (f.ids?.length && !f.ids.includes(t.id)) return false;
     if (f.symbol && !t.symbol.toUpperCase().includes(f.symbol.toUpperCase())) {
       return false;
     }
     if (f.side && t.side !== f.side) return false;
     if (f.result && t.result !== f.result) return false;
-    if (f.setup && !t.setup.toLowerCase().includes(f.setup.toLowerCase())) {
-      return false;
-    }
     if (
       f.session &&
       !(t.session ?? "").toLowerCase().includes(f.session.toLowerCase())
@@ -313,11 +309,15 @@ export function filterTrades(trades: Trade[], filter: TradeFilterInput): Trade[]
     }
     if (f.text) {
       const q = f.text.toLowerCase();
-      const hay = `${t.notes ?? ""} ${t.setup} ${t.symbol} ${(t.tags ?? []).join(" ")}`.toLowerCase();
+      const hay = `${t.notes ?? ""} ${t.symbol} ${(t.tags ?? []).join(" ")}`.toLowerCase();
       if (!hay.includes(q)) return false;
     }
     return true;
   });
+}
+
+function pnlSortValue(trade: Trade) {
+  return trade.pnlUsd ?? 0;
 }
 
 function sortTrades(trades: Trade[], sort: QueryTradesInput["sort"] = "newest") {
@@ -325,10 +325,12 @@ function sortTrades(trades: Trade[], sort: QueryTradesInput["sort"] = "newest") 
   switch (sort) {
     case "oldest":
       return copy.sort((a, b) => a.date.localeCompare(b.date));
+    case "bestPnl":
     case "bestR":
-      return copy.sort((a, b) => b.rMultiple - a.rMultiple);
+      return copy.sort((a, b) => pnlSortValue(b) - pnlSortValue(a));
+    case "worstPnl":
     case "worstR":
-      return copy.sort((a, b) => a.rMultiple - b.rMultiple);
+      return copy.sort((a, b) => pnlSortValue(a) - pnlSortValue(b));
     case "newest":
     default:
       return copy.sort((a, b) => b.date.localeCompare(a.date));
@@ -388,14 +390,12 @@ export class JournalSession {
 
       const touchedNotes = Object.prototype.hasOwnProperty.call(patch, "notes");
       const touchedTags = Object.prototype.hasOwnProperty.call(patch, "tags");
-      const touchedSetup = Object.prototype.hasOwnProperty.call(patch, "setup");
       const touchedSession = Object.prototype.hasOwnProperty.call(patch, "session");
 
       return {
         ...rest,
         ...(touchedNotes ? { notes: live.notes } : {}),
         ...(touchedTags ? { tags: live.tags ?? [] } : {}),
-        ...(touchedSetup ? { setup: live.setup } : {}),
         ...(touchedSession ? { session: live.session } : {}),
       };
     });
@@ -449,11 +449,9 @@ export class JournalSession {
       date: input.date,
       symbol: input.symbol,
       side: input.side,
-      setup: input.setup,
       entry: input.entry,
       stop: input.stop,
       target: input.target,
-      rMultiple: input.rMultiple,
       result: input.result,
       exit: input.exit,
       slPips: input.slPips,
@@ -804,29 +802,30 @@ export class JournalSession {
 
   queryTrades(input: QueryTradesInput) {
     const filter = normalizeTradeFilter(input);
+    const live = visibleJournalTrades(this.trades);
     const filtered = filterTrades(this.trades, filter);
     const sorted = sortTrades(filtered, input.sort);
     const limit = input.limit ?? 10;
     const slice = sorted.slice(0, limit);
-    const openCount = this.trades.filter((t) => t.result === "open").length;
-    const closedCount = this.trades.length - openCount;
+    const openCount = live.filter((t) => t.result === "open").length;
+    const closedCount = live.length - openCount;
     const narrowed = filterIsActive(filter);
     const journalStats = computeStats(this.trades);
     return {
       ok: true as const,
       action: "query_trades",
       journal: {
-        total: this.trades.length,
+        total: live.length,
         open: openCount,
         closed: closedCount,
       },
-      /** Full-book scoreboard — use this for win/loss/R/PnL, not the filtered trades[] slice. */
+      /** Full-book scoreboard — use this for win/loss/$ PnL, not the filtered trades[] slice. */
       journalStats,
       count: filtered.length,
       returned: slice.length,
       trades: slice.map(tradeSnapshot),
       note: narrowed
-        ? `Filters are active on trades[] only (matched ${filtered.length}/${this.trades.length}). Performance numbers are in journalStats (full book). Do NOT recount from the filtered slice. To list every row, call again with NO symbol/side/result filters and limit=25.`
+        ? `Filters are active on trades[] only (matched ${filtered.length}/${live.length}). Performance numbers are in journalStats (full book). Do NOT recount from the filtered slice. To list every row, call again with NO symbol/side/result filters and limit=25.`
         : "Full-book query (no filters). Use journalStats for performance. If returned < count, raise limit (max 25) and call again.",
     };
   }
@@ -834,25 +833,26 @@ export class JournalSession {
   getStatsTool(input: { closedOnly?: boolean } = {}) {
     // Intentionally unfilterable — models kept inventing side/result and mis-scoring the book.
     const closedOnly = input.closedOnly !== false;
+    const live = visibleJournalTrades(this.trades);
     const pool = closedOnly
-      ? this.trades.filter((t) => t.result !== "open")
-      : this.trades;
+      ? live.filter((t) => t.result !== "open")
+      : live;
     const stats = computeStats(pool);
-    const openCount = this.trades.filter((t) => t.result === "open").length;
-    const closedCount = this.trades.length - openCount;
+    const openCount = live.filter((t) => t.result === "open").length;
+    const closedCount = live.length - openCount;
     return {
       ok: true as const,
       action: "get_stats",
       journal: {
-        total: this.trades.length,
+        total: live.length,
         open: openCount,
         closed: closedCount,
       },
-      matched: this.trades.length,
+      matched: live.length,
       poolSize: pool.length,
       closedOnly,
       stats,
-      note: "Full-journal stats (filters are not supported on get_stats). Use stats.wins/losses/totalR/totalPnlUsd for performance answers.",
+      note: "Full-journal stats (filters are not supported on get_stats). Use stats.wins/losses/totalPnlUsd for performance answers.",
     };
   }
 
@@ -894,7 +894,11 @@ export class JournalSession {
    */
   findTrade(input: FindTradeInput) {
     const limit = input.limit ?? 8;
-    const { ranked, bestMatch } = rankTradesByHints(this.trades, input, limit);
+    const { ranked, bestMatch } = rankTradesByHints(
+      visibleJournalTrades(this.trades),
+      input,
+      limit,
+    );
 
     if (!ranked.length) {
       return {

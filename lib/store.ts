@@ -69,20 +69,31 @@ function persistableChat(chat: ChatMessage[]): ChatMessage[] {
   return chat;
 }
 
-/** Cap screenshot arrays so one trade can't dominate storage. Drop legacy chartExtract. */
+const DROPPED_TRADE_COLUMNS = new Set<string>(["date", "setup", "rMultiple"]);
+
+/** Cap screenshot arrays so one trade can't dominate storage. Drop legacy fields. */
 function persistableTrades(trades: Trade[]): Trade[] {
   return trades.map((t) => {
-    const { chartExtract: _legacy, ...rest } = t as Trade & {
+    const {
+      chartExtract: _legacy,
+      setup: _setup,
+      ...rest
+    } = t as Trade & {
       chartExtract?: unknown;
+      setup?: unknown;
     };
     void _legacy;
-    if (!rest.screenshots?.length) return rest;
-    const shots = rest.screenshots
+    void _setup;
+    const next: Trade = { ...rest };
+    if (next.hidden) next.hidden = true;
+    else delete next.hidden;
+    if (!next.screenshots?.length) return next;
+    const shots = next.screenshots
       .filter((s) => typeof s === "string" && s !== "pending")
       .slice(0, MAX_SCREENSHOTS_PER_TRADE);
     return shots.length
-      ? { ...rest, screenshots: shots }
-      : { ...rest, screenshots: undefined };
+      ? { ...next, screenshots: shots }
+      : { ...next, screenshots: undefined };
   });
 }
 
@@ -124,6 +135,8 @@ interface Store {
   resetTradeColumns: () => void;
   addTrade: (trade: Omit<Trade, "id"> | Trade) => Trade;
   updateTrade: (id: string, patch: Partial<Trade>) => void;
+  hideTrade: (id: string) => void;
+  unhideTrade: (id: string) => void;
   deleteTrade: (id: string) => void;
   deleteTrades: (ids: string[]) => void;
   updateStrategy: (patch: Partial<Strategy>) => void;
@@ -268,14 +281,12 @@ export const useTradingStore = create<Store>()(
       resetTradeColumns: () =>
         set({ visibleTradeColumns: DEFAULT_VISIBLE_TRADE_COLUMNS }),
       addTrade: (trade) => {
-        const shots = trade.screenshots
-          ?.filter((s) => s && s !== "pending")
-          .slice(0, MAX_SCREENSHOTS_PER_TRADE);
-        const next: Trade = {
-          ...trade,
-          id: "id" in trade && trade.id ? trade.id : uid(),
-          ...(shots?.length ? { screenshots: shots } : {}),
-        };
+        const next = persistableTrades([
+          {
+            ...trade,
+            id: "id" in trade && trade.id ? trade.id : uid(),
+          },
+        ])[0];
         set({ trades: [next, ...get().trades] });
         return next;
       },
@@ -303,7 +314,17 @@ export const useTradingStore = create<Store>()(
             ) {
               delete merged.checklist;
             }
-            return merged;
+            return persistableTrades([merged])[0];
+          }),
+        }),
+      hideTrade: (id) => get().updateTrade(id, { hidden: true }),
+      unhideTrade: (id) =>
+        set({
+          trades: get().trades.map((t) => {
+            if (t.id !== id) return t;
+            const next = { ...t };
+            delete next.hidden;
+            return next;
           }),
         }),
       deleteTrade: (id) =>
@@ -416,10 +437,10 @@ export const useTradingStore = create<Store>()(
           if (!state.openaiReasoningEffort) {
             state.openaiReasoningEffort = DEFAULT_REASONING_EFFORT;
           }
-          // Prefer entry time over calendar date in the logs table
+          // Prefer entry time over calendar date; drop removed columns
           let cols: TradeColumnId[] = state.visibleTradeColumns.filter(
-            (id) => id !== "date",
-          );
+            (id) => !DROPPED_TRADE_COLUMNS.has(id),
+          ) as TradeColumnId[];
           if (!cols.includes("entryTime")) {
             cols = ["entryTime", ...cols];
           }
@@ -469,7 +490,7 @@ export function applyChatActions(actions: ChatActionPayload) {
     loggedNewTrade = true;
     touchedTradeId = trade.id;
     notes.push(
-      `Logged ${trade.side.toUpperCase()} ${trade.symbol} (${trade.result}, ${trade.rMultiple}R${
+      `Logged ${trade.side.toUpperCase()} ${trade.symbol} (${trade.result}${
         trade.pnlUsd != null ? `, $${trade.pnlUsd}` : ""
       }${trade.screenshots?.length ? `, ${trade.screenshots.length} screenshot${trade.screenshots.length > 1 ? "s" : ""}` : ""}).`,
     );

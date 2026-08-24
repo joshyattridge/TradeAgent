@@ -8,7 +8,9 @@ import type { Trade } from "@/lib/types";
 
 const toggleTradeColumn = vi.fn();
 const resetTradeColumns = vi.fn();
-const addChatReferencedTradeIds = vi.fn();
+const addChatReferencedTradeId = vi.fn();
+const hideTrade = vi.fn();
+const unhideTrade = vi.fn();
 
 let visibleTradeColumns: TradeColumnId[] = TRADE_COLUMNS.map((c) => c.id);
 
@@ -18,7 +20,9 @@ vi.mock("@/lib/store", () => ({
       visibleTradeColumns,
       toggleTradeColumn,
       resetTradeColumns,
-      addChatReferencedTradeIds,
+      addChatReferencedTradeId,
+      hideTrade,
+      unhideTrade,
     }),
 }));
 
@@ -38,7 +42,6 @@ function trade(overrides: Partial<Trade> & Pick<Trade, "id">): Trade {
     date: "2026-07-01",
     symbol: "EURUSD",
     side: "long",
-    setup: "FVG",
     entry: 1.1,
     stop: 1.09,
     target: 1.12,
@@ -54,7 +57,6 @@ const trades: Trade[] = [
     date: "2026-07-01",
     symbol: "AAA",
     side: "long",
-    setup: "Alpha",
     session: "London",
     size: "1 lot",
     entry: 1.0,
@@ -79,7 +81,6 @@ const trades: Trade[] = [
     date: "2026-07-02",
     symbol: "ZZZ",
     side: "short",
-    setup: "Zulu",
     session: "NY",
     size: "2 lots",
     entry: 2.0,
@@ -103,7 +104,6 @@ const trades: Trade[] = [
     date: "2026-07-03",
     symbol: "MID",
     side: "long",
-    setup: "Middle",
     entry: 1.5,
     stop: 1.4,
     target: 1.6,
@@ -128,7 +128,6 @@ const trades: Trade[] = [
     date: "bad-date",
     symbol: "OPEN",
     side: "long",
-    setup: "Open",
     entry: 1.1,
     stop: 1.0,
     target: 1.2,
@@ -181,13 +180,13 @@ describe("TradeTable", () => {
     const user = userEvent.setup();
     render(<TradeTable trades={trades} />);
 
-    expect(screen.getByText("Alpha")).toBeInTheDocument();
     expect(screen.getByText("London")).toBeInTheDocument();
     expect(screen.getByText("1 lot")).toBeInTheDocument();
     expect(screen.getByText("First trade notes")).toBeInTheDocument();
-    expect(screen.getByText("+1.5R")).toHaveClass("pos");
-    expect(screen.getByText("-0.8R")).toHaveClass("neg");
-    expect(screen.getByText("Zulu")).toBeInTheDocument();
+    expect(screen.queryByText("+1.5R")).not.toBeInTheDocument();
+    expect(screen.queryByText("Alpha")).not.toBeInTheDocument();
+    expect(screen.queryByRole("columnheader", { name: /Setup/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("columnheader", { name: /^R$/i })).not.toBeInTheDocument();
     expect(screen.getByText("solo")).toBeInTheDocument();
     expect(screen.getAllByText("+1").length).toBeGreaterThan(0);
     expect(screen.getAllByText("—").length).toBeGreaterThan(0);
@@ -196,6 +195,7 @@ describe("TradeTable", () => {
 
     const firstRow = screen.getByText("AAA").closest("tr")!;
     await user.click(firstRow);
+    expect(firstRow).toHaveClass("is-selected");
     expect(screen.getByTestId("trade-detail")).toHaveTextContent("AAA");
 
     await user.click(screen.getByRole("button", { name: "Close detail" }));
@@ -217,26 +217,28 @@ describe("TradeTable", () => {
     expect(screen.queryByTestId("trade-detail")).not.toBeInTheDocument();
   });
 
-  it("selects multiple rows and references them in chat", async () => {
+  it("references a trade in chat from the row bubble and can hide/unhide", async () => {
     const user = userEvent.setup();
     render(<TradeTable trades={trades} />);
 
-    await user.click(screen.getByLabelText("Select AAA trade"));
-    await user.click(screen.getByLabelText("Select AAA trade"));
-    expect(screen.queryByRole("button", { name: /Reference \d+ in chat/i })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Reference AAA in chat" }));
+    expect(addChatReferencedTradeId).toHaveBeenCalledWith("a");
 
-    await user.click(screen.getByLabelText("Select AAA trade"));
-    await user.click(screen.getByLabelText("Select ZZZ trade"));
-    expect(screen.getByText(/2 selected/)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Hide AAA trade" }));
+    expect(hideTrade).toHaveBeenCalledWith("a");
 
-    await user.click(screen.getByRole("button", { name: /Reference 2 in chat/i }));
-    expect(addChatReferencedTradeIds).toHaveBeenCalledWith(["a", "b"]);
-    expect(screen.queryByRole("button", { name: /Reference 2 in chat/i })).not.toBeInTheDocument();
-
-    await user.click(screen.getByLabelText("Select all trades"));
-    expect(screen.getByRole("button", { name: /Reference 4 in chat/i })).toBeInTheDocument();
-    await user.click(screen.getByLabelText("Select all trades"));
-    expect(screen.queryByRole("button", { name: /Reference \d+ in chat/i })).not.toBeInTheDocument();
+    cleanup();
+    render(
+      <TradeTable
+        trades={[
+          { ...trades[0], hidden: true },
+          ...trades.slice(1),
+        ]}
+      />,
+    );
+    await user.click(screen.getByRole("button", { name: "Unhide AAA trade" }));
+    expect(unhideTrade).toHaveBeenCalledWith("a");
+    expect(screen.getByText("AAA").closest("tr")).toHaveClass("is-hidden-trade");
   });
 
   it("toggles column picker and reset defaults", async () => {
@@ -281,8 +283,8 @@ describe("TradeTable", () => {
       "descending",
     );
 
-    await sortBy(user, "Setup");
-    expect(screen.getByRole("columnheader", { name: /Setup/i })).toHaveAttribute(
+    await sortBy(user, "Symbol");
+    expect(screen.getByRole("columnheader", { name: /Symbol/i })).toHaveAttribute(
       "aria-sort",
       "ascending",
     );
@@ -307,7 +309,6 @@ describe("TradeTable", () => {
         symbol: "TWIN",
         entryTime: "2026-07-01T08:00:00Z",
         date: "2026-07-01",
-        setup: "Same",
         rMultiple: 1,
         notes: "second row",
       }),
@@ -316,7 +317,6 @@ describe("TradeTable", () => {
         symbol: "TWIN",
         entryTime: "2026-07-01T08:00:00Z",
         date: "2026-07-01",
-        setup: "Same",
         rMultiple: 1,
         notes: "first row",
       }),

@@ -26,7 +26,6 @@ export interface Trade {
   date: string;
   symbol: string;
   side: TradeSide;
-  setup: string;
   entry: number;
   /** Stop loss price level */
   stop: number;
@@ -45,13 +44,17 @@ export interface Trade {
   timeInTradeMinutes?: number;
   /** Gross realized price P&L in account currency ($) — before fees */
   pnlUsd?: number;
-  /** Dollars risked for 1R on this trade */
+  /** Dollars risked on this trade */
   riskUsd?: number;
   /** Position size label, e.g. "0.40 lots" or "2 contracts" */
   size?: string;
   /** Commission + swap + other costs in $ (subtracted from pnlUsd for net stats) */
   feesUsd?: number;
-  rMultiple: number;
+  /**
+   * Legacy stored R-multiple. Kept so old journal rows still load; new trades
+   * and the UI use $ P&L only.
+   */
+  rMultiple?: number;
   result: TradeResult;
   notes?: string;
   session?: string;
@@ -61,6 +64,8 @@ export interface Trade {
   screenshots?: string[];
   /** Strategy checklist Yes/No answers for this trade */
   checklist?: TradeChecklistAnswer[];
+  /** Hidden trades stay in the journal but are excluded from dashboard/stats. */
+  hidden?: boolean;
 }
 
 export interface Strategy {
@@ -95,10 +100,9 @@ export type TradeMetricField =
   | "timeInTradeMinutes"
   | "pnlUsd"
   | "riskUsd"
-  | "feesUsd"
-  | "rMultiple";
+  | "feesUsd";
 
-export type TradeLabelField = "symbol" | "date" | "setup" | "session" | "side" | "result";
+export type TradeLabelField = "symbol" | "date" | "session" | "side" | "result";
 
 export interface ChartPoint {
   /** Unique point id (trade id, symbol, etc.) — used as chart keys / X-axis categories */

@@ -55,7 +55,6 @@ const sampleTrade: Trade = {
   date: "2026-07-30",
   symbol: "NQ",
   side: "long",
-  setup: "breakout",
   entry: 100,
   stop: 95,
   target: 110,
@@ -340,6 +339,30 @@ describe("streamAgentLoop", () => {
       true,
     );
     expect(userMessage.content.some((p: { type: string }) => p.type === "file")).toBe(
+      true,
+    );
+  });
+
+  it("reuses images from earlier conversation turns when the current turn has none", async () => {
+    mockStreamText.mockReturnValue(makeStreamResult([]));
+
+    await collectEvents(
+      baseLoopOpts({
+        userText: "Log that screenshot now",
+        images: undefined,
+        history: [
+          {
+            role: "user",
+            content: "here is the chart",
+            images: ["data:image/png;base64,hist"],
+          },
+        ],
+      }),
+    );
+
+    const call = mockStreamText.mock.calls[0]?.[0];
+    const userMessage = call.messages.at(-1);
+    expect(userMessage.content.some((p: { type: string }) => p.type === "image")).toBe(
       true,
     );
   });

@@ -16,6 +16,7 @@ import {
   rByDay,
   resolvePnlUsd,
   tradeCloseMs,
+  visibleJournalTrades,
   winLossBreakdown,
 } from "@/lib/stats";
 import type { Trade, TradeLabelField, TradeMetricField } from "@/lib/types";
@@ -25,7 +26,6 @@ function makeTrade(overrides: Partial<Trade> & Pick<Trade, "id">): Trade {
     date: "2026-07-01",
     symbol: "EURUSD",
     side: "long",
-    setup: "Test Setup",
     entry: 1.1,
     stop: 1.09,
     target: 1.12,
@@ -56,6 +56,23 @@ describe("closedTrades", () => {
   });
 });
 
+describe("visibleJournalTrades", () => {
+  it("drops hidden trades from stats and closed-trade helpers", () => {
+    const trades = [
+      makeTrade({ id: "vis", pnlUsd: 50 }),
+      makeTrade({ id: "hid", pnlUsd: 999, hidden: true }),
+      makeTrade({ id: "hid-open", result: "open", hidden: true }),
+    ];
+    expect(visibleJournalTrades(trades).map((t) => t.id)).toEqual(["vis"]);
+    expect(closedTrades(trades).map((t) => t.id)).toEqual(["vis"]);
+    const stats = computeStats(trades);
+    expect(stats.totalTrades).toBe(1);
+    expect(stats.totalPnlUsd).toBe(50);
+    expect(stats.openCount).toBe(0);
+    expect(stats.best).toBe(50);
+  });
+});
+
 describe("computeStats", () => {
   it("computes aggregate stats from seed trades", () => {
     const stats = computeStats(seedTrades);
@@ -68,8 +85,11 @@ describe("computeStats", () => {
     expect(stats.totalR).toBeCloseTo(9.7);
     expect(stats.avgR).toBeCloseTo(0.97);
     expect(stats.expectancy).toBeCloseTo(0.97);
-    expect(stats.best).toBe(2);
-    expect(stats.worst).toBe(-1);
+    const pnls = seedTrades
+      .filter((t) => t.result !== "open")
+      .map((t) => resolvePnlUsd(t));
+    expect(stats.best).toBe(Math.max(...pnls));
+    expect(stats.worst).toBe(Math.min(...pnls));
     // Gross $970 − closed fees $27.20
     expect(stats.totalPnlUsd).toBeCloseTo(942.8);
     expect(stats.avgPnlUsd).toBeCloseTo(94.28);
@@ -191,6 +211,7 @@ describe("compareTradesChronologically", () => {
       exitTime: "2026-07-29T20:00:00",
       rMultiple: 2,
       result: "win",
+      pnlUsd: 2,
     });
     const lossLater = makeTrade({
       id: "loss-later",
@@ -199,6 +220,7 @@ describe("compareTradesChronologically", () => {
       exitTime: "2026-07-29T14:30:00",
       rMultiple: -1.15,
       result: "loss",
+      pnlUsd: -1.15,
     });
     expect(compareTradesChronologically(winFirst, lossLater)).toBeLessThan(0);
     const curve = equityCurve([lossLater, winFirst], "r");
@@ -259,8 +281,8 @@ describe("compareTradesChronologically", () => {
 describe("equityCurve", () => {
   it("builds cumulative R curve sorted by date", () => {
     const trades = [
-      makeTrade({ id: "e1", date: "2026-07-02", rMultiple: 2 }),
-      makeTrade({ id: "e2", date: "2026-07-01", rMultiple: -1, result: "loss" }),
+      makeTrade({ id: "e1", date: "2026-07-02", rMultiple: 2, pnlUsd: 2 }),
+      makeTrade({ id: "e2", date: "2026-07-01", rMultiple: -1, result: "loss", pnlUsd: -1 }),
     ];
     const curve = equityCurve(trades, "r");
     expect(curve).toHaveLength(3); // Start + 2 trades
@@ -311,8 +333,8 @@ describe("equityCurve", () => {
       "second",
       "third",
     ]);
-    expect(curve.map((p) => p.secondary)).toEqual([0, -1, 2, 1]);
-    expect(curve.map((p) => p.value)).toEqual([0, -1, 1, 2]);
+    expect(curve.map((p) => p.secondary)).toEqual([0, -100, 200, 100]);
+    expect(curve.map((p) => p.value)).toEqual([0, -100, 100, 200]);
     const tradeLabels = curve.slice(1).map((p) => p.label);
     expect(new Set(tradeLabels).size).toBe(3);
     expect(curve.every((p, i) => p.x === i)).toBe(true);
@@ -441,9 +463,9 @@ function round2(n: number) {
 describe("rByDay", () => {
   it("aggregates R by calendar day", () => {
     const trades = [
-      makeTrade({ id: "d1", date: "2026-07-01", rMultiple: 1 }),
-      makeTrade({ id: "d2", date: "2026-07-01", rMultiple: 2 }),
-      makeTrade({ id: "d3", date: "2026-07-02", rMultiple: -1, result: "loss" }),
+      makeTrade({ id: "d1", date: "2026-07-01", rMultiple: 1, pnlUsd: 1 }),
+      makeTrade({ id: "d2", date: "2026-07-01", rMultiple: 2, pnlUsd: 2 }),
+      makeTrade({ id: "d3", date: "2026-07-02", rMultiple: -1, result: "loss", pnlUsd: -1 }),
     ];
     const byDay = rByDay(trades, "r");
     expect(byDay).toHaveLength(2);
@@ -485,11 +507,11 @@ describe("pnlCalendar", () => {
 
     const win = cells.find((c) => c.date === "2026-07-14")!;
     expect(win.hasTrades).toBe(true);
-    expect(win.value).toBe(2);
+    expect(win.value).toBe(200);
 
     const loss = cells.find((c) => c.date === "2026-07-22")!;
     expect(loss.hasTrades).toBe(true);
-    expect(loss.value).toBe(-1);
+    expect(loss.value).toBe(-100);
 
     const empty = cells.find((c) => c.date === "2026-07-15")!;
     expect(empty.inRange).toBe(true);
@@ -534,9 +556,9 @@ describe("winLossBreakdown", () => {
 describe("bySymbol", () => {
   it("sums R by symbol descending", () => {
     const trades = [
-      makeTrade({ id: "s1", symbol: "EURUSD", rMultiple: 2 }),
-      makeTrade({ id: "s2", symbol: "GBPUSD", rMultiple: 1 }),
-      makeTrade({ id: "s3", symbol: "EURUSD", rMultiple: -1, result: "loss" }),
+      makeTrade({ id: "s1", symbol: "EURUSD", rMultiple: 2, pnlUsd: 2 }),
+      makeTrade({ id: "s2", symbol: "GBPUSD", rMultiple: 1, pnlUsd: 1 }),
+      makeTrade({ id: "s3", symbol: "EURUSD", rMultiple: -1, result: "loss", pnlUsd: -1 }),
     ];
     const rows = bySymbol(trades, "r");
     expect(rows[0]).toEqual({
@@ -568,14 +590,15 @@ describe("bySymbol", () => {
   it("nets multiple wins and losses on the same symbol", () => {
     const rows = bySymbol(
       [
-        makeTrade({ id: "g1", symbol: "GBPJPY", rMultiple: 1.1, result: "win" }),
+        makeTrade({ id: "g1", symbol: "GBPJPY", rMultiple: 1.1, result: "win", pnlUsd: 1.1 }),
         makeTrade({
           id: "g2",
           symbol: "GBPJPY",
           rMultiple: -1.02,
           result: "loss",
+          pnlUsd: -1.02,
         }),
-        makeTrade({ id: "g3", symbol: "GBPJPY", rMultiple: 1.89, result: "win" }),
+        makeTrade({ id: "g3", symbol: "GBPJPY", rMultiple: 1.89, result: "win", pnlUsd: 1.89 }),
       ],
       "r",
     );
@@ -680,25 +703,13 @@ describe("bySymbol", () => {
 });
 
 describe("bySetup", () => {
-  it("sums R by setup descending", () => {
+  it("returns empty because setup was removed", () => {
     const trades = [
-      makeTrade({ id: "p1", setup: "A", rMultiple: 3 }),
-      makeTrade({ id: "p2", setup: "B", rMultiple: 1 }),
+      makeTrade({ id: "p1", rMultiple: 3 }),
+      makeTrade({ id: "p2", rMultiple: 1 }),
     ];
-    expect(bySetup(trades, "r")[0]).toEqual({
-      id: "A",
-      label: "A",
-      value: 3,
-      count: 1,
-    });
-  });
-
-  it("sums USD by setup", () => {
-    const rows = bySetup(
-      [makeTrade({ id: "pu1", setup: "IFVG", pnlUsd: 80 })],
-      "usd",
-    );
-    expect(rows[0].value).toBe(80);
+    expect(bySetup(trades, "r")).toEqual([]);
+    expect(bySetup([makeTrade({ id: "pu1", pnlUsd: 80 })], "usd")).toEqual([]);
   });
 });
 
@@ -708,7 +719,7 @@ describe("dashboard chart correctness", () => {
     const rCurve = equityCurve(seedTrades, "r");
     const usdCurve = equityCurve(seedTrades, "usd");
     expect(rCurve[0]?.value).toBe(0);
-    expect(rCurve.at(-1)?.value).toBe(round2(stats.totalR));
+    expect(rCurve.at(-1)?.value).toBe(round2(stats.totalPnlUsd));
     expect(usdCurve.at(-1)?.value).toBe(round2(stats.totalPnlUsd));
     expect(rCurve).toHaveLength(stats.closedCount + 1); // Start + closed
     expect(new Set(rCurve.slice(1).map((p) => p.id)).size).toBe(stats.closedCount);
@@ -741,7 +752,6 @@ describe("metricLabel", () => {
     expect(metricLabel("pnlUsd")).toBe("P&L ($)");
     expect(metricLabel("riskUsd")).toBe("Risk ($)");
     expect(metricLabel("feesUsd")).toBe("Fees (comm+swap $)");
-    expect(metricLabel("rMultiple")).toBe("R");
   });
 
   it("falls back to the field name for unknown keys", () => {
@@ -763,7 +773,6 @@ describe("metricValue", () => {
     expect(metricValue(trade, "pnlUsd")).toBe(100);
     expect(metricValue(trade, "riskUsd")).toBe(100);
     expect(metricValue(trade, "feesUsd")).toBe(0);
-    expect(metricValue(trade, "rMultiple")).toBe(1);
   });
 
   it("returns null for optional missing fields", () => {
@@ -826,18 +835,16 @@ describe("metricValue", () => {
 describe("labelValue", () => {
   const trade = makeTrade({ id: "lv", date: "2026-07-15" });
 
-  it("returns symbol, formatted date, setup, session, side, and result", () => {
+  it("returns symbol, formatted date, session, side, and result", () => {
     expect(labelValue(trade, "symbol")).toBe("EURUSD");
     expect(labelValue(trade, "date")).toBe("Jul 15");
-    expect(labelValue(trade, "setup")).toBe("Test Setup");
     expect(labelValue(trade, "session")).toBe("London");
     expect(labelValue(trade, "side")).toBe("long");
     expect(labelValue(trade, "result")).toBe("win");
   });
 
-  it("uses em dash for empty setup and session", () => {
-    const empty = makeTrade({ id: "empty-labels", setup: "", session: "" });
-    expect(labelValue(empty, "setup")).toBe("—");
+  it("uses em dash for empty session", () => {
+    const empty = makeTrade({ id: "empty-labels", session: "" });
     expect(labelValue(empty, "session")).toBe("—");
   });
 
@@ -859,13 +866,13 @@ describe("buildChart", () => {
   const trades = seedTrades.slice(0, 3);
   const customData = [{ label: "A", value: 1 }];
 
-  it("builds equity preset with R defaults and custom title", () => {
+  it("builds equity preset with $ defaults and custom title", () => {
     const chart = buildChart("equity", trades);
     expect(chart.type).toBe("equity");
-    expect(chart.title).toBe("Equity curve (R)");
-    expect(chart.description).toBe("Cumulative R across closed trades");
-    expect(chart.yLabel).toBe("R");
-    expect(chart.valueUnit).toBe("r");
+    expect(chart.title).toBe("Equity curve ($)");
+    expect(chart.description).toBe("Cumulative $ P&L across closed trades");
+    expect(chart.yLabel).toBe("$");
+    expect(chart.valueUnit).toBe("usd");
     expect(chart.data?.length).toBeGreaterThan(0);
 
     const usd = buildChart("equity", trades, "My equity", undefined, "usd");
@@ -873,15 +880,12 @@ describe("buildChart", () => {
     expect(usd.description).toBe("Cumulative $ P&L across closed trades");
     expect(usd.yLabel).toBe("$");
     expect(usd.valueUnit).toBe("usd");
-
-    const usdDefaultTitle = buildChart("equity", trades, undefined, undefined, "usd");
-    expect(usdDefaultTitle.title).toBe("Equity curve ($)");
   });
 
-  it("builds rByDay preset with R and USD", () => {
+  it("builds rByDay preset in $", () => {
     const r = buildChart("rByDay", trades);
-    expect(r.title).toBe("Daily R");
-    expect(r.yLabel).toBe("R");
+    expect(r.title).toBe("Daily $");
+    expect(r.yLabel).toBe("$");
 
     const usd = buildChart("rByDay", trades, undefined, undefined, "usd");
     expect(usd.title).toBe("Daily $");
@@ -894,10 +898,10 @@ describe("buildChart", () => {
     expect(chart.data).toEqual(winLossBreakdown(trades));
   });
 
-  it("builds bySymbol preset with R and USD", () => {
+  it("builds bySymbol preset in $", () => {
     const r = buildChart("bySymbol", trades);
-    expect(r.title).toBe("R by symbol");
-    expect(r.yLabel).toBe("R");
+    expect(r.title).toBe("$ by symbol");
+    expect(r.yLabel).toBe("$");
 
     const usd = buildChart("bySymbol", trades, "Symbols $", undefined, "usd");
     expect(usd.title).toBe("Symbols $");
@@ -907,12 +911,12 @@ describe("buildChart", () => {
     expect(usdDefaultTitle.title).toBe("$ by symbol");
   });
 
-  it("builds bySetup preset with R and USD", () => {
+  it("builds bySetup preset as $ by symbol fallback", () => {
     const r = buildChart("bySetup", trades);
-    expect(r.title).toBe("R by setup");
+    expect(r.title).toBe("$ by symbol");
 
     const usd = buildChart("bySetup", trades, undefined, undefined, "usd");
-    expect(usd.title).toBe("$ by setup");
+    expect(usd.title).toBe("$ by symbol");
     expect(usd.yLabel).toBe("$");
   });
 
@@ -941,7 +945,7 @@ describe("buildChartFromRequest", () => {
     }
 
     const withoutOverride = buildChartFromRequest({ type: "equity" }, seedTrades);
-    expect(withoutOverride.description).toBe("Cumulative R across closed trades");
+    expect(withoutOverride.description).toBe("Cumulative $ P&L across closed trades");
   });
 
   it("returns explicit custom data when provided", () => {
@@ -974,17 +978,17 @@ describe("buildChartFromRequest", () => {
       makeTrade({ id: "sc3", slPips: 20, rMultiple: NaN }),
     ];
     const chart = buildChartFromRequest({ type: "scatter" }, pool);
-    expect(chart.title).toBe("SL (pips) vs R");
+    expect(chart.title).toBe("SL (pips) vs P&L ($)");
     expect(chart.description).toBe("Each point is one closed trade");
     expect(chart.xLabel).toBe("SL (pips)");
-    expect(chart.yLabel).toBe("R");
-    expect(chart.data).toHaveLength(1);
+    expect(chart.yLabel).toBe("P&L ($)");
+    expect(chart.data!.length).toBeGreaterThan(0);
     expect(chart.data![0]).toMatchObject({
       label: "EURUSD",
       value: 10,
-      secondary: 1.5,
+      secondary: 100,
       x: 10,
-      y: 1.5,
+      y: 100,
     });
   });
 
@@ -993,7 +997,7 @@ describe("buildChartFromRequest", () => {
       {
         type: "scatter",
         xField: "entry",
-        yField: "rMultiple",
+        yField: "pnlUsd",
       },
       [makeTrade({ id: "sc-x", entry: Infinity, rMultiple: 2 })],
     );
@@ -1006,13 +1010,13 @@ describe("buildChartFromRequest", () => {
         type: "scatter",
         xField: "tpPips",
         yField: "pnlUsd",
-        labelField: "setup",
+        labelField: "session",
         title: "Scatter custom",
         description: "Custom scatter",
         xLabel: "TP",
         yLabel: "PnL",
       },
-      [makeTrade({ id: "sc-c", tpPips: 30, pnlUsd: 120, setup: "IFVG" })],
+      [makeTrade({ id: "sc-c", tpPips: 30, pnlUsd: 120, session: "IFVG" })],
     );
     expect(chart.title).toBe("Scatter custom");
     expect(chart.description).toBe("Custom scatter");
@@ -1097,7 +1101,7 @@ describe("buildChartFromRequest", () => {
       },
       trades,
     );
-    expect(count.title).toBe("count R by SL (pips)");
+    expect(count.title).toBe("count P&L ($) by SL (pips)");
     expect(count.yLabel).toBe("Trades");
     expect(count.data).toEqual([
       { label: "10–20", value: 2 },
@@ -1113,9 +1117,9 @@ describe("buildChartFromRequest", () => {
       },
       trades,
     );
-    expect(avg.title).toBe("avg R by SL (pips)");
-    expect(avg.yLabel).toBe("R");
-    expect(avg.data![0].value).toBe(1.5);
+    expect(avg.title).toBe("avg P&L ($) by SL (pips)");
+    expect(avg.yLabel).toBe("P&L ($)");
+    expect(avg.data![0].value).toBe(100);
 
     const sum = buildChartFromRequest(
       {
@@ -1123,12 +1127,12 @@ describe("buildChartFromRequest", () => {
         bucketField: "slPips",
         bucketSize: 10,
         aggregate: "sum",
-        valueField: "rMultiple",
+        valueField: "pnlUsd",
         yLabel: "Total R",
       },
       trades,
     );
-    expect(sum.data![0].value).toBe(3);
+    expect(sum.data![0].value).toBe(200);
     expect(sum.yLabel).toBe("Total R");
   });
 
@@ -1148,37 +1152,37 @@ describe("buildChartFromRequest", () => {
 
   it("builds grouped line series sorted by abs value except for date labels", () => {
     const trades = [
-      makeTrade({ id: "g1", symbol: "AAA", rMultiple: 1 }),
-      makeTrade({ id: "g2", symbol: "BBB", rMultiple: -3, result: "loss" }),
-      makeTrade({ id: "g3", date: "2026-07-02", rMultiple: 0.5 }),
+      makeTrade({ id: "g1", symbol: "AAA", pnlUsd: 100 }),
+      makeTrade({ id: "g2", symbol: "BBB", pnlUsd: -300, result: "loss" }),
+      makeTrade({ id: "g3", date: "2026-07-02", pnlUsd: 50 }),
     ];
 
     const bySymbolChart = buildChartFromRequest(
-      { type: "line", aggregate: "sum", valueField: "rMultiple" },
+      { type: "line", aggregate: "sum", valueField: "pnlUsd" },
       trades,
     );
-    expect(bySymbolChart.title).toBe("R by symbol");
-    expect(bySymbolChart.yLabel).toBe("R");
+    expect(bySymbolChart.title).toBe("P&L ($) by symbol");
+    expect(bySymbolChart.yLabel).toBe("P&L ($)");
     expect(bySymbolChart.data![0].label).toBe("BBB");
-    expect(bySymbolChart.data![0].value).toBe(-3);
+    expect(bySymbolChart.data![0].value).toBe(-300);
 
     const avgChart = buildChartFromRequest(
       {
         type: "line",
         labelField: "symbol",
         aggregate: "avg",
-        valueField: "rMultiple",
+        valueField: "pnlUsd",
       },
       trades,
     );
-    expect(avgChart.yLabel).toBe("R");
+    expect(avgChart.yLabel).toBe("P&L ($)");
 
     const byDateChart = buildChartFromRequest(
       {
         type: "line",
         labelField: "date",
         aggregate: "sum",
-        valueField: "rMultiple",
+        valueField: "pnlUsd",
         description: "Grouped by day",
       },
       trades,
@@ -1240,7 +1244,7 @@ describe("buildChartFromRequest", () => {
         bucketField: "slPips",
         bucketSize: 10,
         aggregate: "sum",
-        valueField: "rMultiple",
+        valueField: "pnlUsd",
         title: "My bucket chart",
         description: "Bucket desc",
         yLabel: "Custom Y",
@@ -1273,9 +1277,9 @@ describe("buildChartFromRequest", () => {
       { type: "line", labelField: "symbol" },
       [makeTrade({ id: "def1", symbol: "ZZZ", rMultiple: 2 })],
     );
-    expect(chart.title).toBe("R by symbol");
-    expect(chart.yLabel).toBe("R");
-    expect(chart.data).toEqual([{ label: "ZZZ", value: 2 }]);
+    expect(chart.title).toBe("P&L ($) by symbol");
+    expect(chart.yLabel).toBe("P&L ($)");
+    expect(chart.data).toEqual([{ label: "ZZZ", value: 100 }]);
   });
 
   it("uses default bucket description when bucketSize omitted", () => {

@@ -10,9 +10,25 @@ import { seedStrategy } from "@/lib/seed-data";
 import { useTradingStore } from "@/lib/store";
 
 vi.mock("react-markdown", () => ({
-  default: ({ children }: { children: string }) => (
-    <div data-testid="markdown">{children}</div>
-  ),
+  default: ({
+    children,
+    urlTransform,
+    components,
+  }: {
+    children: string;
+    urlTransform?: (url: string) => string;
+    components?: {
+      img?: (props: { src?: string; alt?: string }) => JSX.Element | null;
+    };
+  }) => {
+    const src = urlTransform?.("data:image/png;base64,view");
+    return (
+      <div data-testid="markdown">
+        {children}
+        {components?.img?.({ src, alt: undefined })}
+      </div>
+    );
+  },
 }));
 
 vi.mock("remark-gfm", () => ({
@@ -140,7 +156,12 @@ describe("StrategyPage", () => {
 
     await waitFor(() => {
       expect(mockFileToChatImage).toHaveBeenCalledWith(file, 1400, 0.78);
-      expect(textarea.value).toContain("![chart](data:image/png;base64,abc)");
+      expect(textarea.value).toContain("![chart](strategy-image-1)");
+      expect(textarea.value).not.toContain("base64");
+      expect(screen.getByAltText("chart")).toHaveAttribute(
+        "src",
+        "data:image/png;base64,abc",
+      );
     });
   });
 
@@ -317,9 +338,8 @@ describe("StrategyPage", () => {
     await user.upload(input, file);
 
     await waitFor(() => {
-      expect(textarea.value).toContain(
-        "![strategy image](data:image/png;base64,abc)",
-      );
+      expect(textarea.value).toContain("![strategy image](strategy-image-1)");
+      expect(screen.getByAltText("strategy image")).toBeInTheDocument();
     });
   });
 });

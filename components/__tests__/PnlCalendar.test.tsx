@@ -10,7 +10,6 @@ function makeTrade(overrides: Partial<Trade> & Pick<Trade, "id" | "date">): Trad
   return {
     symbol: "EURUSD",
     side: "long",
-    setup: "Test",
     entry: 1.1,
     stop: 1.09,
     target: 1.12,

@@ -10,11 +10,6 @@ function formatSignedUsd(value: number, digits = 0): string {
   return `${sign}$${value.toFixed(digits)}`;
 }
 
-function formatSignedR(value: number, digits = 2): string {
-  const sign = value > 0 ? "+" : "";
-  return `${sign}${value.toFixed(digits)}R`;
-}
-
 export default function DashboardPage() {
   const trades = useTradingStore((s) => s.trades);
   const hydrated = useTradingStore((s) => s.hydrated);
@@ -52,9 +47,11 @@ export default function DashboardPage() {
           <p className="stat__value">{stats.winRate.toFixed(0)}%</p>
         </div>
         <div className="stat">
-          <p className="stat__label">Avg RR</p>
-          <p className={`stat__value ${stats.avgR >= 0 ? "pos" : "neg"}`}>
-            {formatSignedR(stats.avgR)}
+          <p className="stat__label">Best / worst</p>
+          <p className="stat__value">
+            <span className="pos">{formatSignedUsd(stats.best)}</span>
+            <span style={{ color: "var(--muted)" }}> / </span>
+            <span className="neg">{formatSignedUsd(stats.worst)}</span>
           </p>
         </div>
         <div className="stat">

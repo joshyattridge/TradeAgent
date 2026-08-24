@@ -61,11 +61,9 @@ export const logTradeSchema = z.object({
   date: z.string().describe("YYYY-MM-DD"),
   symbol: z.string(),
   side: tradeSideSchema,
-  setup: z.string(),
   entry: z.number(),
   stop: z.number(),
   target: z.number(),
-  rMultiple: z.number(),
   result: tradeResultSchema,
   notes: z.string().optional().describe("Initial notes for a new trade only"),
   tags: z.array(z.string()).optional().describe("Initial tags for a new trade only"),
@@ -90,11 +88,9 @@ export const patchTradeSchema = z.object({
     .optional()
     .describe("Only for correcting typos on the SAME pair — refused if pair differs"),
   side: tradeSideSchema.optional(),
-  setup: z.string().optional(),
   entry: z.number().optional(),
   stop: z.number().optional(),
   target: z.number().optional(),
-  rMultiple: z.number().optional(),
   result: tradeResultSchema.optional(),
   checklist: z
     .array(checklistAnswerInputSchema)
@@ -278,13 +274,11 @@ const metricField = z.enum([
   "pnlUsd",
   "riskUsd",
   "feesUsd",
-  "rMultiple",
 ]);
 
 const labelField = z.enum([
   "symbol",
   "date",
-  "setup",
   "session",
   "side",
   "result",
@@ -347,10 +341,6 @@ export const tradeFilterSchema = z.object({
     .describe(
       "Use any (default) for all results. Only set win/loss/breakeven/open when the user asks for that subset.",
     ),
-  setup: z
-    .string()
-    .optional()
-    .describe("Omit unless filtering by setup name. Never pass empty string."),
   session: z
     .string()
     .optional()
@@ -360,14 +350,14 @@ export const tradeFilterSchema = z.object({
   text: z
     .string()
     .optional()
-    .describe("Search notes, setup, tags, symbol. Omit if unused."),
+    .describe("Search notes, tags, symbol. Omit if unused."),
   ids: z.array(z.string()).optional().describe("Omit unless targeting specific ids."),
   tags: z.array(z.string()).optional().describe("Omit unless filtering by tags."),
 });
 
 export const queryTradesSchema = tradeFilterSchema.extend({
   sort: z
-    .enum(["newest", "oldest", "bestR", "worstR"])
+    .enum(["newest", "oldest", "bestPnl", "worstPnl", "bestR", "worstR"])
     .optional()
     .default("newest"),
   limit: z.number().int().min(1).max(25).optional().default(10),

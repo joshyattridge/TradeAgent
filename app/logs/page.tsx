@@ -1,14 +1,26 @@
 "use client";
 
+import { useMemo, useState } from "react";
 import { TradeTable } from "@/components/TradeTable";
 import { useTradingStore } from "@/lib/store";
-import { computeStats } from "@/lib/stats";
+import { computeStats, visibleJournalTrades } from "@/lib/stats";
 import { formatDuration } from "@/lib/trade-format";
+
+function formatSignedUsd(value: number, digits = 0): string {
+  const sign = value > 0 ? "+" : "";
+  return `${sign}$${value.toFixed(digits)}`;
+}
 
 export default function LogsPage() {
   const trades = useTradingStore((s) => s.trades);
   const hydrated = useTradingStore((s) => s.hydrated);
+  const [showHidden, setShowHidden] = useState(false);
   const stats = computeStats(trades);
+  const hiddenCount = trades.filter((t) => t.hidden).length;
+  const tableTrades = useMemo(
+    () => (showHidden ? trades : visibleJournalTrades(trades)),
+    [showHidden, trades],
+  );
 
   if (!hydrated) {
     return (
@@ -20,12 +32,26 @@ export default function LogsPage() {
 
   return (
     <div className="page">
-      <section className="page-hero">
-        <h1>Trading Logs</h1>
-        <p>
-          Every trade on record. Keep the table light, click a row for full
-          details, and toggle columns anytime.
-        </p>
+      <section className="page-hero page-hero--split">
+        <div>
+          <h1>Trading Logs</h1>
+          <p>
+            Every trade on record. Keep the table light, click a row for full
+            details, and toggle columns anytime.
+          </p>
+        </div>
+        {hiddenCount ? (
+          <button
+            type="button"
+            className="ghost-btn"
+            onClick={() => setShowHidden((v) => !v)}
+            aria-pressed={showHidden}
+          >
+            {showHidden
+              ? "Hide hidden trades"
+              : `Show hidden (${hiddenCount})`}
+          </button>
+        ) : null}
       </section>
 
       <section className="stat-row">
@@ -57,14 +83,14 @@ export default function LogsPage() {
         <div className="stat">
           <p className="stat__label">Best / worst</p>
           <p className="stat__value">
-            <span className="pos">+{stats.best.toFixed(1)}</span>
+            <span className="pos">{formatSignedUsd(stats.best)}</span>
             <span style={{ color: "var(--muted)" }}> / </span>
-            <span className="neg">{stats.worst.toFixed(1)}R</span>
+            <span className="neg">{formatSignedUsd(stats.worst)}</span>
           </p>
         </div>
       </section>
 
-      <TradeTable trades={trades} />
+      <TradeTable trades={tableTrades} />
     </div>
   );
 }

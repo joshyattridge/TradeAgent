@@ -25,7 +25,6 @@ function sampleTrade(overrides: Partial<Trade> = {}): Trade {
     date: "2026-07-01",
     symbol: "EURUSD",
     side: "long",
-    setup: "1H FVG Continuation",
     entry: 1.1682,
     stop: 1.1658,
     target: 1.173,
@@ -107,8 +106,8 @@ describe("formatTradeFieldValue", () => {
       ),
     ).toMatch(/Jul 30, 2026 16:10:00/);
 
-    expect(formatTradeFieldValue({ ...base, rMultiple: 1.5 }, "rMultiple")).toBe("+1.50R");
-    expect(formatTradeFieldValue({ ...base, rMultiple: -0.75 }, "rMultiple")).toBe("-0.75R");
+    expect(formatTradeFieldValue({ ...base, rMultiple: 1.5 }, "rMultiple")).toBe("1.5");
+    expect(formatTradeFieldValue({ ...base, rMultiple: -0.75 }, "rMultiple")).toBe("-0.75");
 
     expect(formatTradeFieldValue({ ...base, pnlUsd: 210.5 }, "pnlUsd")).toBe("+$210.50");
     expect(formatTradeFieldValue({ ...base, pnlUsd: -50 }, "pnlUsd")).toBe("$-50.00");
@@ -233,7 +232,7 @@ describe("chat proposals", () => {
     const before = sampleTrade();
     const proposal = buildChatProposal({
       actions: {
-        updateTrade: { id: "t1", rMultiple: 2.5, notes: "Updated note" },
+        updateTrade: { id: "t1", pnlUsd: 250, notes: "Updated note" },
       },
       trades: [before],
       strategy: seedStrategy,
@@ -242,11 +241,10 @@ describe("chat proposals", () => {
     const change = proposal?.changes[0];
     expect(change?.kind).toBe("update");
     if (change?.kind === "update") {
-      expect(change.before.rMultiple).toBe(1.5);
-      expect(change.after.rMultiple).toBe(2.5);
+      expect(change.after.pnlUsd).toBe(250);
       expect(change.after.notes).toBe("Updated note");
       expect(change.changedKeys).toEqual(
-        expect.arrayContaining(["rMultiple", "notes"]),
+        expect.arrayContaining(["pnlUsd", "notes"]),
       );
       expect(change.changedKeys).not.toContain("symbol");
     }
@@ -378,7 +376,7 @@ describe("chat proposals", () => {
     const b = sampleTrade({ id: "b", symbol: "GBPUSD" });
     const proposal = buildChatProposal({
       actions: {
-        updateTrade: { id: "a", rMultiple: 3 },
+        updateTrade: { id: "a", pnlUsd: 300 },
         deleteTradeIds: ["b"],
         updateStrategy: { appendMarkdown: undefined, markdown: "# New\n" },
       },
@@ -409,7 +407,7 @@ describe("chat proposals", () => {
           sampleTrade({ id: "n2", symbol: "NAS100" }),
         ],
         updateTrades: [
-          { id: "a", rMultiple: 2 },
+          { id: "a", pnlUsd: 200 },
           { id: "b", notes: "patched" },
         ],
         deleteTradeIds: ["c", "d"],
@@ -424,7 +422,7 @@ describe("chat proposals", () => {
     const proposal = buildChatProposal({
       actions: {
         updateStrategy: { updatedAt: seedStrategy.updatedAt },
-        updateTrade: { id: "t1", rMultiple: 2 },
+        updateTrade: { id: "t1", pnlUsd: 200 },
       },
       trades: [sampleTrade()],
       strategy: seedStrategy,
@@ -753,23 +751,23 @@ describe("pending proposal accept / reject store flow", () => {
 
   it("does not mutate journal until Accept", () => {
     const proposal = buildChatProposal({
-      actions: { updateTrade: { id: "t1", rMultiple: 9 } },
+      actions: { updateTrade: { id: "t1", pnlUsd: 900 } },
       trades: useTradingStore.getState().trades,
       strategy: useTradingStore.getState().strategy,
     });
     expect(proposal).not.toBeNull();
     useTradingStore.getState().setPendingProposal(proposal);
     expect(useTradingStore.getState().proposalReviewOpen).toBe(true);
-    expect(useTradingStore.getState().trades[0].rMultiple).toBe(1.5);
+    expect(useTradingStore.getState().trades[0].pnlUsd).toBeUndefined();
 
     useTradingStore.getState().rejectPendingProposal();
     expect(useTradingStore.getState().pendingProposal).toBeNull();
-    expect(useTradingStore.getState().trades[0].rMultiple).toBe(1.5);
+    expect(useTradingStore.getState().trades[0].pnlUsd).toBeUndefined();
   });
 
   it("Accept applies update to the journal", () => {
     const proposal = buildChatProposal({
-      actions: { updateTrade: { id: "t1", rMultiple: 2.25, notes: "Accepted" } },
+      actions: { updateTrade: { id: "t1", pnlUsd: 225, notes: "Accepted" } },
       trades: useTradingStore.getState().trades,
       strategy: useTradingStore.getState().strategy,
     });
@@ -777,7 +775,7 @@ describe("pending proposal accept / reject store flow", () => {
     useTradingStore.getState().acceptPendingProposal();
 
     const trade = useTradingStore.getState().trades.find((t) => t.id === "t1");
-    expect(trade?.rMultiple).toBe(2.25);
+    expect(trade?.pnlUsd).toBe(225);
     expect(trade?.notes).toBe("Accepted");
     expect(useTradingStore.getState().pendingProposal).toBeNull();
     expect(useTradingStore.getState().proposalReviewOpen).toBe(false);
@@ -823,29 +821,29 @@ describe("pending proposal accept / reject store flow", () => {
 
   it("replacing pending proposal keeps journal untouched until accept", () => {
     const first = buildChatProposal({
-      actions: { updateTrade: { id: "t1", rMultiple: 2 } },
+      actions: { updateTrade: { id: "t1", pnlUsd: 200 } },
       trades: useTradingStore.getState().trades,
       strategy: useTradingStore.getState().strategy,
     });
     useTradingStore.getState().setPendingProposal(first);
 
     const second = buildChatProposal({
-      actions: { updateTrade: { id: "t1", rMultiple: 4 } },
+      actions: { updateTrade: { id: "t1", pnlUsd: 400 } },
       trades: useTradingStore.getState().trades,
       strategy: useTradingStore.getState().strategy,
     });
     useTradingStore.getState().setPendingProposal(second);
 
-    expect(useTradingStore.getState().trades[0].rMultiple).toBe(1.5);
+    expect(useTradingStore.getState().trades[0].pnlUsd).toBeUndefined();
     expect(useTradingStore.getState().pendingProposal?.id).toBe(second?.id);
 
     useTradingStore.getState().acceptPendingProposal();
-    expect(useTradingStore.getState().trades[0].rMultiple).toBe(4);
+    expect(useTradingStore.getState().trades[0].pnlUsd).toBe(400);
   });
 
   it("replacing a proposal reopens the review panel after it was hidden", () => {
     const first = buildChatProposal({
-      actions: { updateTrade: { id: "t1", rMultiple: 2 } },
+      actions: { updateTrade: { id: "t1", pnlUsd: 200 } },
       trades: useTradingStore.getState().trades,
       strategy: useTradingStore.getState().strategy,
     });
@@ -884,7 +882,7 @@ describe("pending proposal accept / reject store flow", () => {
 
   it("resolvePendingProposalUpdate replaces with a new proposal when diffs exist", () => {
     const resolved = resolvePendingProposalUpdate({
-      actions: { updateTrade: { id: "t1", rMultiple: 9 } },
+      actions: { updateTrade: { id: "t1", pnlUsd: 900 } },
       trades: useTradingStore.getState().trades,
       strategy: useTradingStore.getState().strategy,
     });
@@ -909,7 +907,7 @@ describe("pending proposal accept / reject store flow", () => {
         id: "t1",
         entryTime: "2026-07-30T15:46:09",
         exitTime: "2026-07-30T16:10:00",
-        rMultiple: 1.95,
+        pnlUsd: 195,
         slPips: 29.3,
       }),
     ];
@@ -921,7 +919,7 @@ describe("pending proposal accept / reject store flow", () => {
           id: "t1",
           entryTime: "2026-07-30T15:46:09Z",
           exitTime: "2026-07-30T16:10:00Z",
-          rMultiple: 1.97,
+          pnlUsd: 197,
           slPips: 29.7,
         },
       },
@@ -937,7 +935,7 @@ describe("pending proposal accept / reject store flow", () => {
       actions: {
         updateTrade: {
           id: "t1",
-          rMultiple: 1.97,
+          pnlUsd: 197,
           slPips: 29.7,
         },
       },
@@ -950,7 +948,7 @@ describe("pending proposal accept / reject store flow", () => {
       refined.nextProposal!.changes[0].kind === "update"
         ? refined.nextProposal!.changes[0].changedKeys
         : [];
-    expect(keys).toEqual(expect.arrayContaining(["rMultiple", "slPips"]));
+    expect(keys).toEqual(expect.arrayContaining(["pnlUsd", "slPips"]));
     expect(keys).not.toContain("entryTime");
     expect(keys).not.toContain("exitTime");
 
@@ -963,7 +961,7 @@ describe("pending proposal accept / reject store flow", () => {
 
   it("clearChat drops pending proposal", () => {
     const proposal = buildChatProposal({
-      actions: { updateTrade: { id: "t1", rMultiple: 2 } },
+      actions: { updateTrade: { id: "t1", pnlUsd: 200 } },
       trades: useTradingStore.getState().trades,
       strategy: useTradingStore.getState().strategy,
     });

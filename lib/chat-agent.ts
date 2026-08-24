@@ -17,6 +17,8 @@ import {
 } from "@/lib/chat-context";
 import {
   buildUserContentParts,
+  collectConversationAttachments,
+  mergeAttachmentPayloads,
   type ChatAttachmentPayload,
 } from "@/lib/chat-attachments";
 import type { ChatAgentMessage } from "@/lib/chat-history";
@@ -203,13 +205,13 @@ function createJournalTools(session: JournalSession) {
     }),
     log_trade: tool({
       description:
-        "Create a NEW trade only — never updates an existing row. Returns the new id; use patch_trade for field follow-ups and annotate_trade for notes/tags. When reading a screenshot, extract levels into the normal trade fields (entry/stop/target/exit/session/setup). feesUsd is commission + swap.",
+        "Create a NEW trade only — never updates an existing row. Returns the new id; use patch_trade for field follow-ups and annotate_trade for notes/tags. When reading a screenshot, extract levels into the normal trade fields (entry/stop/target/exit/session). feesUsd is commission + swap. Record P&L in pnlUsd ($) only — never R-multiple.",
       inputSchema: logTradeSchema,
       execute: async (input) => session.logTrade(input),
     }),
     patch_trade: tool({
       description:
-        "Partial update of trade fields by exact id (levels, result, session, setup, PnL, fees, etc). feesUsd = commission + swap. Does NOT touch notes or tags — use annotate_trade for those. Never guess ids; call find_trade / query_trades first. No silent retargeting.",
+        "Partial update of trade fields by exact id (levels, result, session, PnL, fees, etc). feesUsd = commission + swap. Does NOT touch notes or tags — use annotate_trade for those. Never guess ids; call find_trade / query_trades first. No silent retargeting. Use pnlUsd ($) only — never R-multiple.",
       inputSchema: patchTradeSchema,
       execute: async (input) => session.patchTrade(input),
     }),
@@ -238,13 +240,13 @@ function createJournalTools(session: JournalSession) {
     }),
     query_trades: tool({
       description:
-        "Search the journal for trade rows. Always includes journalStats (full-book wins/losses/R/PnL). For listing every trade: omit symbol/side/result filters and use limit=25. Only add filters when the user explicitly asks for a subset.",
+        "Search the journal for trade rows. Always includes journalStats (full-book wins/losses/$ PnL). For listing every trade: omit symbol/side/result filters and use limit=25. Only add filters when the user explicitly asks for a subset.",
       inputSchema: queryTradesSchema,
       execute: async (input) => session.queryTrades(input),
     }),
     get_stats: tool({
       description:
-        "Full-journal performance scoreboard (wins, losses, win rate, total R, PnL). Does NOT accept symbol/side/result filters — always the whole book. Prefer closedOnly=true.",
+        "Full-journal performance scoreboard (wins, losses, win rate, $ PnL). Does NOT accept symbol/side/result filters — always the whole book. Prefer closedOnly=true.",
       inputSchema: getStatsSchema,
       execute: async (input) => session.getStatsTool(input),
     }),
@@ -276,7 +278,7 @@ Identifying which trade to update:
 
 Trade mutations (split tools — use the right one):
 - log_trade: brand-new position only. Never for follow-ups on an existing row.
-- patch_trade: field changes (levels, result, session, setup, PnL, checklist answers). Does NOT touch notes/tags.
+- patch_trade: field changes (levels, result, session, $ PnL, checklist answers). Does NOT touch notes/tags.
 - annotate_trade: notes/tags only. Prefer appendNote + addTags/removeTags. Use replaceNotes/replaceTags only when the user asks to rewrite/overwrite.
 - delete_trade: remove by exact id. For multiple trades, call once with ids or call per trade — there is no bulk field-update tool.
 - After log_trade, further details about THAT trade MUST use patch_trade / annotate_trade on the returned id.
@@ -302,7 +304,7 @@ Tool loop (Vercel AI SDK):
 - Never claim a change succeeded unless a tool result returned ok: true.
 - If a tool fails validation or execution, read the error/issues and retry with corrected args.
 - Prior turns include their tool calls and tool results in this conversation (like Cursor). Use them for continuity (ids, what you already compared), but re-query the live journal when answering about current state — Accept/Reject may have changed it.
-- Put screenshot-derived levels into normal trade fields (entry/stop/target/exit/session/setup). There is no separate chartExtract — when you need the image again, prior chat attachments and images stay in the conversation history (same as ChatGPT).
+- Put screenshot-derived levels into normal trade fields (entry/stop/target/exit/session). There is no separate chartExtract — when you need the image again, prior chat attachments and images stay in the conversation history for the entire chat (same as ChatGPT).
 - entryTime / exitTime: for broker CSV / chart clocks with NO timezone, copy the wall clock exactly as YYYY-MM-DDTHH:mm:ss with NO trailing Z (e.g. 2026-07-30T15:46:09). Never invent UTC/Z — that shifts the displayed hour for users in UTC+1. Only use Z or +01:00 when the source explicitly states a zone.
 
 Voice:
@@ -318,7 +320,7 @@ Missing info / screenshots:
 - The full prior chat is included every turn — including every previously attached CSV, PDF, text file, and image, plus prior tool calls/results. Do not ask the user to reattach a file that already appeared earlier in this conversation.
 - Reattached trade-journal screenshots (if any this turn): ${ctx.reattachedScreenshotCount}. These belong to a trade uniquely named in the message.
 - Attached files on the current message are also in the user message — use them as source data for logging, reviews, or imports.
-- Required when logging/closing: symbol, side, entry, SL, TP (or why missing), result, R and/or $ P&L.
+- Required when logging/closing: symbol, side, entry, SL, TP (or why missing), result, and $ P&L. Never use R-multiple.
 - feesUsd = commission + swap (add them if the broker shows both separately). pnlUsd is gross price P&L; net $ P&L used in stats is pnlUsd − feesUsd.
 
 Hard rules for mutations:
@@ -339,7 +341,7 @@ ${
 }
 - Trade identity is sacred: NEVER apply one symbol's fields onto another pair's row.
 - Only use log_trade for a brand new position.
-- Screenshots on the current message attach automatically on log/patch — still call the tool with extracted levels in normal fields.
+- Screenshots from this conversation attach automatically on log/patch, including images from earlier turns — still call the tool with extracted levels in normal fields.
 
 Charts:
 - Call generate_charts for visual analysis. Prefer field mappings over inventing data[].
@@ -400,12 +402,22 @@ export async function* streamAgentLoop(opts: {
   yield { type: "status", message: "Preparing context…" };
 
   const attachments = Array.isArray(opts.attachments) ? opts.attachments : [];
-  const turnHasFiles = attachments.some(
+  const historyAttachments = collectConversationAttachments(opts.history);
+  const mergedAttachments = mergeAttachmentPayloads(
+    historyAttachments,
+    (opts.images ?? []).map((dataUrl) => ({
+      kind: "image" as const,
+      name: "image",
+      dataUrl,
+    })),
+    attachments,
+  );
+  const turnHasFiles = mergedAttachments.some(
     (a) => a.kind === "text" || a.kind === "file",
   );
-  const turnImages = [
-    ...opts.images,
-    ...attachments
+    const turnImages = [
+    ...(opts.images ?? []),
+    ...mergedAttachments
       .filter(
         (a): a is Extract<ChatAttachmentPayload, { kind: "image" }> =>
           a.kind === "image" && typeof a.dataUrl === "string",
@@ -454,8 +466,8 @@ export async function* streamAgentLoop(opts: {
 
   const contentParts = buildUserContentParts({
     text: opts.userText,
-    images: opts.images,
-    attachments,
+    images: [],
+    attachments: mergedAttachments,
     imageDetail: "high",
   });
 

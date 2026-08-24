@@ -8,6 +8,8 @@ import type { StrategyChecklistItem, Trade } from "@/lib/types";
 const deleteTrade = vi.fn();
 const updateTrade = vi.fn();
 const addChatReferencedTradeId = vi.fn();
+const hideTrade = vi.fn();
+const unhideTrade = vi.fn();
 
 let strategyChecklist: StrategyChecklistItem[] = [];
 let storeTrades: Trade[] = [];
@@ -18,6 +20,8 @@ vi.mock("@/lib/store", () => ({
       deleteTrade,
       updateTrade,
       addChatReferencedTradeId,
+      hideTrade,
+      unhideTrade,
       strategy: { checklist: strategyChecklist },
       trades: storeTrades,
     }),
@@ -29,7 +33,6 @@ function sampleTrade(overrides: Partial<Trade> = {}): Trade {
     date: "2026-07-01",
     symbol: "EURUSD",
     side: "long",
-    setup: "1H FVG Continuation",
     entry: 1.1682,
     stop: 1.1658,
     target: 1.173,
@@ -75,18 +78,19 @@ describe("TradeDetail", () => {
     expect(document.body.querySelector(".trade-detail-backdrop")).toBeTruthy();
   });
 
-  it("renders win badge, positive R/P&L, and populated optional fields", async () => {
+  it("renders win badge, P&L, and populated optional fields", async () => {
     render(<TradeDetail trade={sampleTrade()} onClose={vi.fn()} />);
 
     const dialog = await screen.findByRole("dialog");
     const view = within(dialog);
 
-    expect(view.getByText("win")).toHaveClass("badge--win");
-    expect(view.getByText("+2.0R")).toHaveClass("pos");
-    expect(view.getByText("London")).toBeInTheDocument();
-    expect(view.getByText("0.40 lots")).toBeInTheDocument();
-    expect(view.getByText("$100")).toBeInTheDocument();
-    expect(view.getByText("Clean fill")).toBeInTheDocument();
+    expect(view.getByText("win")).toBeInTheDocument();
+    expect(view.queryByText("+2.0R")).not.toBeInTheDocument();
+    expect(view.queryByText("1H FVG Continuation")).not.toBeInTheDocument();
+    expect(view.getByLabelText("Session")).toHaveValue("London");
+    expect(view.getByLabelText("Size")).toHaveValue("0.40 lots");
+    expect(view.getByLabelText("Risk $")).toHaveValue("100");
+    expect(view.getByLabelText("Notes")).toHaveValue("Clean fill");
     expect(view.getByAltText("Trade chart 1")).toHaveAttribute(
       "src",
       "https://example.com/chart.png",
@@ -113,13 +117,13 @@ describe("TradeDetail", () => {
       />,
     );
 
-    expect(await screen.findByText("loss")).toHaveClass("badge--loss");
-    expect(screen.getByText("-1.0R")).toHaveClass("neg");
+    expect(await screen.findByText("loss")).toBeInTheDocument();
+    expect(screen.queryByText("-1.0R")).not.toBeInTheDocument();
 
     rerender(
       <TradeDetail trade={sampleTrade({ result: "open", rMultiple: 0, pnlUsd: undefined })} onClose={vi.fn()} />,
     );
-    expect(await screen.findByText("open")).toHaveClass("badge--open");
+    expect(await screen.findByDisplayValue("open")).toHaveClass("badge--open");
 
     rerender(
       <TradeDetail trade={sampleTrade({ result: "breakeven", rMultiple: 0 })} onClose={vi.fn()} />,
@@ -257,7 +261,7 @@ describe("TradeDetail", () => {
     render(<TradeDetail trade={trade} onClose={vi.fn()} />);
 
     await waitFor(() => {
-      expect(screen.getByText("short")).toHaveClass("side-short");
+      expect(screen.getByDisplayValue("short")).toBeInTheDocument();
     });
 
     await user.click(screen.getByRole("checkbox"));
@@ -281,5 +285,194 @@ describe("TradeDetail", () => {
       expect(screen.getByText("1/1 done")).toBeInTheDocument();
     });
     expect(screen.getByRole("checkbox")).toBeChecked();
+  });
+
+  it("saves edited fields on blur and ignores invalid numbers", async () => {
+    const user = userEvent.setup();
+    render(<TradeDetail trade={sampleTrade()} onClose={vi.fn()} />);
+    await screen.findByRole("dialog");
+
+    await user.clear(screen.getByLabelText("Symbol"));
+    await user.type(screen.getByLabelText("Symbol"), "GBPUSD");
+    await user.tab();
+    expect(updateTrade).toHaveBeenCalledWith("t1", { symbol: "GBPUSD" });
+
+    updateTrade.mockClear();
+    const pnl = screen.getByLabelText("$ P&L");
+    await user.clear(pnl);
+    await user.type(pnl, "abc");
+    await user.tab();
+    expect(updateTrade).not.toHaveBeenCalled();
+
+    await user.clear(pnl);
+    await user.type(pnl, "75");
+    await user.tab();
+    expect(updateTrade).toHaveBeenCalledWith("t1", { pnlUsd: 75 });
+  });
+
+  it("opens a screenshot lightbox and closes it from overlay, button, and Escape", async () => {
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+    render(<TradeDetail trade={sampleTrade()} onClose={onClose} />);
+    await screen.findByRole("dialog", { name: /trade details/i });
+
+    fireEvent.keyDown(window, { key: "Tab" });
+    expect(onClose).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole("button", { name: /full screen/i }));
+    expect(screen.getByRole("dialog", { name: "Screenshot" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByAltText("Trade screenshot"));
+    expect(screen.getByRole("dialog", { name: "Screenshot" })).toBeInTheDocument();
+
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(screen.queryByRole("dialog", { name: "Screenshot" })).not.toBeInTheDocument();
+    expect(onClose).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole("button", { name: /full screen/i }));
+    await user.click(screen.getByRole("button", { name: "Close screenshot" }));
+    expect(screen.queryByRole("dialog", { name: "Screenshot" })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /full screen/i }));
+    fireEvent.click(screen.getByRole("dialog", { name: "Screenshot" }));
+    expect(screen.queryByRole("dialog", { name: "Screenshot" })).not.toBeInTheDocument();
+  });
+
+  it("edits remaining trade fields, tags, notes, and chat reference", async () => {
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+    render(<TradeDetail trade={sampleTrade()} onClose={onClose} />);
+    await screen.findByRole("dialog");
+
+    await user.selectOptions(screen.getByLabelText("Side"), "short");
+    expect(updateTrade).toHaveBeenCalledWith("t1", { side: "short" });
+
+    await user.selectOptions(screen.getByLabelText("Result"), "loss");
+    expect(updateTrade).toHaveBeenCalledWith("t1", { result: "loss" });
+
+    async function blurChange(label: string, value: string) {
+      const el = screen.getByLabelText(label);
+      await user.clear(el);
+      await user.type(el, value);
+      await user.tab();
+    }
+
+    await blurChange("Date", "2026-08-01");
+    expect(updateTrade).toHaveBeenCalledWith("t1", { date: "2026-08-01" });
+    await blurChange("Session", "New York");
+    expect(updateTrade).toHaveBeenCalledWith("t1", { session: "New York" });
+    await blurChange("Size", "2 lots");
+    expect(updateTrade).toHaveBeenCalledWith("t1", { size: "2 lots" });
+    await blurChange("Risk $", "50");
+    expect(updateTrade).toHaveBeenCalledWith("t1", { riskUsd: 50 });
+    await blurChange("Entry", "1.2");
+    expect(updateTrade).toHaveBeenCalledWith("t1", { entry: 1.2 });
+    await blurChange("Exit", "1.3");
+    expect(updateTrade).toHaveBeenCalledWith("t1", { exit: 1.3 });
+    await blurChange("SL", "1.19");
+    expect(updateTrade).toHaveBeenCalledWith("t1", { stop: 1.19 });
+    await blurChange("TP", "1.4");
+    expect(updateTrade).toHaveBeenCalledWith("t1", { target: 1.4 });
+    await blurChange("SL pips", "12");
+    expect(updateTrade).toHaveBeenCalledWith("t1", { slPips: 12 });
+    await blurChange("TP pips", "30");
+    expect(updateTrade).toHaveBeenCalledWith("t1", { tpPips: 30 });
+    await blurChange("Entry time", "2026-08-01T10:00:00Z");
+    expect(updateTrade).toHaveBeenCalledWith("t1", {
+      entryTime: "2026-08-01T10:00:00Z",
+    });
+    await blurChange("Exit time", "2026-08-01T11:00:00Z");
+    expect(updateTrade).toHaveBeenCalledWith("t1", {
+      exitTime: "2026-08-01T11:00:00Z",
+    });
+    await blurChange("Duration minutes", "45");
+    expect(updateTrade).toHaveBeenCalledWith("t1", { timeInTradeMinutes: 45 });
+    await blurChange("Fees $", "3.5");
+    expect(updateTrade).toHaveBeenCalledWith("t1", { feesUsd: 3.5 });
+
+    updateTrade.mockClear();
+    fireEvent.blur(screen.getByLabelText("Symbol"));
+    expect(updateTrade).not.toHaveBeenCalled();
+
+    await user.clear(screen.getByLabelText("Session"));
+    fireEvent.blur(screen.getByLabelText("Session"));
+    expect(updateTrade).toHaveBeenCalledWith("t1", { session: undefined });
+
+    screen.getByLabelText("Entry").focus();
+    updateTrade.mockClear();
+    await user.clear(screen.getByLabelText("Entry"));
+    fireEvent.blur(screen.getByLabelText("Entry"));
+    expect(updateTrade).not.toHaveBeenCalled();
+
+    await user.clear(screen.getByLabelText("Exit"));
+    fireEvent.blur(screen.getByLabelText("Exit"));
+    expect(updateTrade).toHaveBeenCalledWith("t1", { exit: undefined });
+
+    const tags = screen.getByLabelText("Tags");
+    await user.clear(tags);
+    await user.type(tags, "a, b");
+    fireEvent.blur(tags);
+    expect(updateTrade).toHaveBeenCalledWith("t1", { tags: ["a", "b"] });
+
+    await user.clear(tags);
+    fireEvent.blur(tags);
+    expect(updateTrade).toHaveBeenCalledWith("t1", { tags: undefined });
+
+    const notes = screen.getByLabelText("Notes");
+    await user.clear(notes);
+    await user.type(notes, "Rewritten");
+    fireEvent.blur(notes);
+    expect(updateTrade).toHaveBeenCalledWith("t1", { notes: "Rewritten" });
+
+    await user.clear(notes);
+    fireEvent.blur(notes);
+    expect(updateTrade).toHaveBeenCalledWith("t1", { notes: undefined });
+
+    await user.click(screen.getByRole("button", { name: "Reference in chat" }));
+    expect(addChatReferencedTradeId).toHaveBeenCalledWith("t1");
+    expect(onClose).toHaveBeenCalled();
+  });
+
+  it("skips no-op tag and note saves on empty optional trades", async () => {
+    render(
+      <TradeDetail
+        trade={sampleTrade({
+          session: undefined,
+          size: undefined,
+          notes: undefined,
+          tags: undefined,
+          entryTime: undefined,
+          exitTime: undefined,
+          slPips: undefined,
+          tpPips: undefined,
+        })}
+        onClose={vi.fn()}
+      />,
+    );
+    await screen.findByRole("dialog");
+    updateTrade.mockClear();
+    fireEvent.blur(screen.getByLabelText("Tags"));
+    fireEvent.blur(screen.getByLabelText("Notes"));
+    fireEvent.blur(screen.getByLabelText("Session"));
+    fireEvent.blur(screen.getByLabelText("Size"));
+    fireEvent.blur(screen.getByLabelText("Entry time"));
+    fireEvent.blur(screen.getByLabelText("Exit time"));
+    expect(updateTrade).not.toHaveBeenCalled();
+  });
+
+  it("hides and unhides from the detail footer", async () => {
+    const user = userEvent.setup();
+    const { rerender } = render(
+      <TradeDetail trade={sampleTrade()} onClose={vi.fn()} />,
+    );
+    await screen.findByRole("dialog");
+    await user.click(screen.getByRole("button", { name: "Hide trade" }));
+    expect(hideTrade).toHaveBeenCalledWith("t1");
+
+    rerender(
+      <TradeDetail trade={sampleTrade({ hidden: true })} onClose={vi.fn()} />,
+    );
+    await user.click(screen.getByRole("button", { name: "Unhide trade" }));
+    expect(unhideTrade).toHaveBeenCalledWith("t1");
   });
 });

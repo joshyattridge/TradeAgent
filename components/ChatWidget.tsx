@@ -5,6 +5,7 @@ import { Eraser, FileText, Paperclip, Send, X } from "lucide-react";
 import { ChartRenderer } from "@/components/ChartRenderer";
 import {
   attachmentMeta,
+  collectConversationImages,
   fileToChatAttachment,
   MAX_CHAT_ATTACHMENTS,
   toAttachmentPayload,
@@ -265,10 +266,18 @@ export function ChatWidget() {
     referencedTradeIds?: string[],
   ) {
     let charts: ChartSpec[] = [];
+    const fromChat = collectConversationImages(
+      useTradingStore.getState().chat,
+    );
+    const conversationShots = [...images];
+    for (const src of fromChat) {
+      if (!conversationShots.includes(src)) conversationShots.push(src);
+    }
+    const screenshots = conversationShots.length ? conversationShots : undefined;
     const rawActions = ensureScreenshotAttachTarget(
       data.actions as ChatActionPayload | undefined,
       {
-        screenshots: images.length ? images : undefined,
+        screenshots,
         referencedTradeIds,
       },
     );
@@ -279,7 +288,7 @@ export function ChatWidget() {
         actions: rawActions,
         trades: state.trades,
         strategy: state.strategy,
-        screenshots: images.length ? images : undefined,
+        screenshots,
       });
 
       // Charts apply immediately; journal writes need Accept/Reject.
@@ -361,8 +370,10 @@ export function ChatWidget() {
 
     const attachmentPayloads = attachments.map(toAttachmentPayload);
     const attachmentNames = attachments.map((a) => a.name).filter(Boolean);
-    const history = chat
-      .filter((m) => m.role === "user" || m.role === "assistant")
+    const history = useTradingStore
+      .getState()
+      .chat.filter((m) => m.role === "user" || m.role === "assistant")
+      .slice(0, -1)
       .map((m) => ({
         role: m.role,
         content: m.content,

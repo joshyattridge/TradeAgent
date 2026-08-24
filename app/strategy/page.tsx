@@ -14,6 +14,8 @@ import remarkGfm from "remark-gfm";
 import { fileToChatImage } from "@/lib/images";
 import {
   insertMarkdownImage,
+  joinStrategyImages,
+  splitStrategyImages,
   strategyNameFromMarkdown,
 } from "@/lib/strategy-md";
 import { reorderChecklistItems } from "@/lib/checklist";
@@ -38,6 +40,7 @@ export default function StrategyPage() {
   const [imageError, setImageError] = useState<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const split = splitStrategyImages(draft);
 
   useEffect(() => {
     if (!editing) {
@@ -102,8 +105,8 @@ export default function StrategyPage() {
   }
 
   function onDraftChange(value: string) {
-    setDraft(value);
-    markDirty(value, checklistDraft);
+    setDraft(joinStrategyImages(value, split.images));
+    markDirty(joinStrategyImages(value, split.images), checklistDraft);
   }
 
   function onChecklistChange(next: StrategyChecklistItem[]) {
@@ -139,14 +142,20 @@ export default function StrategyPage() {
     try {
       const dataUrl = await fileToChatImage(file, 1400, 0.78);
       const el = textareaRef.current;
-      const cursor = el?.selectionStart ?? draft.length;
+      const displayCursor = el?.selectionStart ?? split.display.length;
+      const before = joinStrategyImages(
+        split.display.slice(0, displayCursor),
+        split.images,
+      );
       const alt = file.name.replace(/\.[^.]+$/, "") || "strategy image";
-      const next = insertMarkdownImage(draft, cursor, dataUrl, alt);
-      onDraftChange(next.markdown);
+      const next = insertMarkdownImage(draft, before.length, dataUrl, alt);
+      setDraft(next.markdown);
+      markDirty(next.markdown, checklistDraft);
       requestAnimationFrame(() => {
         const ta = textareaRef.current;
         ta?.focus();
-        ta?.setSelectionRange(next.cursor, next.cursor);
+        const mapped = splitStrategyImages(next.markdown);
+        ta?.setSelectionRange(mapped.display.length, mapped.display.length);
       });
     } catch (err) {
       setImageError(err instanceof Error ? err.message : "Could not add image");
@@ -231,10 +240,23 @@ export default function StrategyPage() {
 
       {editing ? (
         <section className="strategy-editor panel">
+          {split.images.length ? (
+            <div className="strategy-editor__images">
+              {split.images.map((image) => (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  key={image.id}
+                  src={image.dataUrl}
+                  alt={image.alt}
+                  className="strategy-editor__img"
+                />
+              ))}
+            </div>
+          ) : null}
           <textarea
             ref={textareaRef}
             className="strategy-editor__textarea"
-            value={draft}
+            value={split.display}
             onChange={(e) => onDraftChange(e.target.value)}
             onDrop={onDrop}
             onDragOver={(e) => e.preventDefault()}
@@ -244,14 +266,23 @@ export default function StrategyPage() {
           />
           <p className="strategy-editor__hint">
             Markdown supported. Drag an image onto the editor or use Add image —
-            it inserts <code>![alt](…)</code> at the cursor.
+            images render above, not as base64 text.
           </p>
         </section>
       ) : (
         <article className="strategy-doc panel">
           {strategy.markdown.trim() ? (
             <div className="markdown-body">
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>
+              <ReactMarkdown
+                remarkPlugins={[remarkGfm]}
+                urlTransform={(url) => url}
+                components={{
+                  img: ({ src, alt }) => (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={src} alt={alt ?? ""} className="strategy-doc__img" />
+                  ),
+                }}
+              >
                 {strategy.markdown}
               </ReactMarkdown>
             </div>

@@ -39,7 +39,8 @@ describe("DashboardPage", () => {
     expect(screen.getByRole("heading", { name: "Dashboard" })).toBeInTheDocument();
     expect(screen.getByText("$ P&L")).toBeInTheDocument();
     expect(screen.getByText("Win rate")).toBeInTheDocument();
-    expect(screen.getByText("Avg RR")).toBeInTheDocument();
+    expect(screen.getByText("Best / worst")).toBeInTheDocument();
+    expect(screen.queryByText("Avg RR")).not.toBeInTheDocument();
     expect(screen.getByText("Avg $")).toBeInTheDocument();
     expect(screen.queryByText("Total R")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "R" })).not.toBeInTheDocument();
@@ -66,7 +67,6 @@ describe("DashboardPage", () => {
           date: toIso(winDate),
           symbol: "EURUSD",
           side: "long",
-          setup: "Test",
           entry: 1.1,
           stop: 1.09,
           target: 1.12,
@@ -80,7 +80,6 @@ describe("DashboardPage", () => {
           date: toIso(lossDate),
           symbol: "EURUSD",
           side: "long",
-          setup: "Test",
           entry: 1.1,
           stop: 1.09,
           target: 1.12,
@@ -106,7 +105,6 @@ describe("DashboardPage", () => {
           date: "2026-07-01",
           symbol: "EURUSD",
           side: "long",
-          setup: "Test",
           entry: 1.1,
           stop: 1.09,
           target: 1.12,
@@ -119,6 +117,5 @@ describe("DashboardPage", () => {
     });
     render(<DashboardPage />);
     expect(screen.getAllByText("$-100").length).toBeGreaterThanOrEqual(1);
-    expect(screen.getByText("-1.00R")).toBeInTheDocument();
   });
 });

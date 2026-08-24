@@ -22,7 +22,6 @@ function sampleTrade(overrides: Partial<Trade> = {}): Trade {
     date: "2026-07-01",
     symbol: "EURUSD",
     side: "long",
-    setup: "1H FVG Continuation",
     entry: 1.1682,
     stop: 1.1658,
     target: 1.173,
@@ -89,6 +88,32 @@ describe("useTradingStore actions", () => {
     expect(trade?.id).toBe("t-ws");
   });
 
+  it("hides and unhides trades without deleting them", () => {
+    useTradingStore.getState().addTrade(sampleTrade({ id: "t2" }));
+    useTradingStore.getState().hideTrade("t1");
+    expect(useTradingStore.getState().trades.find((t) => t.id === "t1")?.hidden).toBe(
+      true,
+    );
+    useTradingStore.getState().unhideTrade("t1");
+    expect(
+      useTradingStore.getState().trades.find((t) => t.id === "t1")?.hidden,
+    ).toBeUndefined();
+    expect(useTradingStore.getState().trades.find((t) => t.id === "t2")).toBeTruthy();
+  });
+
+  it("drops legacy setup when writing trades", () => {
+    useTradingStore.getState().addTrade({
+      ...sampleTrade({ id: "no-setup" }),
+      setup: "legacy",
+    } as Trade);
+    expect(
+      Object.prototype.hasOwnProperty.call(
+        useTradingStore.getState().trades.find((t) => t.id === "no-setup"),
+        "setup",
+      ),
+    ).toBe(false);
+  });
+
   it("setOpenAIApiKey trims whitespace", () => {
     useTradingStore.getState().setOpenAIApiKey("  sk-test  ");
     expect(useTradingStore.getState().openaiApiKey).toBe("sk-test");
@@ -149,7 +174,6 @@ describe("useTradingStore actions", () => {
       date: "2026-07-02",
       symbol: "GBPUSD",
       side: "short",
-      setup: "Sweep",
       entry: 1.27,
       stop: 1.272,
       target: 1.265,
@@ -175,7 +199,6 @@ describe("useTradingStore actions", () => {
       date: "2026-07-03",
       symbol: "US30",
       side: "long",
-      setup: "Breakout",
       entry: 100,
       stop: 99,
       target: 102,
@@ -411,7 +434,7 @@ describe("useTradingStore actions", () => {
 
   it("proposal review open/close/accept/reject flows", () => {
     const proposal = buildChatProposal({
-      actions: { updateTrade: { id: "t1", rMultiple: 3 } },
+      actions: { updateTrade: { id: "t1", pnlUsd: 300 } },
       trades: useTradingStore.getState().trades,
       strategy: seedStrategy,
     });
@@ -429,17 +452,17 @@ describe("useTradingStore actions", () => {
     expect(useTradingStore.getState().proposalReviewOpen).toBe(true);
 
     useTradingStore.getState().acceptPendingProposal();
-    expect(useTradingStore.getState().trades[0].rMultiple).toBe(3);
+    expect(useTradingStore.getState().trades[0].pnlUsd).toBe(300);
     expect(useTradingStore.getState().pendingProposal).toBeNull();
 
     useTradingStore.getState().acceptPendingProposal();
-    expect(useTradingStore.getState().trades[0].rMultiple).toBe(3);
+    expect(useTradingStore.getState().trades[0].pnlUsd).toBe(300);
 
     useTradingStore.getState().setPendingProposal(proposal);
     useTradingStore.getState().rejectPendingProposal();
     expect(useTradingStore.getState().pendingProposal).toBeNull();
     expect(useTradingStore.getState().proposalReviewOpen).toBe(false);
-    expect(useTradingStore.getState().trades[0].rMultiple).toBe(3);
+    expect(useTradingStore.getState().trades[0].pnlUsd).toBe(300);
   });
 });
 
@@ -539,7 +562,6 @@ describe("applyChatActions", () => {
         id: "temp",
         symbol: "NAS100",
         side: "short",
-        setup: "Sweep",
         entry: 1,
         stop: 2,
         target: 0.5,

@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { ArrowDown, ArrowUp, ArrowUpDown, Columns3, MessageSquare } from "lucide-react";
+import { ArrowDown, ArrowUp, ArrowUpDown, Columns3, Eye, EyeOff, MessageSquare } from "lucide-react";
 import { TradeDetail } from "@/components/TradeDetail";
 import {
   TRADE_COLUMNS,
@@ -63,8 +63,6 @@ function cellValue(trade: Trade, column: TradeColumnId) {
           {trade.side}
         </span>
       );
-    case "setup":
-      return trade.setup;
     case "session":
       return trade.session ?? "—";
     case "size":
@@ -112,13 +110,6 @@ function cellValue(trade: Trade, column: TradeColumnId) {
         trade.pnlUsd == null ? "" : trade.pnlUsd >= 0 ? "pos" : "neg";
       return <span className={`mono ${pnlClass}`}>{formatPnlUsd(trade.pnlUsd)}</span>;
     }
-    case "rMultiple":
-      return (
-        <span className={`mono ${trade.rMultiple >= 0 ? "pos" : "neg"}`}>
-          {trade.rMultiple > 0 ? "+" : ""}
-          {trade.rMultiple.toFixed(1)}R
-        </span>
-      );
     case "result":
       return <span className={badgeClass(trade.result)}>{trade.result}</span>;
     case "screenshots":
@@ -189,8 +180,6 @@ export function sortValue(
       return trade.symbol.toUpperCase();
     case "side":
       return trade.side;
-    case "setup":
-      return trade.setup.toLowerCase();
     case "session":
       return (trade.session ?? "").toLowerCase() || null;
     case "size":
@@ -217,8 +206,6 @@ export function sortValue(
       return trade.riskUsd ?? null;
     case "pnlUsd":
       return trade.pnlUsd ?? null;
-    case "rMultiple":
-      return trade.rMultiple;
     case "result":
       return trade.result;
     case "screenshots":
@@ -266,11 +253,12 @@ export function TradeTable({ trades }: { trades: Trade[] }) {
   const visibleTradeColumns = useTradingStore((s) => s.visibleTradeColumns);
   const toggleTradeColumn = useTradingStore((s) => s.toggleTradeColumn);
   const resetTradeColumns = useTradingStore((s) => s.resetTradeColumns);
-  const addChatReferencedTradeIds = useTradingStore(
-    (s) => s.addChatReferencedTradeIds,
+  const addChatReferencedTradeId = useTradingStore(
+    (s) => s.addChatReferencedTradeId,
   );
+  const hideTrade = useTradingStore((s) => s.hideTrade);
+  const unhideTrade = useTradingStore((s) => s.unhideTrade);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [checkedIds, setCheckedIds] = useState<string[]>([]);
   const [columnsOpen, setColumnsOpen] = useState(false);
   const [sortColumn, setSortColumn] = useState<TradeColumnId>("entryTime");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
@@ -300,27 +288,14 @@ export function TradeTable({ trades }: { trades: Trade[] }) {
   }, [trades, sortColumn, sortDir]);
 
   const selected = sortedTrades.find((t) => t.id === selectedId) ?? null;
-  const liveIds = useMemo(
-    () => new Set(sortedTrades.map((t) => t.id)),
-    [sortedTrades],
-  );
-  const checkedLive = checkedIds.filter((id) => liveIds.has(id));
-  const allChecked =
-    sortedTrades.length > 0 && checkedLive.length === sortedTrades.length;
 
-  function toggleChecked(id: string) {
-    setCheckedIds((prev) =>
-      prev.includes(id) ? prev.filter((current) => current !== id) : [...prev, id],
-    );
+  function onReferenceTrade(id: string) {
+    addChatReferencedTradeId(id);
   }
 
-  function toggleAllChecked() {
-    setCheckedIds(allChecked ? [] : sortedTrades.map((t) => t.id));
-  }
-
-  function onReferenceChecked() {
-    addChatReferencedTradeIds(checkedLive);
-    setCheckedIds([]);
+  function onToggleHidden(id: string, hidden: boolean | undefined) {
+    if (hidden) unhideTrade(id);
+    else hideTrade(id);
   }
 
   function onSort(column: TradeColumnId) {
@@ -341,21 +316,9 @@ export function TradeTable({ trades }: { trades: Trade[] }) {
     <div className="trade-log">
       <div className="trade-log__toolbar">
         <p className="trade-log__hint">
-          {checkedLive.length
-            ? `${checkedLive.length} selected · reference them in chat or open a row for details`
-            : "Click a column header to sort · check rows to reference several in chat · click a row for details"}
+          Click the chat bubble to reference a trade · click a row for details · hide keeps the trade out of stats
         </p>
         <div className="trade-log__toolbar-actions">
-          {checkedLive.length ? (
-            <button
-              type="button"
-              className="ghost-btn trade-log__ref-btn"
-              onClick={onReferenceChecked}
-            >
-              <MessageSquare size={14} style={{ marginRight: 6, verticalAlign: "-2px" }} />
-              Reference {checkedLive.length} in chat
-            </button>
-          ) : null}
         <div className="trade-log__column-wrap">
           <button
             type="button"
@@ -399,14 +362,7 @@ export function TradeTable({ trades }: { trades: Trade[] }) {
         <table className="trade-table trade-table--interactive">
           <thead>
             <tr>
-              <th className="trade-table__check">
-                <input
-                  type="checkbox"
-                  checked={allChecked}
-                  onChange={toggleAllChecked}
-                  aria-label="Select all trades"
-                />
-              </th>
+              <th className="trade-table__chat" aria-label="Reference in chat" />
               {visible.map((col) => {
                 const active = sortColumn === col.id;
                 return (
@@ -430,11 +386,12 @@ export function TradeTable({ trades }: { trades: Trade[] }) {
                 key={trade.id}
                 tabIndex={0}
                 className={[
+                  "trade-table__row",
                   selectedId === trade.id ? "is-selected" : "",
-                  checkedLive.includes(trade.id) ? "is-checked" : "",
+                  trade.hidden ? "is-hidden-trade" : "",
                 ]
                   .filter(Boolean)
-                  .join(" ") || undefined}
+                  .join(" ")}
                 onClick={() => setSelectedId(trade.id)}
                 onKeyDown={(e) => {
                   if (e.key === "Enter" || e.key === " ") {
@@ -443,14 +400,35 @@ export function TradeTable({ trades }: { trades: Trade[] }) {
                   }
                 }}
               >
-                <td className="trade-table__check">
-                  <input
-                    type="checkbox"
-                    checked={checkedLive.includes(trade.id)}
-                    onChange={() => toggleChecked(trade.id)}
-                    onClick={(e) => e.stopPropagation()}
-                    aria-label={`Select ${trade.symbol} trade`}
-                  />
+                <td className="trade-table__chat">
+                  <button
+                    type="button"
+                    className="trade-table__icon-btn"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onReferenceTrade(trade.id);
+                    }}
+                    aria-label={`Reference ${trade.symbol} in chat`}
+                    title="Reference in chat"
+                  >
+                    <MessageSquare size={14} />
+                  </button>
+                  <button
+                    type="button"
+                    className="trade-table__icon-btn"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onToggleHidden(trade.id, trade.hidden);
+                    }}
+                    aria-label={
+                      trade.hidden
+                        ? `Unhide ${trade.symbol} trade`
+                        : `Hide ${trade.symbol} trade`
+                    }
+                    title={trade.hidden ? "Unhide trade" : "Hide trade"}
+                  >
+                    {trade.hidden ? <Eye size={14} /> : <EyeOff size={14} />}
+                  </button>
                 </td>
                 {visible.map((col) => (
                   <td key={col.id}>{cellValue(trade, col.id)}</td>

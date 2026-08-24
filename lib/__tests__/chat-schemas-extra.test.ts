@@ -35,7 +35,7 @@ describe("remaining chat schemas", () => {
       chartRequestSchema.parse({
         type: "scatter",
         xField: "slPips",
-        yField: "rMultiple",
+        yField: "pnlUsd",
         data: [{ label: "a", value: 1, x: 1, y: 2 }],
       }).type,
     ).toBe("scatter");

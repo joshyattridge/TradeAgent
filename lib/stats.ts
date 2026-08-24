@@ -37,8 +37,13 @@ export type CalendarDayPnl = {
   value: number | null;
 };
 
+/** Hidden trades stay in the journal but never count toward stats/charts. */
+export function visibleJournalTrades(trades: Trade[]) {
+  return trades.filter((t) => !t.hidden);
+}
+
 export function closedTrades(trades: Trade[]) {
-  return trades.filter((t) => t.result !== "open");
+  return visibleJournalTrades(trades).filter((t) => t.result !== "open");
 }
 
 /**
@@ -57,8 +62,9 @@ export function resolvePnlUsd(trade: Trade): number {
   return 0;
 }
 
-function tradeUnitValue(trade: Trade, unit: PerformanceUnit): number {
-  return unit === "usd" ? resolvePnlUsd(trade) : trade.rMultiple;
+function tradeUnitValue(trade: Trade, _unit: PerformanceUnit): number {
+  void _unit;
+  return resolvePnlUsd(trade);
 }
 
 function roundUnit(value: number): number {
@@ -93,19 +99,18 @@ function uniqueEquityLabels(trades: Trade[]): string[] {
 }
 
 export function computeStats(trades: Trade[]) {
+  const visible = visibleJournalTrades(trades);
   const closed = closedTrades(trades);
   const wins = closed.filter((t) => t.result === "win");
   const losses = closed.filter((t) => t.result === "loss");
-  const totalR = closed.reduce((sum, t) => sum + t.rMultiple, 0);
+  const totalR = closed.reduce((sum, t) => sum + (t.rMultiple ?? 0), 0);
   const winRate = closed.length ? (wins.length / closed.length) * 100 : 0;
   const avgR = closed.length ? totalR / closed.length : 0;
   const expectancy = avgR;
-  const best = closed.reduce((m, t) => Math.max(m, t.rMultiple), 0);
-  const worst = closed.reduce((m, t) => Math.min(m, t.rMultiple), 0);
-  const totalPnlUsd = closed.reduce(
-    (sum, t) => sum + resolvePnlUsd(t),
-    0,
-  );
+  const pnls = closed.map((t) => resolvePnlUsd(t));
+  const best = pnls.length ? Math.max(...pnls) : 0;
+  const worst = pnls.length ? Math.min(...pnls) : 0;
+  const totalPnlUsd = pnls.reduce((sum, v) => sum + v, 0);
   const avgPnlUsd = closed.length ? totalPnlUsd / closed.length : 0;
   const durations = closed
     .map((t) => getTimeInTradeMinutes(t))
@@ -113,10 +118,10 @@ export function computeStats(trades: Trade[]) {
   const avgTimeInTradeMinutes = durations.length
     ? durations.reduce((a, b) => a + b, 0) / durations.length
     : undefined;
-  const openCount = trades.filter((t) => t.result === "open").length;
+  const openCount = visible.filter((t) => t.result === "open").length;
 
   return {
-    totalTrades: trades.length,
+    totalTrades: visible.length,
     closedCount: closed.length,
     openCount,
     wins: wins.length,
@@ -133,7 +138,7 @@ export function computeStats(trades: Trade[]) {
   };
 }
 
-export function equityCurve(trades: Trade[], unit: PerformanceUnit = "r") {
+export function equityCurve(trades: Trade[], unit: PerformanceUnit = "usd") {
   const closed = [...closedTrades(trades)].sort(compareTradesChronologically);
   const labels = uniqueEquityLabels(closed);
 
@@ -150,7 +155,7 @@ export function equityCurve(trades: Trade[], unit: PerformanceUnit = "r") {
 
   let running = 0;
   closed.forEach((t, index) => {
-    const delta = unit === "usd" ? resolvePnlUsd(t) : t.rMultiple;
+    const delta = resolvePnlUsd(t);
     running += delta;
     points.push({
       id: t.id,
@@ -163,7 +168,7 @@ export function equityCurve(trades: Trade[], unit: PerformanceUnit = "r") {
   return points;
 }
 
-export function rByDay(trades: Trade[], unit: PerformanceUnit = "r") {
+export function rByDay(trades: Trade[], unit: PerformanceUnit = "usd") {
   const map = new Map<string, number>();
   for (const t of closedTrades(trades)) {
     map.set(t.date, (map.get(t.date) ?? 0) + tradeUnitValue(t, unit));
@@ -184,7 +189,7 @@ export function rByDay(trades: Trade[], unit: PerformanceUnit = "r") {
  */
 export function pnlCalendar(
   trades: Trade[],
-  unit: PerformanceUnit = "r",
+  unit: PerformanceUnit = "usd",
   days = 30,
   now: Date = new Date(),
 ): CalendarDayPnl[] {
@@ -219,7 +224,7 @@ export function winLossBreakdown(trades: Trade[]) {
   ];
 }
 
-export function bySymbol(trades: Trade[], unit: PerformanceUnit = "r") {
+export function bySymbol(trades: Trade[], unit: PerformanceUnit = "usd") {
   const totals = new Map<string, number>();
   const counts = new Map<string, number>();
   for (const t of closedTrades(trades)) {
@@ -239,21 +244,11 @@ export function bySymbol(trades: Trade[], unit: PerformanceUnit = "r") {
     }));
 }
 
-export function bySetup(trades: Trade[], unit: PerformanceUnit = "r") {
-  const map = new Map<string, number>();
-  const counts = new Map<string, number>();
-  for (const t of closedTrades(trades)) {
-    map.set(t.setup, (map.get(t.setup) ?? 0) + tradeUnitValue(t, unit));
-    counts.set(t.setup, (counts.get(t.setup) ?? 0) + 1);
-  }
-  return [...map.entries()]
-    .sort((a, b) => b[1] - a[1])
-    .map(([label, value]) => ({
-      id: label,
-      label,
-      value: roundUnit(value),
-      count: counts.get(label)!,
-    }));
+/** @deprecated Setup was removed; kept so old chart requests still resolve. */
+export function bySetup(trades: Trade[], unit: PerformanceUnit = "usd") {
+  void trades;
+  void unit;
+  return [];
 }
 
 const METRIC_LABELS: Record<TradeMetricField, string> = {
@@ -269,7 +264,6 @@ const METRIC_LABELS: Record<TradeMetricField, string> = {
   pnlUsd: "P&L ($)",
   riskUsd: "Risk ($)",
   feesUsd: "Fees (comm+swap $)",
-  rMultiple: "R",
 };
 
 export function metricLabel(field: TradeMetricField) {
@@ -306,8 +300,6 @@ export function metricValue(trade: Trade, field: TradeMetricField): number | nul
       return trade.riskUsd ?? null;
     case "feesUsd":
       return trade.feesUsd ?? null;
-    case "rMultiple":
-      return trade.rMultiple;
     default:
       return null;
   }
@@ -323,8 +315,6 @@ export function labelValue(trade: Trade, field: TradeLabelField = "symbol"): str
       } catch {
         return trade.date;
       }
-    case "setup":
-      return trade.setup || "—";
     case "session":
       return trade.session || "—";
     case "side":
@@ -356,32 +346,29 @@ export function buildChart(
   trades: Trade[],
   title?: string,
   customData?: ChartPoint[],
-  unit: PerformanceUnit = "r",
+  unit: PerformanceUnit = "usd",
 ): ChartSpec {
   const id = `chart-${type}-${Date.now()}`;
-  const isUsd = unit === "usd";
   switch (type) {
     case "equity":
       return {
         id,
         type,
-        title: title ?? (isUsd ? "Equity curve ($)" : "Equity curve (R)"),
-        description: isUsd
-          ? "Cumulative $ P&L across closed trades"
-          : "Cumulative R across closed trades",
-        yLabel: isUsd ? "$" : "R",
-        valueUnit: unit,
-        data: equityCurve(trades, unit),
+        title: title ?? "Equity curve ($)",
+        description: "Cumulative $ P&L across closed trades",
+        yLabel: "$",
+        valueUnit: "usd",
+        data: equityCurve(trades, "usd"),
       };
     case "rByDay":
       return {
         id,
         type,
-        title: title ?? (isUsd ? "Daily $" : "Daily R"),
-        description: isUsd ? "Net $ P&L by day" : "Net R by day",
-        yLabel: isUsd ? "$" : "R",
-        valueUnit: unit,
-        data: rByDay(trades, unit),
+        title: title ?? "Daily $",
+        description: "Net $ P&L by day",
+        yLabel: "$",
+        valueUnit: "usd",
+        data: rByDay(trades, "usd"),
       };
     case "winLoss":
       return {
@@ -394,25 +381,21 @@ export function buildChart(
       return {
         id,
         type,
-        title: title ?? (isUsd ? "$ by symbol" : "R by symbol"),
-        description: isUsd
-          ? "Net $ P&L across closed trades per symbol"
-          : "Net R across closed trades per symbol",
-        yLabel: isUsd ? "$" : "R",
-        valueUnit: unit,
-        data: bySymbol(trades, unit),
+        title: title ?? "$ by symbol",
+        description: "Net $ P&L across closed trades per symbol",
+        yLabel: "$",
+        valueUnit: "usd",
+        data: bySymbol(trades, "usd"),
       };
     case "bySetup":
       return {
         id,
         type,
-        title: title ?? (isUsd ? "$ by setup" : "R by setup"),
-        description: isUsd
-          ? "Net $ P&L across closed trades per setup"
-          : "Net R across closed trades per setup",
-        yLabel: isUsd ? "$" : "R",
-        valueUnit: unit,
-        data: bySetup(trades, unit),
+        title: title ?? "$ by symbol",
+        description: "Setup grouping was removed; showing $ by symbol instead",
+        yLabel: "$",
+        valueUnit: "usd",
+        data: bySymbol(trades, "usd"),
       };
     case "bar":
     case "line":
@@ -451,7 +434,7 @@ function aggregateGroup(
 
 function buildScatter(req: ChartRequest, pool: Trade[]): ChartPoint[] {
   const xField = req.xField ?? "slPips";
-  const yField = req.yField ?? "rMultiple";
+  const yField = req.yField ?? "pnlUsd";
   const labelField = req.labelField ?? "symbol";
   const points: ChartPoint[] = [];
   for (const t of pool) {
@@ -473,7 +456,7 @@ function buildBucketedBar(req: ChartRequest, pool: Trade[]): ChartPoint[] {
   const bucketField = req.bucketField!;
   const bucketSize = req.bucketSize && req.bucketSize > 0 ? req.bucketSize : 10;
   const aggregate = req.aggregate ?? "winRate";
-  const valueField = req.valueField ?? "rMultiple";
+  const valueField = req.valueField ?? "pnlUsd";
   const buckets = new Map<number, Trade[]>();
 
   for (const t of pool) {
@@ -498,7 +481,7 @@ function buildBucketedBar(req: ChartRequest, pool: Trade[]): ChartPoint[] {
 
 function buildGroupedSeries(req: ChartRequest, pool: Trade[]): ChartPoint[] {
   const labelField = req.labelField ?? "symbol";
-  const valueField = req.valueField ?? "rMultiple";
+  const valueField = req.valueField ?? "pnlUsd";
   const aggregate = req.aggregate ?? "sum";
   const groups = new Map<string, Trade[]>();
 
@@ -546,7 +529,7 @@ export function buildChartFromRequest(req: ChartRequest, trades: Trade[]): Chart
 
   if (req.type === "scatter") {
     const xField = req.xField ?? "slPips";
-    const yField = req.yField ?? "rMultiple";
+    const yField = req.yField ?? "pnlUsd";
     return {
       id,
       type: "scatter",
@@ -572,7 +555,7 @@ export function buildChartFromRequest(req: ChartRequest, trades: Trade[]): Chart
       req.title ??
       (agg === "winRate"
         ? `Win rate by ${metricLabel(bucket)}`
-        : `${agg} ${metricLabel(req.valueField ?? "rMultiple")} by ${metricLabel(bucket)}`);
+        : `${agg} ${metricLabel(req.valueField ?? "pnlUsd")} by ${metricLabel(bucket)}`);
     defaultDescription =
       req.description ??
       `Buckets of ${req.bucketSize ?? 10} on ${metricLabel(bucket)}`;
@@ -582,12 +565,12 @@ export function buildChartFromRequest(req: ChartRequest, trades: Trade[]): Chart
           ? "Win rate %"
           : agg === "count"
             ? "Trades"
-            : metricLabel(req.valueField ?? "rMultiple");
+            : metricLabel(req.valueField ?? "pnlUsd");
     }
   } else {
     data = buildGroupedSeries(req, pool);
     const agg = req.aggregate ?? "sum";
-    const vf = req.valueField ?? "rMultiple";
+    const vf = req.valueField ?? "pnlUsd";
     const lf = req.labelField ?? "symbol";
     defaultTitle =
       req.title ??

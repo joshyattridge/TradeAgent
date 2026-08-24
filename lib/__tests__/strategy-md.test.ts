@@ -3,9 +3,11 @@ import {
   applyShortStrategyMarkdown,
   insertMarkdownImage,
   isShortStrategySnippet,
+  joinStrategyImages,
   legacyStrategyToMarkdown,
   markdownForChat,
   normalizeStrategy,
+  splitStrategyImages,
   strategyNameFromMarkdown,
 } from "@/lib/strategy-md";
 
@@ -117,5 +119,21 @@ describe("strategy markdown helpers", () => {
     expect(result.cursor).toBeGreaterThan(5);
     const clamped = insertMarkdownImage("ab", 99, "data:image/png;base64,y");
     expect(clamped.markdown).toContain("![strategy image]");
+  });
+
+  it("splits data-url images for editor display and joins them back", () => {
+    const md = "# Plan\n\n![chart](data:image/png;base64,abc)\n\ntext";
+    const split = splitStrategyImages(md);
+    expect(split.display).toBe("# Plan\n\n![chart](strategy-image-1)\n\ntext");
+    expect(split.display).not.toContain("base64");
+    expect(split.images).toHaveLength(1);
+    expect(split.images[0]?.dataUrl).toBe("data:image/png;base64,abc");
+    expect(joinStrategyImages(split.display, split.images)).toBe(md);
+    expect(splitStrategyImages("![ ](data:image/png;base64,z)").images[0]?.alt).toBe(
+      "strategy image",
+    );
+    expect(joinStrategyImages("keep", [{ id: "unused", alt: "x", dataUrl: "data:x" }])).toBe(
+      "keep",
+    );
   });
 });

@@ -279,3 +279,74 @@ export function parseDataUrl(dataUrl: string): { mime: string; base64: string } 
   if (!m) return null;
   return { mime: m[1] || "application/octet-stream", base64: m[2] };
 }
+
+function attachmentKey(a: ChatAttachmentPayload): string {
+  if (a.kind === "text") return `text:${a.name}:${a.text.slice(0, 120)}`;
+  if (a.kind === "image") return `image:${a.dataUrl.slice(0, 96)}`;
+  return `file:${a.name}:${a.dataUrl.slice(0, 96)}`;
+}
+
+/**
+ * Collect every image/file/text attachment from prior user turns so later
+ * messages in the same conversation can still see them.
+ */
+export function collectConversationAttachments(
+  history: Array<{
+    role?: string;
+    images?: string[];
+    attachments?: ChatAttachmentPayload[];
+  }>,
+): ChatAttachmentPayload[] {
+  const out: ChatAttachmentPayload[] = [];
+  const seen = new Set<string>();
+  function push(item: ChatAttachmentPayload) {
+    const key = attachmentKey(item);
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push(item);
+  }
+  for (const m of history) {
+    if (m.role && m.role !== "user") continue;
+    for (const img of m.images ?? []) {
+      if (typeof img === "string" && img.startsWith("data:image/")) {
+        push({ kind: "image", name: "image", dataUrl: img });
+      }
+    }
+    for (const a of m.attachments ?? []) {
+      if (!a) continue;
+      push(a);
+    }
+  }
+  return out;
+}
+
+export function collectConversationImages(
+  history: Array<{
+    role?: string;
+    images?: string[];
+    attachments?: ChatAttachmentPayload[];
+  }>,
+): string[] {
+  return collectConversationAttachments(history)
+    .filter(
+      (a): a is Extract<ChatAttachmentPayload, { kind: "image" }> =>
+        a.kind === "image",
+    )
+    .map((a) => a.dataUrl);
+}
+
+export function mergeAttachmentPayloads(
+  ...groups: Array<ChatAttachmentPayload[] | undefined>
+): ChatAttachmentPayload[] {
+  const out: ChatAttachmentPayload[] = [];
+  const seen = new Set<string>();
+  for (const group of groups) {
+    for (const a of group ?? []) {
+      const key = attachmentKey(a);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(a);
+    }
+  }
+  return out;
+}
