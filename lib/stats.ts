@@ -18,7 +18,9 @@ import type {
   TradeMetricField,
 } from "./types";
 import {
+  getSlPips,
   getTimeInTradeMinutes,
+  getTpPips,
   tradeChronologyLabel,
   tradeChronologyMs,
 } from "./trade-format";
@@ -67,6 +69,49 @@ function tradeUnitValue(trade: Trade, _unit: PerformanceUnit): number {
   return resolvePnlUsd(trade);
 }
 
+/** Planned reward:risk from TP/SL — derived, never stored on the trade. */
+export function plannedRewardRisk(trade: Trade): number | null {
+  const sl = getSlPips(trade);
+  const tp = getTpPips(trade);
+  if (
+    typeof sl === "number" &&
+    sl > 0 &&
+    typeof tp === "number" &&
+    Number.isFinite(tp)
+  ) {
+    return tp / sl;
+  }
+  const risk = Math.abs(trade.entry - trade.stop);
+  const reward = Math.abs(trade.target - trade.entry);
+  if (!(risk > 0) || !Number.isFinite(reward)) return null;
+  return reward / risk;
+}
+
+/**
+ * Realized R from net $ / risk, else exit vs stop, else a legacy stored rMultiple.
+ * Open trades have no realized R.
+ */
+export function realizedRewardRisk(trade: Trade): number | null {
+  if (trade.result === "open") return null;
+  if (
+    trade.riskUsd != null &&
+    trade.riskUsd > 0 &&
+    trade.pnlUsd != null &&
+    Number.isFinite(trade.pnlUsd)
+  ) {
+    return resolvePnlUsd(trade) / trade.riskUsd;
+  }
+  if (trade.exit != null && Number.isFinite(trade.exit)) {
+    const risk = trade.entry - trade.stop;
+    if (risk === 0 || !Number.isFinite(risk)) return null;
+    return (trade.exit - trade.entry) / risk;
+  }
+  if (trade.rMultiple != null && Number.isFinite(trade.rMultiple)) {
+    return trade.rMultiple;
+  }
+  return null;
+}
+
 function roundUnit(value: number): number {
   return Number(value.toFixed(2));
 }
@@ -103,10 +148,19 @@ export function computeStats(trades: Trade[]) {
   const closed = closedTrades(trades);
   const wins = closed.filter((t) => t.result === "win");
   const losses = closed.filter((t) => t.result === "loss");
-  const totalR = closed.reduce((sum, t) => sum + (t.rMultiple ?? 0), 0);
+  const totalR = closed.reduce(
+    (sum, t) => sum + (realizedRewardRisk(t) ?? 0),
+    0,
+  );
   const winRate = closed.length ? (wins.length / closed.length) * 100 : 0;
   const avgR = closed.length ? totalR / closed.length : 0;
   const expectancy = avgR;
+  const planned = visible
+    .map(plannedRewardRisk)
+    .filter((v): v is number => v != null);
+  const avgPlannedRr = planned.length
+    ? planned.reduce((sum, v) => sum + v, 0) / planned.length
+    : 0;
   const pnls = closed.map((t) => resolvePnlUsd(t));
   const best = pnls.length ? Math.max(...pnls) : 0;
   const worst = pnls.length ? Math.min(...pnls) : 0;
@@ -129,6 +183,7 @@ export function computeStats(trades: Trade[]) {
     winRate,
     totalR,
     avgR,
+    avgPlannedRr,
     expectancy,
     best,
     worst,

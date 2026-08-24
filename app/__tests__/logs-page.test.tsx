@@ -3,7 +3,6 @@
  */
 import "fake-indexeddb/auto";
 import { render, screen } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import LogsPage from "@/app/logs/page";
 import { seedTrades } from "@/lib/seed-data";
@@ -46,6 +45,7 @@ describe("LogsPage", () => {
     expect(screen.getByRole("heading", { name: "Trading Logs" })).toBeInTheDocument();
     expect(screen.getByText("$ P&L")).toBeInTheDocument();
     expect(screen.getByText("Wins / losses")).toBeInTheDocument();
+    expect(screen.getByText("Avg / expected RR")).toBeInTheDocument();
     expect(screen.getByText("Avg time in trade")).toBeInTheDocument();
     expect(screen.getByText("Best / worst")).toBeInTheDocument();
 
@@ -90,16 +90,15 @@ describe("LogsPage", () => {
     expect(screen.getAllByText("$-50").length).toBeGreaterThanOrEqual(1);
   });
 
-  it("excludes hidden trades from the table until Show hidden is clicked", async () => {
-    const user = userEvent.setup();
+  it("keeps hidden trades in the table while excluding them from stats", () => {
     const visible = seedTrades[0];
     const hidden = { ...seedTrades[1], hidden: true as const };
     resetStore({ trades: [visible, hidden] });
+    const stats = computeStats([visible, hidden]);
     render(<LogsPage />);
-    expect(screen.getByTestId("trade-table")).toHaveTextContent("1 trades");
-    await user.click(screen.getByRole("button", { name: /Show hidden \(1\)/ }));
     expect(screen.getByTestId("trade-table")).toHaveTextContent("2 trades");
-    await user.click(screen.getByRole("button", { name: "Hide hidden trades" }));
-    expect(screen.getByTestId("trade-table")).toHaveTextContent("1 trades");
+    expect(screen.queryByRole("button", { name: /Show hidden/ })).not.toBeInTheDocument();
+    expect(screen.getByText(String(stats.wins))).toBeInTheDocument();
+    expect(screen.getByText(String(stats.losses))).toBeInTheDocument();
   });
 });

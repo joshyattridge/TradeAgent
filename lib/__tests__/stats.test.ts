@@ -9,11 +9,13 @@ import {
   compareTradesChronologically,
   computeStats,
   equityCurve,
+  plannedRewardRisk,
   labelValue,
   metricLabel,
   metricValue,
   pnlCalendar,
   rByDay,
+  realizedRewardRisk,
   resolvePnlUsd,
   tradeCloseMs,
   visibleJournalTrades,
@@ -82,9 +84,15 @@ describe("computeStats", () => {
     expect(stats.wins).toBe(7);
     expect(stats.losses).toBe(3);
     expect(stats.winRate).toBe(70);
-    expect(stats.totalR).toBeCloseTo(9.7);
-    expect(stats.avgR).toBeCloseTo(0.97);
-    expect(stats.expectancy).toBeCloseTo(0.97);
+    const closedSeed = seedTrades.filter((t) => t.result !== "open");
+    const expectedTotalR = closedSeed.reduce((sum, t) => {
+      const net = (t.pnlUsd ?? 0) - (t.feesUsd ?? 0);
+      return sum + net / (t.riskUsd ?? 1);
+    }, 0);
+    expect(stats.totalR).toBeCloseTo(expectedTotalR);
+    expect(stats.avgR).toBeCloseTo(expectedTotalR / closedSeed.length);
+    expect(stats.expectancy).toBeCloseTo(expectedTotalR / closedSeed.length);
+    expect(stats.avgPlannedRr).toBeCloseTo(2);
     const pnls = seedTrades
       .filter((t) => t.result !== "open")
       .map((t) => resolvePnlUsd(t));
@@ -105,6 +113,7 @@ describe("computeStats", () => {
     expect(stats.losses).toBe(0);
     expect(stats.winRate).toBe(0);
     expect(stats.avgR).toBe(0);
+    expect(stats.avgPlannedRr).toBe(0);
     expect(stats.totalR).toBe(0);
     expect(stats.best).toBe(0);
     expect(stats.worst).toBe(0);
@@ -124,6 +133,7 @@ describe("computeStats", () => {
     expect(stats.openCount).toBe(2);
     expect(stats.winRate).toBe(0);
     expect(stats.avgR).toBe(0);
+    expect(stats.avgPlannedRr).toBeCloseTo(2);
     expect(stats.best).toBe(0);
     expect(stats.worst).toBe(0);
     expect(stats.avgTimeInTradeMinutes).toBeUndefined();
@@ -168,6 +178,165 @@ describe("computeStats", () => {
     ]);
     expect(stats.totalPnlUsd).toBe(197.5);
     expect(stats.avgPnlUsd).toBe(197.5);
+  });
+});
+
+describe("plannedRewardRisk and realizedRewardRisk", () => {
+  it("uses TP/SL pips, then price geometry, and skips invalid risk", () => {
+    expect(plannedRewardRisk(makeTrade({ id: "pips" }))).toBeCloseTo(2);
+    expect(
+      plannedRewardRisk(
+        makeTrade({
+          id: "price",
+          slPips: 0,
+          tpPips: 0,
+          entry: 1.1,
+          stop: 1.09,
+          target: 1.12,
+        }),
+      ),
+    ).toBeCloseTo(2);
+    expect(
+      plannedRewardRisk(
+        makeTrade({
+          id: "nan-tp",
+          slPips: 10,
+          tpPips: Number.NaN,
+          entry: 1.1,
+          stop: 1.09,
+          target: 1.12,
+        }),
+      ),
+    ).toBeCloseTo(2);
+    expect(
+      plannedRewardRisk(
+        makeTrade({
+          id: "flat",
+          slPips: 0,
+          tpPips: 0,
+          entry: 1.1,
+          stop: 1.1,
+          target: 1.1,
+        }),
+      ),
+    ).toBeNull();
+    expect(
+      plannedRewardRisk(
+        makeTrade({
+          id: "inf-target",
+          slPips: 10,
+          tpPips: Number.POSITIVE_INFINITY,
+          entry: 1.1,
+          stop: 1.09,
+          target: Number.POSITIVE_INFINITY,
+        }),
+      ),
+    ).toBeNull();
+  });
+
+  it("derives realized R from $ / risk, exit, or legacy rMultiple", () => {
+    expect(realizedRewardRisk(makeTrade({ id: "open", result: "open" }))).toBeNull();
+    expect(
+      realizedRewardRisk(
+        makeTrade({ id: "net", pnlUsd: 200, feesUsd: 2.4, riskUsd: 100, rMultiple: 2 }),
+      ),
+    ).toBeCloseTo(1.976);
+    expect(
+      realizedRewardRisk(
+        makeTrade({
+          id: "exit",
+          pnlUsd: undefined,
+          riskUsd: 0,
+          exit: 1.12,
+          entry: 1.1,
+          stop: 1.09,
+        }),
+      ),
+    ).toBeCloseTo(2);
+    expect(
+      realizedRewardRisk(
+        makeTrade({
+          id: "legacy",
+          pnlUsd: undefined,
+          exit: undefined,
+          riskUsd: undefined,
+          rMultiple: 1.5,
+        }),
+      ),
+    ).toBe(1.5);
+    expect(
+      realizedRewardRisk(
+        makeTrade({
+          id: "none",
+          pnlUsd: undefined,
+          exit: undefined,
+          riskUsd: undefined,
+          rMultiple: undefined,
+        }),
+      ),
+    ).toBeNull();
+    expect(
+      realizedRewardRisk(
+        makeTrade({
+          id: "flat-exit",
+          pnlUsd: undefined,
+          riskUsd: undefined,
+          entry: 1.1,
+          stop: 1.1,
+          exit: 1.1,
+          rMultiple: undefined,
+        }),
+      ),
+    ).toBeNull();
+    expect(
+      realizedRewardRisk(
+        makeTrade({
+          id: "inf-exit",
+          pnlUsd: undefined,
+          riskUsd: undefined,
+          exit: Number.POSITIVE_INFINITY,
+          rMultiple: -1,
+        }),
+      ),
+    ).toBe(-1);
+    expect(
+      realizedRewardRisk(
+        makeTrade({
+          id: "nan-pnl",
+          pnlUsd: Number.NaN,
+          riskUsd: 100,
+          exit: 1.12,
+          entry: 1.1,
+          stop: 1.09,
+        }),
+      ),
+    ).toBeCloseTo(2);
+    expect(
+      realizedRewardRisk(
+        makeTrade({
+          id: "nan-r",
+          pnlUsd: undefined,
+          exit: undefined,
+          riskUsd: undefined,
+          rMultiple: Number.NaN,
+        }),
+      ),
+    ).toBeNull();
+  });
+
+  it("averages planned RR only on trades with a valid setup", () => {
+    const stats = computeStats([
+      makeTrade({ id: "ok" }),
+      makeTrade({
+        id: "flat",
+        slPips: 0,
+        tpPips: 0,
+        entry: 1,
+        stop: 1,
+        target: 1,
+      }),
+    ]);
+    expect(stats.avgPlannedRr).toBeCloseTo(2);
   });
 });
 

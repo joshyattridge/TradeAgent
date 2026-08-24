@@ -273,6 +273,13 @@ export function formatPnlUsd(value?: number): string {
   return `${sign}$${value.toFixed(2)}`;
 }
 
+/** Aggregate R:R for stats — not stored on the trade. */
+export function formatRewardRisk(value?: number, signed = false): string {
+  if (value == null || Number.isNaN(value)) return "—";
+  const sign = signed && value > 0 ? "+" : "";
+  return `${sign}${value.toFixed(2)}R`;
+}
+
 /** Pip/point size for common symbols. */
 export function pipSize(symbol: string): number {
   const s = symbol.toUpperCase().replace(/[^A-Z0-9]/g, "");

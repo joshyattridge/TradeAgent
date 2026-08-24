@@ -852,7 +852,7 @@ export class JournalSession {
       poolSize: pool.length,
       closedOnly,
       stats,
-      note: "Full-journal stats (filters are not supported on get_stats). Use stats.wins/losses/totalPnlUsd for performance answers.",
+      note: "Full-journal stats (filters are not supported on get_stats). Use stats.wins/losses/totalPnlUsd for $ performance, and stats.avgR/avgPlannedRr for average vs expected RR.",
     };
   }
 

@@ -51,8 +51,8 @@ export interface Trade {
   /** Commission + swap + other costs in $ (subtracted from pnlUsd for net stats) */
   feesUsd?: number;
   /**
-   * Legacy stored R-multiple. Kept so old journal rows still load; new trades
-   * and the UI use $ P&L only.
+   * Legacy stored R-multiple. Kept so old journal rows still load; stats
+   * derive RR from prices and $ risk instead of recording it per trade.
    */
   rMultiple?: number;
   result: TradeResult;

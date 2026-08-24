@@ -1,10 +1,9 @@
 "use client";
 
-import { useMemo, useState } from "react";
 import { TradeTable } from "@/components/TradeTable";
 import { useTradingStore } from "@/lib/store";
-import { computeStats, visibleJournalTrades } from "@/lib/stats";
-import { formatDuration } from "@/lib/trade-format";
+import { computeStats } from "@/lib/stats";
+import { formatDuration, formatRewardRisk } from "@/lib/trade-format";
 
 function formatSignedUsd(value: number, digits = 0): string {
   const sign = value > 0 ? "+" : "";
@@ -14,13 +13,7 @@ function formatSignedUsd(value: number, digits = 0): string {
 export default function LogsPage() {
   const trades = useTradingStore((s) => s.trades);
   const hydrated = useTradingStore((s) => s.hydrated);
-  const [showHidden, setShowHidden] = useState(false);
   const stats = computeStats(trades);
-  const hiddenCount = trades.filter((t) => t.hidden).length;
-  const tableTrades = useMemo(
-    () => (showHidden ? trades : visibleJournalTrades(trades)),
-    [showHidden, trades],
-  );
 
   if (!hydrated) {
     return (
@@ -32,26 +25,13 @@ export default function LogsPage() {
 
   return (
     <div className="page">
-      <section className="page-hero page-hero--split">
-        <div>
-          <h1>Trading Logs</h1>
-          <p>
-            Every trade on record. Keep the table light, click a row for full
-            details, and toggle columns anytime.
-          </p>
-        </div>
-        {hiddenCount ? (
-          <button
-            type="button"
-            className="ghost-btn"
-            onClick={() => setShowHidden((v) => !v)}
-            aria-pressed={showHidden}
-          >
-            {showHidden
-              ? "Hide hidden trades"
-              : `Show hidden (${hiddenCount})`}
-          </button>
-        ) : null}
+      <section className="page-hero">
+        <h1>Trading Logs</h1>
+        <p>
+          Every trade on record. Keep the table light, click a row for full
+          details, and toggle columns anytime. Hidden rows stay in the list
+          but drop out of stats.
+        </p>
       </section>
 
       <section className="stat-row">
@@ -68,6 +48,16 @@ export default function LogsPage() {
             <span className="pos">{stats.wins}</span>
             <span style={{ color: "var(--muted)" }}> / </span>
             <span className="neg">{stats.losses}</span>
+          </p>
+        </div>
+        <div className="stat">
+          <p className="stat__label">Avg / expected RR</p>
+          <p className="stat__value">
+            <span className={stats.avgR >= 0 ? "pos" : "neg"}>
+              {formatRewardRisk(stats.avgR, true)}
+            </span>
+            <span style={{ color: "var(--muted)" }}> / </span>
+            <span>{formatRewardRisk(stats.avgPlannedRr)}</span>
           </p>
         </div>
         <div className="stat">
@@ -90,7 +80,7 @@ export default function LogsPage() {
         </div>
       </section>
 
-      <TradeTable trades={tableTrades} />
+      <TradeTable trades={trades} />
     </div>
   );
 }

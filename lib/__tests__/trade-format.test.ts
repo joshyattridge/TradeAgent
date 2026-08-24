@@ -15,6 +15,7 @@ import {
   formatDuration,
   formatPips,
   formatPnlUsd,
+  formatRewardRisk,
   formatTradeDate,
   formatTradeDateTime,
   getSlPips,
@@ -345,6 +346,17 @@ describe("tradeChronologyMs / tradeChronologyLabel", () => {
 describe("formatPnlUsd extras", () => {
   it("keeps existing coverage for signed dollars", () => {
     expect(formatPnlUsd(10)).toBe("+$10.00");
+  });
+});
+
+describe("formatRewardRisk", () => {
+  it("formats derived R:R for stats", () => {
+    expect(formatRewardRisk(undefined)).toBe("—");
+    expect(formatRewardRisk(Number.NaN)).toBe("—");
+    expect(formatRewardRisk(2)).toBe("2.00R");
+    expect(formatRewardRisk(1.5, true)).toBe("+1.50R");
+    expect(formatRewardRisk(-1, true)).toBe("-1.00R");
+    expect(formatRewardRisk(0, true)).toBe("0.00R");
   });
 });
 

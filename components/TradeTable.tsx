@@ -316,7 +316,7 @@ export function TradeTable({ trades }: { trades: Trade[] }) {
     <div className="trade-log">
       <div className="trade-log__toolbar">
         <p className="trade-log__hint">
-          Click the chat bubble to reference a trade · click a row for details · hide keeps the trade out of stats
+          Click the chat bubble to reference a trade · click a row for details · hide greys the row and keeps it out of stats
         </p>
         <div className="trade-log__toolbar-actions">
         <div className="trade-log__column-wrap">

@@ -4,6 +4,7 @@ import { ChartRenderer } from "@/components/ChartRenderer";
 import { PnlCalendar } from "@/components/PnlCalendar";
 import { useTradingStore } from "@/lib/store";
 import { buildChart, computeStats } from "@/lib/stats";
+import { formatRewardRisk } from "@/lib/trade-format";
 
 function formatSignedUsd(value: number, digits = 0): string {
   const sign = value > 0 ? "+" : "";
@@ -47,11 +48,13 @@ export default function DashboardPage() {
           <p className="stat__value">{stats.winRate.toFixed(0)}%</p>
         </div>
         <div className="stat">
-          <p className="stat__label">Best / worst</p>
+          <p className="stat__label">Avg / expected RR</p>
           <p className="stat__value">
-            <span className="pos">{formatSignedUsd(stats.best)}</span>
+            <span className={stats.avgR >= 0 ? "pos" : "neg"}>
+              {formatRewardRisk(stats.avgR, true)}
+            </span>
             <span style={{ color: "var(--muted)" }}> / </span>
-            <span className="neg">{formatSignedUsd(stats.worst)}</span>
+            <span>{formatRewardRisk(stats.avgPlannedRr)}</span>
           </p>
         </div>
         <div className="stat">
