@@ -48,13 +48,11 @@ export default function DashboardPage() {
           <p className="stat__value">{stats.winRate.toFixed(0)}%</p>
         </div>
         <div className="stat">
-          <p className="stat__label">Avg / expected RR</p>
-          <p className="stat__value">
-            <span className={stats.avgR >= 0 ? "pos" : "neg"}>
-              {formatRewardRisk(stats.avgR, true)}
-            </span>
-            <span style={{ color: "var(--muted)" }}> / </span>
-            <span>{formatRewardRisk(stats.avgPlannedRr)}</span>
+          <p className="stat__label">Avg RR</p>
+          <p
+            className={`stat__value ${stats.avgR >= 0 ? "pos" : "neg"}`}
+          >
+            {formatRewardRisk(stats.avgR, true)}
           </p>
         </div>
         <div className="stat">

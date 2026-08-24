@@ -45,7 +45,7 @@ describe("LogsPage", () => {
     expect(screen.getByRole("heading", { name: "Trading Logs" })).toBeInTheDocument();
     expect(screen.getByText("$ P&L")).toBeInTheDocument();
     expect(screen.getByText("Wins / losses")).toBeInTheDocument();
-    expect(screen.getByText("Avg / expected RR")).toBeInTheDocument();
+    expect(screen.getByText("Avg RR")).toBeInTheDocument();
     expect(screen.getByText("Avg time in trade")).toBeInTheDocument();
     expect(screen.getByText("Best / worst")).toBeInTheDocument();
 

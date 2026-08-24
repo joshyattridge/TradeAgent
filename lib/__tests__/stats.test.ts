@@ -92,7 +92,6 @@ describe("computeStats", () => {
     expect(stats.totalR).toBeCloseTo(expectedTotalR);
     expect(stats.avgR).toBeCloseTo(expectedTotalR / closedSeed.length);
     expect(stats.expectancy).toBeCloseTo(expectedTotalR / closedSeed.length);
-    expect(stats.avgPlannedRr).toBeCloseTo(2);
     const pnls = seedTrades
       .filter((t) => t.result !== "open")
       .map((t) => resolvePnlUsd(t));
@@ -113,7 +112,6 @@ describe("computeStats", () => {
     expect(stats.losses).toBe(0);
     expect(stats.winRate).toBe(0);
     expect(stats.avgR).toBe(0);
-    expect(stats.avgPlannedRr).toBe(0);
     expect(stats.totalR).toBe(0);
     expect(stats.best).toBe(0);
     expect(stats.worst).toBe(0);
@@ -133,7 +131,6 @@ describe("computeStats", () => {
     expect(stats.openCount).toBe(2);
     expect(stats.winRate).toBe(0);
     expect(stats.avgR).toBe(0);
-    expect(stats.avgPlannedRr).toBeCloseTo(2);
     expect(stats.best).toBe(0);
     expect(stats.worst).toBe(0);
     expect(stats.avgTimeInTradeMinutes).toBeUndefined();
@@ -322,21 +319,6 @@ describe("plannedRewardRisk and realizedRewardRisk", () => {
         }),
       ),
     ).toBeNull();
-  });
-
-  it("averages planned RR only on trades with a valid setup", () => {
-    const stats = computeStats([
-      makeTrade({ id: "ok" }),
-      makeTrade({
-        id: "flat",
-        slPips: 0,
-        tpPips: 0,
-        entry: 1,
-        stop: 1,
-        target: 1,
-      }),
-    ]);
-    expect(stats.avgPlannedRr).toBeCloseTo(2);
   });
 });
 

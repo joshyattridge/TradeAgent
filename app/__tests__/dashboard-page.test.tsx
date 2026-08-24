@@ -39,7 +39,7 @@ describe("DashboardPage", () => {
     expect(screen.getByRole("heading", { name: "Dashboard" })).toBeInTheDocument();
     expect(screen.getByText("$ P&L")).toBeInTheDocument();
     expect(screen.getByText("Win rate")).toBeInTheDocument();
-    expect(screen.getByText("Avg / expected RR")).toBeInTheDocument();
+    expect(screen.getByText("Avg RR")).toBeInTheDocument();
     expect(screen.getByText("Avg $")).toBeInTheDocument();
     expect(screen.queryByText("Best / worst")).not.toBeInTheDocument();
     expect(screen.queryByText("Total R")).not.toBeInTheDocument();

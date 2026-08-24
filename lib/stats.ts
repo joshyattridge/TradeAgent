@@ -155,12 +155,6 @@ export function computeStats(trades: Trade[]) {
   const winRate = closed.length ? (wins.length / closed.length) * 100 : 0;
   const avgR = closed.length ? totalR / closed.length : 0;
   const expectancy = avgR;
-  const planned = visible
-    .map(plannedRewardRisk)
-    .filter((v): v is number => v != null);
-  const avgPlannedRr = planned.length
-    ? planned.reduce((sum, v) => sum + v, 0) / planned.length
-    : 0;
   const pnls = closed.map((t) => resolvePnlUsd(t));
   const best = pnls.length ? Math.max(...pnls) : 0;
   const worst = pnls.length ? Math.min(...pnls) : 0;
@@ -183,7 +177,6 @@ export function computeStats(trades: Trade[]) {
     winRate,
     totalR,
     avgR,
-    avgPlannedRr,
     expectancy,
     best,
     worst,
