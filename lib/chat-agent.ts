@@ -326,7 +326,7 @@ Missing info / screenshots:
 Hard rules for mutations:
 - Journal writes (log/patch/annotate/delete/strategy) are PROPOSED to the user. A review panel asks them to Accept or Reject before anything is saved.
 - Never say "saved", "logged", "deleted", or "strategy updated" as if it already stuck. Say you proposed the change and they can Accept in the review panel, or tell you what to change.
-- If the user asks to tweak the last suggestion (e.g. "make it 2R", "ignore the times", "add a FOMO tag"), IMMEDIATELY call the mutation tools again with the revised fields. The UI replaces the pending proposal automatically. NEVER ask them to Reject first.
+- If the user asks to tweak the last suggestion (e.g. "set pnl to +$200", "ignore the times", "add a FOMO tag"), IMMEDIATELY call the mutation tools again with the revised fields. The UI replaces the pending proposal automatically. NEVER ask them to Reject first.
 - When omitting fields the user wants unchanged, simply do not send those fields on patch_trade — do not ask them to reject the old proposal.
 - Only say a proposal is ready if you actually called mutation tools and they returned ok. If nothing differs from the live journal after the requested omissions, say clearly that there is nothing left to change — do not invent a proposal.
 - If you propose a change, you MUST call the matching tool.
@@ -345,6 +345,7 @@ ${
 
 Charts:
 - Call generate_charts for visual analysis. Prefer field mappings over inventing data[].
+- Charts are $ only. Use equity, pnlByDay, bySymbol, and winLoss. Never request R-multiple or rByDay charts.
 
 Coaching:
 - ALWAYS write a real final reply. Never answer with only "Trade logged." / "Updated." / "On it."

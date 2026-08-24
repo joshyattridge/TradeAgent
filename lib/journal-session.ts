@@ -326,10 +326,8 @@ function sortTrades(trades: Trade[], sort: QueryTradesInput["sort"] = "newest") 
     case "oldest":
       return copy.sort((a, b) => a.date.localeCompare(b.date));
     case "bestPnl":
-    case "bestR":
       return copy.sort((a, b) => pnlSortValue(b) - pnlSortValue(a));
     case "worstPnl":
-    case "worstR":
       return copy.sort((a, b) => pnlSortValue(a) - pnlSortValue(b));
     case "newest":
     default:

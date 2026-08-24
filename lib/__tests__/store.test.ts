@@ -589,7 +589,7 @@ describe("applyChatActions", () => {
   it("updates strategy and returns charts", () => {
     const result = applyChatActions({
       updateStrategy: { markdown: "# Chat Plan\n\nUpdated\n" },
-      charts: [emptyChart, { ...emptyChart, id: "c2", title: "R by day", type: "rByDay" }],
+      charts: [emptyChart, { ...emptyChart, id: "c2", title: "Daily $", type: "pnlByDay" }],
     });
     expect(useTradingStore.getState().strategy.name).toBe("Chat Plan");
     expect(result.charts).toHaveLength(2);
@@ -654,7 +654,8 @@ describe("persist storage and rehydrate", () => {
     const cols = useTradingStore.getState().visibleTradeColumns;
     expect(cols).not.toContain("date");
     expect(cols).toContain("entryTime");
-    expect(cols).toEqual(expect.arrayContaining(["tags", "notes"]));
+    expect(cols).toEqual(["entryTime", "symbol", "side"]);
+    expect(cols).not.toContain("notes");
     expect(useTradingStore.getState().chatLogId).toBeTruthy();
 
     const trade = useTradingStore.getState().trades[0] as Trade & {
@@ -662,6 +663,32 @@ describe("persist storage and rehydrate", () => {
     };
     expect(trade.chartExtract).toBeUndefined();
     expect(trade.screenshots).toEqual(["a", "b", "c"]);
+  });
+
+  it("does not un-hide columns the user turned off", async () => {
+    const hidden = DEFAULT_VISIBLE_TRADE_COLUMNS.filter(
+      (id) => id !== "notes" && id !== "tags",
+    );
+    const payload = {
+      state: {
+        trades: [sampleTrade()],
+        strategy: seedStrategy,
+        chat: [],
+        chatSummary: "",
+        openaiApiKey: "",
+        openaiModel: DEFAULT_OPENAI_MODEL,
+        visibleTradeColumns: hidden,
+      },
+      version: 0,
+    };
+    await idbModule.idbStorage.setItem(STORE_KEY, JSON.stringify(payload));
+
+    await useTradingStore.persist.rehydrate();
+    await vi.waitFor(() => expect(useTradingStore.getState().hydrated).toBe(true));
+
+    expect(useTradingStore.getState().visibleTradeColumns).toEqual(hidden);
+    expect(useTradingStore.getState().visibleTradeColumns).not.toContain("notes");
+    expect(useTradingStore.getState().visibleTradeColumns).not.toContain("tags");
   });
 
   it("assigns a chatLogId when rehydrating legacy state without one", async () => {

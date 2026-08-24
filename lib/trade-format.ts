@@ -207,9 +207,10 @@ export function getTimeInTradeMinutes(trade: Trade): number | undefined {
 
 export function formatDuration(minutes?: number): string {
   if (minutes == null || Number.isNaN(minutes)) return "—";
-  if (minutes < 60) return `${minutes}m`;
-  const h = Math.floor(minutes / 60);
-  const m = minutes % 60;
+  const total = Math.max(0, Math.round(minutes));
+  if (total < 60) return `${total}m`;
+  const h = Math.floor(total / 60);
+  const m = total % 60;
   if (h < 24) return m ? `${h}h ${m}m` : `${h}h`;
   const d = Math.floor(h / 24);
   const rh = h % 24;

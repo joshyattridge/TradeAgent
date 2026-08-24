@@ -163,3 +163,66 @@ export function reorderChecklistItems<T extends { id: string }>(
   next.splice(target, 0, item);
   return next;
 }
+
+export type ChecklistDiffItem = {
+  id: string;
+  label: string;
+  checked?: boolean;
+};
+
+export type ChecklistDiffRow = {
+  id: string;
+  status: "same" | "add" | "remove" | "change";
+  before?: ChecklistDiffItem;
+  after?: ChecklistDiffItem;
+};
+
+function asDiffItem(item: ChecklistDiffItem): ChecklistDiffItem {
+  return item.checked === undefined
+    ? { id: item.id, label: item.label }
+    : { id: item.id, label: item.label, checked: item.checked };
+}
+
+/** Row-by-row checklist comparison for proposal review. */
+export function diffChecklist(
+  before: ChecklistDiffItem[],
+  after: ChecklistDiffItem[],
+): ChecklistDiffRow[] {
+  const beforeById = new Map(before.map((item) => [item.id, item]));
+  const rows: ChecklistDiffRow[] = [];
+  const seen = new Set<string>();
+
+  for (const item of after) {
+    seen.add(item.id);
+    const prev = beforeById.get(item.id);
+    if (!prev) {
+      rows.push({ id: item.id, status: "add", after: asDiffItem(item) });
+      continue;
+    }
+    const changed =
+      prev.label !== item.label || prev.checked !== item.checked;
+    rows.push({
+      id: item.id,
+      status: changed ? "change" : "same",
+      before: asDiffItem(prev),
+      after: asDiffItem(item),
+    });
+  }
+
+  for (const item of before) {
+    if (seen.has(item.id)) continue;
+    rows.push({ id: item.id, status: "remove", before: asDiffItem(item) });
+  }
+
+  return rows;
+}
+
+export function checklistOrderChanged(
+  before: Array<{ id: string }>,
+  after: Array<{ id: string }>,
+): boolean {
+  if (before.length !== after.length || before.length === 0) return false;
+  const afterIds = new Set(after.map((item) => item.id));
+  if (before.some((item) => !afterIds.has(item.id))) return false;
+  return before.map((item) => item.id).join("\0") !== after.map((item) => item.id).join("\0");
+}

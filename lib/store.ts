@@ -18,7 +18,8 @@ import { seedStrategy, seedTrades } from "./seed-data";
 import { normalizeStrategy, strategyNameFromMarkdown } from "./strategy-md";
 import {
   DEFAULT_VISIBLE_TRADE_COLUMNS,
-  TRADE_COLUMNS,
+  migrateVisibleTradeColumns,
+  orderedColumns,
   type TradeColumnId,
 } from "./trade-columns";
 import { normalizeTradeDateTime } from "./trade-format";
@@ -26,11 +27,6 @@ import type { ChatMessage, ChartSpec, Strategy, Trade } from "./types";
 
 function uid() {
   return crypto.randomUUID();
-}
-
-function orderedColumns(ids: TradeColumnId[]): TradeColumnId[] {
-  const set = new Set(ids);
-  return TRADE_COLUMNS.map((c) => c.id).filter((id) => set.has(id));
 }
 
 /** Ensure entry/exit times are ISO before they hit the journal. */
@@ -68,8 +64,6 @@ function uniqueTradeIds(ids: string[], max = MAX_CHAT_TRADE_REFS): string[] {
 function persistableChat(chat: ChatMessage[]): ChatMessage[] {
   return chat;
 }
-
-const DROPPED_TRADE_COLUMNS = new Set<string>(["date", "setup", "rMultiple"]);
 
 /** Cap screenshot arrays so one trade can't dominate storage. Drop legacy fields. */
 function persistableTrades(trades: Trade[]): Trade[] {
@@ -437,20 +431,9 @@ export const useTradingStore = create<Store>()(
           if (!state.openaiReasoningEffort) {
             state.openaiReasoningEffort = DEFAULT_REASONING_EFFORT;
           }
-          // Prefer entry time over calendar date; drop removed columns
-          let cols: TradeColumnId[] = state.visibleTradeColumns.filter(
-            (id) => !DROPPED_TRADE_COLUMNS.has(id),
-          ) as TradeColumnId[];
-          if (!cols.includes("entryTime")) {
-            cols = ["entryTime", ...cols];
-          }
-          // Ensure newer default columns (tags/notes) appear for existing users
-          const current = new Set(cols);
-          const missing = DEFAULT_VISIBLE_TRADE_COLUMNS.filter((id) => !current.has(id));
-          if (missing.length) {
-            cols = [...cols, ...missing];
-          }
-          state.visibleTradeColumns = orderedColumns(cols);
+          state.visibleTradeColumns = migrateVisibleTradeColumns(
+            state.visibleTradeColumns,
+          );
           if (!state.chatLogId) {
             state.chatLogId = crypto.randomUUID();
           }

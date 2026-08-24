@@ -137,6 +137,9 @@ describe("parse / format / normalize trade datetimes", () => {
     expect(formatDuration(60)).toBe("1h");
     expect(formatDuration(60 * 25)).toBe("1d 1h");
     expect(formatDuration(60 * 24)).toBe("1d");
+    expect(formatDuration(151.650000000000006)).toBe("2h 32m");
+    expect(formatDuration(59.6)).toBe("1h");
+    expect(formatDuration(-3)).toBe("0m");
     expect(formatClock(undefined)).toBe("—");
     expect(formatClock("9:05:00")).toBe("09:05");
     expect(formatClock("2026-07-30T15:52:45")).toBe("15:52");

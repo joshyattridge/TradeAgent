@@ -148,7 +148,7 @@ describe("JournalSession.queryTrades", () => {
     expect(res.trades.every((t) => t.symbol === "EURUSD")).toBe(true);
   });
 
-  it("sorts newest, oldest, bestR, and worstR", () => {
+  it("sorts newest, oldest, bestPnl, and worstPnl", () => {
     const trades = [
       trade({ id: "old", date: "2026-07-01", pnlUsd: 50 }),
       trade({ id: "mid", date: "2026-07-10", pnlUsd: 200 }),
@@ -166,12 +166,12 @@ describe("JournalSession.queryTrades", () => {
       "mid",
       "new",
     ]);
-    expect(session.queryTrades({ sort: "bestR" }).trades.map((t) => t.id)).toEqual([
+    expect(session.queryTrades({ sort: "bestPnl" }).trades.map((t) => t.id)).toEqual([
       "mid",
       "old",
       "new",
     ]);
-    expect(session.queryTrades({ sort: "worstR" }).trades.map((t) => t.id)).toEqual([
+    expect(session.queryTrades({ sort: "worstPnl" }).trades.map((t) => t.id)).toEqual([
       "new",
       "old",
       "mid",

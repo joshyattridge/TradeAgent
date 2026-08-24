@@ -5,11 +5,6 @@ import { useTradingStore } from "@/lib/store";
 import { computeStats } from "@/lib/stats";
 import { formatDuration, formatRewardRisk } from "@/lib/trade-format";
 
-function formatSignedUsd(value: number, digits = 0): string {
-  const sign = value > 0 ? "+" : "";
-  return `${sign}$${value.toFixed(digits)}`;
-}
-
 export default function LogsPage() {
   const trades = useTradingStore((s) => s.trades);
   const hydrated = useTradingStore((s) => s.hydrated);
@@ -66,14 +61,6 @@ export default function LogsPage() {
                 ? Math.round(stats.avgTimeInTradeMinutes)
                 : undefined,
             )}
-          </p>
-        </div>
-        <div className="stat">
-          <p className="stat__label">Best / worst</p>
-          <p className="stat__value">
-            <span className="pos">{formatSignedUsd(stats.best)}</span>
-            <span style={{ color: "var(--muted)" }}> / </span>
-            <span className="neg">{formatSignedUsd(stats.worst)}</span>
           </p>
         </div>
       </section>

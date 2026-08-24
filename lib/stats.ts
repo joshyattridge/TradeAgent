@@ -12,7 +12,6 @@ import type {
   ChartPoint,
   ChartRequest,
   ChartSpec,
-  PerformanceUnit,
   Trade,
   TradeLabelField,
   TradeMetricField,
@@ -24,8 +23,6 @@ import {
   tradeChronologyLabel,
   tradeChronologyMs,
 } from "./trade-format";
-
-export type { PerformanceUnit };
 
 export type CalendarDayPnl = {
   date: string;
@@ -64,8 +61,7 @@ export function resolvePnlUsd(trade: Trade): number {
   return 0;
 }
 
-function tradeUnitValue(trade: Trade, _unit: PerformanceUnit): number {
-  void _unit;
+function tradeUnitValue(trade: Trade): number {
   return resolvePnlUsd(trade);
 }
 
@@ -186,7 +182,7 @@ export function computeStats(trades: Trade[]) {
   };
 }
 
-export function equityCurve(trades: Trade[], unit: PerformanceUnit = "usd") {
+export function equityCurve(trades: Trade[]) {
   const closed = [...closedTrades(trades)].sort(compareTradesChronologically);
   const labels = uniqueEquityLabels(closed);
 
@@ -216,10 +212,10 @@ export function equityCurve(trades: Trade[], unit: PerformanceUnit = "usd") {
   return points;
 }
 
-export function rByDay(trades: Trade[], unit: PerformanceUnit = "usd") {
+export function pnlByDay(trades: Trade[]) {
   const map = new Map<string, number>();
   for (const t of closedTrades(trades)) {
-    map.set(t.date, (map.get(t.date) ?? 0) + tradeUnitValue(t, unit));
+    map.set(t.date, (map.get(t.date) ?? 0) + tradeUnitValue(t));
   }
   return [...map.entries()]
     .sort(([a], [b]) => a.localeCompare(b))
@@ -237,13 +233,12 @@ export function rByDay(trades: Trade[], unit: PerformanceUnit = "usd") {
  */
 export function pnlCalendar(
   trades: Trade[],
-  unit: PerformanceUnit = "usd",
   days = 30,
   now: Date = new Date(),
 ): CalendarDayPnl[] {
   const end = startOfDay(now);
   const start = subDays(end, Math.max(days, 1) - 1);
-  const byDay = new Map(rByDay(trades, unit).map((d) => [d.id, d.value]));
+  const byDay = new Map(pnlByDay(trades).map((d) => [d.id, d.value]));
   const gridStart = startOfWeek(start, { weekStartsOn: 0 });
   const gridEnd = endOfWeek(end, { weekStartsOn: 0 });
 
@@ -272,14 +267,14 @@ export function winLossBreakdown(trades: Trade[]) {
   ];
 }
 
-export function bySymbol(trades: Trade[], unit: PerformanceUnit = "usd") {
+export function bySymbol(trades: Trade[]) {
   const totals = new Map<string, number>();
   const counts = new Map<string, number>();
   for (const t of closedTrades(trades)) {
     counts.set(t.symbol, (counts.get(t.symbol) ?? 0) + 1);
     totals.set(
       t.symbol,
-      (totals.get(t.symbol) ?? 0) + tradeUnitValue(t, unit),
+      (totals.get(t.symbol) ?? 0) + tradeUnitValue(t),
     );
   }
   return [...totals.entries()]
@@ -293,9 +288,8 @@ export function bySymbol(trades: Trade[], unit: PerformanceUnit = "usd") {
 }
 
 /** @deprecated Setup was removed; kept so old chart requests still resolve. */
-export function bySetup(trades: Trade[], unit: PerformanceUnit = "usd") {
+export function bySetup(trades: Trade[]) {
   void trades;
-  void unit;
   return [];
 }
 
@@ -382,7 +376,7 @@ function round(n: number, digits = 2) {
 function isPreset(type: ChartKind): type is Exclude<ChartKind, "bar" | "scatter" | "line"> {
   return (
     type === "equity" ||
-    type === "rByDay" ||
+    type === "pnlByDay" ||
     type === "winLoss" ||
     type === "bySymbol" ||
     type === "bySetup"
@@ -394,7 +388,6 @@ export function buildChart(
   trades: Trade[],
   title?: string,
   customData?: ChartPoint[],
-  unit: PerformanceUnit = "usd",
 ): ChartSpec {
   const id = `chart-${type}-${Date.now()}`;
   switch (type) {
@@ -406,9 +399,9 @@ export function buildChart(
         description: "Cumulative $ P&L across closed trades",
         yLabel: "$",
         valueUnit: "usd",
-        data: equityCurve(trades, "usd"),
+        data: equityCurve(trades),
       };
-    case "rByDay":
+    case "pnlByDay":
       return {
         id,
         type,
@@ -416,7 +409,7 @@ export function buildChart(
         description: "Net $ P&L by day",
         yLabel: "$",
         valueUnit: "usd",
-        data: rByDay(trades, "usd"),
+        data: pnlByDay(trades),
       };
     case "winLoss":
       return {
@@ -433,7 +426,7 @@ export function buildChart(
         description: "Net $ P&L across closed trades per symbol",
         yLabel: "$",
         valueUnit: "usd",
-        data: bySymbol(trades, "usd"),
+        data: bySymbol(trades),
       };
     case "bySetup":
       return {
@@ -443,7 +436,7 @@ export function buildChart(
         description: "Setup grouping was removed; showing $ by symbol instead",
         yLabel: "$",
         valueUnit: "usd",
-        data: bySymbol(trades, "usd"),
+        data: bySymbol(trades),
       };
     case "bar":
     case "line":

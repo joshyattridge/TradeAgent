@@ -16,9 +16,9 @@ export default function DashboardPage() {
   const hydrated = useTradingStore((s) => s.hydrated);
   const stats = computeStats(trades);
 
-  const equity = buildChart("equity", trades, undefined, undefined, "usd");
+  const equity = buildChart("equity", trades);
   const winLoss = buildChart("winLoss", trades, "Win / loss");
-  const bySymbol = buildChart("bySymbol", trades, undefined, undefined, "usd");
+  const bySymbol = buildChart("bySymbol", trades);
 
   if (!hydrated) {
     return <div className="page"><p className="empty-note">Loading book…</p></div>;

@@ -332,10 +332,17 @@ describe("TradeDetail", () => {
     await user.click(screen.getByRole("button", { name: /full screen/i }));
     await user.click(screen.getByRole("button", { name: "Close screenshot" }));
     expect(screen.queryByRole("dialog", { name: "Screenshot" })).not.toBeInTheDocument();
+    expect(onClose).not.toHaveBeenCalled();
+    expect(screen.getByRole("dialog", { name: /trade details/i })).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: /full screen/i }));
     fireEvent.click(screen.getByRole("dialog", { name: "Screenshot" }));
     expect(screen.queryByRole("dialog", { name: "Screenshot" })).not.toBeInTheDocument();
+    expect(onClose).not.toHaveBeenCalled();
+    expect(screen.getByRole("dialog", { name: /trade details/i })).toBeInTheDocument();
+
+    fireEvent.click(document.querySelector(".trade-detail-backdrop")!);
+    expect(onClose).toHaveBeenCalledTimes(1);
   });
 
   it("edits remaining trade fields, tags, notes, and chat reference", async () => {

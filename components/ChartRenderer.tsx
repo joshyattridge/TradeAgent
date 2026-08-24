@@ -19,7 +19,7 @@ import {
   YAxis,
   ZAxis,
 } from "recharts";
-import type { ChartPoint, ChartSpec, PerformanceUnit } from "@/lib/types";
+import type { ChartPoint, ChartSpec } from "@/lib/types";
 
 const TEAL = "#0d9488";
 const CORAL = "#e11d48";
@@ -44,16 +44,12 @@ function pointColor(value: number) {
   return value >= 0 ? TEAL : CORAL;
 }
 
-function formatChartValue(value: unknown, unit?: PerformanceUnit): string {
+function formatChartValue(value: unknown, unit?: "usd"): string {
   const n = typeof value === "number" ? value : Number(value);
   if (!Number.isFinite(n)) return String(value ?? "");
   if (unit === "usd") {
     const sign = n > 0 ? "+" : "";
     return `${sign}$${n.toFixed(Math.abs(n) >= 100 ? 0 : 2)}`;
-  }
-  if (unit === "r") {
-    const sign = n > 0 ? "+" : "";
-    return `${sign}${n.toFixed(2)}R`;
   }
   return String(n);
 }
@@ -153,7 +149,7 @@ function LineBody({ chart, data }: { chart: ChartSpec; data: ChartPoint[] }) {
           tick={axisTick()}
           axisLine={false}
           tickLine={false}
-          width={chart.valueUnit === "usd" ? 52 : 40}
+          width={52}
           tickFormatter={(v) => formatChartValue(v, chart.valueUnit)}
           label={
             chart.yLabel
@@ -194,7 +190,7 @@ function BarBody({ chart, data }: { chart: ChartSpec; data: ChartPoint[] }) {
           tick={axisTick()}
           axisLine={false}
           tickLine={false}
-          width={chart.valueUnit === "usd" ? 52 : 36}
+          width={52}
           tickFormatter={(v) => formatChartValue(v, chart.valueUnit)}
         />
         <Tooltip
@@ -302,7 +298,7 @@ export function ChartRenderer({ chart }: { chart: ChartSpec }) {
                   tick={axisTick()}
                   axisLine={false}
                   tickLine={false}
-                  width={chart.valueUnit === "usd" ? 52 : 36}
+                  width={52}
                   tickFormatter={(v) => formatChartValue(v, chart.valueUnit)}
                 />
                 <Tooltip

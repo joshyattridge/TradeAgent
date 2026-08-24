@@ -14,7 +14,7 @@ import {
   metricLabel,
   metricValue,
   pnlCalendar,
-  rByDay,
+  pnlByDay,
   realizedRewardRisk,
   resolvePnlUsd,
   tradeCloseMs,
@@ -374,7 +374,7 @@ describe("compareTradesChronologically", () => {
       pnlUsd: -1.15,
     });
     expect(compareTradesChronologically(winFirst, lossLater)).toBeLessThan(0);
-    const curve = equityCurve([lossLater, winFirst], "r");
+    const curve = equityCurve([lossLater, winFirst]);
     // Start at 0, then win first → positive, then loss
     expect(curve.map((p) => p.id)).toEqual([
       "__equity-start",
@@ -430,12 +430,12 @@ describe("compareTradesChronologically", () => {
 });
 
 describe("equityCurve", () => {
-  it("builds cumulative R curve sorted by date", () => {
+  it("builds cumulative $ curve sorted by date", () => {
     const trades = [
       makeTrade({ id: "e1", date: "2026-07-02", rMultiple: 2, pnlUsd: 2 }),
       makeTrade({ id: "e2", date: "2026-07-01", rMultiple: -1, result: "loss", pnlUsd: -1 }),
     ];
-    const curve = equityCurve(trades, "r");
+    const curve = equityCurve(trades);
     expect(curve).toHaveLength(3); // Start + 2 trades
     expect(curve[0]).toMatchObject({ id: "__equity-start", value: 0 });
     expect(curve[1].label).toMatch(/Jul 1/);
@@ -477,7 +477,7 @@ describe("equityCurve", () => {
         pnlUsd: 100,
       }),
     ];
-    const curve = equityCurve(trades, "r");
+    const curve = equityCurve(trades);
     expect(curve.map((p) => p.id)).toEqual([
       "__equity-start",
       "first",
@@ -510,7 +510,6 @@ describe("equityCurve", () => {
           result: "loss",
         }),
       ],
-      "r",
     );
     const labels = curve.slice(1).map((p) => p.label);
     expect(labels[0]).not.toBe(labels[1]);
@@ -543,7 +542,7 @@ describe("equityCurve", () => {
         result: "loss",
       }),
     ];
-    const curve = equityCurve(trades, "r");
+    const curve = equityCurve(trades);
     expect(curve.map((p) => p.id)).toEqual([
       "__equity-start",
       "t-a",
@@ -562,7 +561,7 @@ describe("equityCurve", () => {
       makeTrade({ id: "u1", date: "2026-07-01", pnlUsd: 100 }),
       makeTrade({ id: "u2", date: "2026-07-02", pnlUsd: -50, result: "loss", rMultiple: -0.5 }),
     ];
-    const curve = equityCurve(trades, "usd");
+    const curve = equityCurve(trades);
     expect(curve[0].value).toBe(0);
     expect(curve[1].value).toBe(100);
     expect(curve[2].value).toBe(50);
@@ -578,7 +577,6 @@ describe("equityCurve", () => {
           riskUsd: 100,
         }),
       ],
-      "usd",
     );
     expect(curve[0].value).toBe(0);
     expect(curve[1].value).toBe(0);
@@ -588,7 +586,6 @@ describe("equityCurve", () => {
   it("nets fees on the USD equity curve", () => {
     const curve = equityCurve(
       [makeTrade({ id: "u-fees", pnlUsd: 100, feesUsd: 2.5 })],
-      "usd",
     );
     expect(curve[1].value).toBe(97.5);
     expect(curve[1].secondary).toBe(97.5);
@@ -611,14 +608,14 @@ function round2(n: number) {
   return Number(n.toFixed(2));
 }
 
-describe("rByDay", () => {
-  it("aggregates R by calendar day", () => {
+describe("pnlByDay", () => {
+  it("aggregates $ by calendar day", () => {
     const trades = [
       makeTrade({ id: "d1", date: "2026-07-01", rMultiple: 1, pnlUsd: 1 }),
       makeTrade({ id: "d2", date: "2026-07-01", rMultiple: 2, pnlUsd: 2 }),
       makeTrade({ id: "d3", date: "2026-07-02", rMultiple: -1, result: "loss", pnlUsd: -1 }),
     ];
-    const byDay = rByDay(trades, "r");
+    const byDay = pnlByDay(trades);
     expect(byDay).toHaveLength(2);
     expect(byDay[0].label).toBe("Jul 1");
     expect(byDay[0].value).toBe(3);
@@ -626,12 +623,11 @@ describe("rByDay", () => {
   });
 
   it("aggregates USD by calendar day", () => {
-    const byDay = rByDay(
+    const byDay = pnlByDay(
       [
         makeTrade({ id: "usd1", date: "2026-07-01", pnlUsd: 200 }),
         makeTrade({ id: "usd2", date: "2026-07-02", pnlUsd: -50, result: "loss", rMultiple: -0.5 }),
       ],
-      "usd",
     );
     expect(byDay[0].value).toBe(200);
     expect(byDay[1].value).toBe(-50);
@@ -646,7 +642,7 @@ describe("pnlCalendar", () => {
       makeTrade({ id: "p2", date: "2026-07-22", rMultiple: -1, result: "loss", pnlUsd: -100 }),
       makeTrade({ id: "old", date: "2026-06-01", rMultiple: 5, pnlUsd: 500 }),
     ];
-    const cells = pnlCalendar(trades, "r", 30, now);
+    const cells = pnlCalendar(trades, 30, now);
     const inRange = cells.filter((c) => c.inRange);
 
     expect(inRange).toHaveLength(30);
@@ -679,7 +675,6 @@ describe("pnlCalendar", () => {
         makeTrade({ id: "a", date: "2026-07-09", pnlUsd: 150, rMultiple: 1.5 }),
         makeTrade({ id: "b", date: "2026-07-09", pnlUsd: 50, rMultiple: 0.5 }),
       ],
-      "usd",
       7,
       now,
     );
@@ -705,13 +700,13 @@ describe("winLossBreakdown", () => {
 });
 
 describe("bySymbol", () => {
-  it("sums R by symbol descending", () => {
+  it("sums $ by symbol descending", () => {
     const trades = [
       makeTrade({ id: "s1", symbol: "EURUSD", rMultiple: 2, pnlUsd: 2 }),
       makeTrade({ id: "s2", symbol: "GBPUSD", rMultiple: 1, pnlUsd: 1 }),
       makeTrade({ id: "s3", symbol: "EURUSD", rMultiple: -1, result: "loss", pnlUsd: -1 }),
     ];
-    const rows = bySymbol(trades, "r");
+    const rows = bySymbol(trades);
     expect(rows[0]).toEqual({
       id: "EURUSD",
       label: "EURUSD",
@@ -732,7 +727,6 @@ describe("bySymbol", () => {
         makeTrade({ id: "su1", symbol: "XAUUSD", pnlUsd: 150 }),
         makeTrade({ id: "su2", symbol: "XAUUSD", pnlUsd: 50 }),
       ],
-      "usd",
     );
     expect(rows[0].value).toBe(200);
     expect(rows[0].count).toBe(2);
@@ -751,7 +745,6 @@ describe("bySymbol", () => {
         }),
         makeTrade({ id: "g3", symbol: "GBPJPY", rMultiple: 1.89, result: "win", pnlUsd: 1.89 }),
       ],
-      "r",
     );
     expect(rows).toEqual([
       {
@@ -781,7 +774,7 @@ describe("bySymbol", () => {
         result: "win",
       }),
     ];
-    const rows = bySymbol(trades, "usd");
+    const rows = bySymbol(trades);
     expect(rows.find((r) => r.label === "NAS100")).toMatchObject({
       value: 0,
       count: 1,
@@ -803,7 +796,6 @@ describe("bySymbol", () => {
           rMultiple: 1.2,
         }),
       ],
-      "usd",
     );
     expect(rows).toEqual([
       {
@@ -827,7 +819,6 @@ describe("bySymbol", () => {
           rMultiple: 0,
         }),
       ],
-      "usd",
     );
     expect(rows.map((r) => r.label)).toEqual(["GBPUSD"]);
   });
@@ -846,7 +837,7 @@ describe("bySymbol", () => {
       makeTrade({ id: "c", symbol: "EURUSD", pnlUsd: 50, feesUsd: 1, rMultiple: 0.5 }),
       makeTrade({ id: "open", symbol: "NAS100", result: "open", rMultiple: 0 }),
     ];
-    const rows = bySymbol(trades, "usd");
+    const rows = bySymbol(trades);
     const chartTotal = rows.reduce((sum, r) => sum + r.value, 0);
     expect(chartTotal).toBe(computeStats(trades).totalPnlUsd);
     expect(chartTotal).toBe(147); // (100-2) + 0 + (50-1)
@@ -859,26 +850,24 @@ describe("bySetup", () => {
       makeTrade({ id: "p1", rMultiple: 3 }),
       makeTrade({ id: "p2", rMultiple: 1 }),
     ];
-    expect(bySetup(trades, "r")).toEqual([]);
-    expect(bySetup([makeTrade({ id: "pu1", pnlUsd: 80 })], "usd")).toEqual([]);
+    expect(bySetup(trades)).toEqual([]);
+    expect(bySetup([makeTrade({ id: "pu1", pnlUsd: 80 })])).toEqual([]);
   });
 });
 
 describe("dashboard chart correctness", () => {
-  it("equity final point matches total R / $ for the seed book", () => {
+  it("equity final point matches total $ for the seed book", () => {
     const stats = computeStats(seedTrades);
-    const rCurve = equityCurve(seedTrades, "r");
-    const usdCurve = equityCurve(seedTrades, "usd");
-    expect(rCurve[0]?.value).toBe(0);
-    expect(rCurve.at(-1)?.value).toBe(round2(stats.totalPnlUsd));
-    expect(usdCurve.at(-1)?.value).toBe(round2(stats.totalPnlUsd));
-    expect(rCurve).toHaveLength(stats.closedCount + 1); // Start + closed
-    expect(new Set(rCurve.slice(1).map((p) => p.id)).size).toBe(stats.closedCount);
+    const curve = equityCurve(seedTrades);
+    expect(curve[0]?.value).toBe(0);
+    expect(curve.at(-1)?.value).toBe(round2(stats.totalPnlUsd));
+    expect(curve).toHaveLength(stats.closedCount + 1); // Start + closed
+    expect(new Set(curve.slice(1).map((p) => p.id)).size).toBe(stats.closedCount);
   });
 
   it("bySymbol $ sums to totalPnlUsd for the seed book", () => {
     const stats = computeStats(seedTrades);
-    const rows = bySymbol(seedTrades, "usd");
+    const rows = bySymbol(seedTrades);
     const sum = rows.reduce((s, r) => s + r.value, 0);
     expect(round2(sum)).toBe(round2(stats.totalPnlUsd));
     // Every closed symbol appears
@@ -1026,21 +1015,18 @@ describe("buildChart", () => {
     expect(chart.valueUnit).toBe("usd");
     expect(chart.data?.length).toBeGreaterThan(0);
 
-    const usd = buildChart("equity", trades, "My equity", undefined, "usd");
+    const usd = buildChart("equity", trades, "My equity");
     expect(usd.title).toBe("My equity");
     expect(usd.description).toBe("Cumulative $ P&L across closed trades");
     expect(usd.yLabel).toBe("$");
     expect(usd.valueUnit).toBe("usd");
   });
 
-  it("builds rByDay preset in $", () => {
-    const r = buildChart("rByDay", trades);
-    expect(r.title).toBe("Daily $");
-    expect(r.yLabel).toBe("$");
-
-    const usd = buildChart("rByDay", trades, undefined, undefined, "usd");
-    expect(usd.title).toBe("Daily $");
-    expect(usd.yLabel).toBe("$");
+  it("builds pnlByDay preset in $", () => {
+    const chart = buildChart("pnlByDay", trades);
+    expect(chart.title).toBe("Daily $");
+    expect(chart.yLabel).toBe("$");
+    expect(chart.valueUnit).toBe("usd");
   });
 
   it("builds winLoss preset", () => {
@@ -1050,25 +1036,19 @@ describe("buildChart", () => {
   });
 
   it("builds bySymbol preset in $", () => {
-    const r = buildChart("bySymbol", trades);
-    expect(r.title).toBe("$ by symbol");
-    expect(r.yLabel).toBe("$");
+    const chart = buildChart("bySymbol", trades);
+    expect(chart.title).toBe("$ by symbol");
+    expect(chart.yLabel).toBe("$");
 
-    const usd = buildChart("bySymbol", trades, "Symbols $", undefined, "usd");
-    expect(usd.title).toBe("Symbols $");
-    expect(usd.yLabel).toBe("$");
-
-    const usdDefaultTitle = buildChart("bySymbol", trades, undefined, undefined, "usd");
-    expect(usdDefaultTitle.title).toBe("$ by symbol");
+    const custom = buildChart("bySymbol", trades, "Symbols $");
+    expect(custom.title).toBe("Symbols $");
+    expect(custom.yLabel).toBe("$");
   });
 
   it("builds bySetup preset as $ by symbol fallback", () => {
-    const r = buildChart("bySetup", trades);
-    expect(r.title).toBe("$ by symbol");
-
-    const usd = buildChart("bySetup", trades, undefined, undefined, "usd");
-    expect(usd.title).toBe("$ by symbol");
-    expect(usd.yLabel).toBe("$");
+    const chart = buildChart("bySetup", trades);
+    expect(chart.title).toBe("$ by symbol");
+    expect(chart.yLabel).toBe("$");
   });
 
   it("builds bar, line, and scatter with custom data and titles", () => {
@@ -1086,7 +1066,7 @@ describe("buildChart", () => {
 
 describe("buildChartFromRequest", () => {
   it("builds preset charts and applies description override", () => {
-    for (const type of ["equity", "rByDay", "winLoss", "bySymbol", "bySetup"] as const) {
+    for (const type of ["equity", "pnlByDay", "winLoss", "bySymbol", "bySetup"] as const) {
       const chart = buildChartFromRequest(
         { type, description: `About ${type}` },
         seedTrades,

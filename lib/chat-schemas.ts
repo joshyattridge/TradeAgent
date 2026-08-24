@@ -287,7 +287,7 @@ const labelField = z.enum([
 export const chartRequestSchema = z.object({
   type: z.enum([
     "equity",
-    "rByDay",
+    "pnlByDay",
     "winLoss",
     "bySymbol",
     "bySetup",
@@ -357,7 +357,7 @@ export const tradeFilterSchema = z.object({
 
 export const queryTradesSchema = tradeFilterSchema.extend({
   sort: z
-    .enum(["newest", "oldest", "bestPnl", "worstPnl", "bestR", "worstR"])
+    .enum(["newest", "oldest", "bestPnl", "worstPnl"])
     .optional()
     .default("newest"),
   limit: z.number().int().min(1).max(25).optional().default(10),

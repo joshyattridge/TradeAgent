@@ -47,7 +47,7 @@ describe("LogsPage", () => {
     expect(screen.getByText("Wins / losses")).toBeInTheDocument();
     expect(screen.getByText("Avg RR")).toBeInTheDocument();
     expect(screen.getByText("Avg time in trade")).toBeInTheDocument();
-    expect(screen.getByText("Best / worst")).toBeInTheDocument();
+    expect(screen.queryByText("Best / worst")).not.toBeInTheDocument();
 
     const pnlSign = stats.totalPnlUsd > 0 ? "+" : "";
     expect(

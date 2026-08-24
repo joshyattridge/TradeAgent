@@ -26,3 +26,30 @@ export type TradeColumnId = (typeof TRADE_COLUMNS)[number]["id"];
 export const DEFAULT_VISIBLE_TRADE_COLUMNS: TradeColumnId[] = TRADE_COLUMNS.filter(
   (c) => c.defaultVisible,
 ).map((c) => c.id);
+
+const VALID_TRADE_COLUMNS = new Set<string>(TRADE_COLUMNS.map((c) => c.id));
+const DROPPED_TRADE_COLUMNS = new Set<string>(["date", "setup", "rMultiple"]);
+
+export function orderedColumns(ids: Iterable<string>): TradeColumnId[] {
+  const set = new Set(ids);
+  return TRADE_COLUMNS.map((c) => c.id).filter((id) => set.has(id));
+}
+
+/** Restore saved column prefs. Only rewrite dropped/legacy ids — never un-hide user choices. */
+export function migrateVisibleTradeColumns(saved: unknown): TradeColumnId[] {
+  if (!Array.isArray(saved) || saved.length === 0) {
+    return [...DEFAULT_VISIBLE_TRADE_COLUMNS];
+  }
+  const hadDate = saved.includes("date");
+  const cols = saved.filter(
+    (id): id is TradeColumnId =>
+      typeof id === "string" &&
+      VALID_TRADE_COLUMNS.has(id) &&
+      !DROPPED_TRADE_COLUMNS.has(id),
+  );
+  if (hadDate && !cols.includes("entryTime")) {
+    cols.unshift("entryTime");
+  }
+  const ordered = orderedColumns(cols);
+  return ordered.length ? ordered : [...DEFAULT_VISIBLE_TRADE_COLUMNS];
+}

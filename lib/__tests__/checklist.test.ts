@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   checklistDisplayRows,
+  checklistOrderChanged,
+  diffChecklist,
   mergeTradeChecklist,
   normalizeStrategyChecklist,
   normalizeTradeChecklist,
@@ -149,5 +151,75 @@ describe("checklist helpers", () => {
     expect(reorderChecklistItems(items, "a", -1)).toBe(items);
     expect(reorderChecklistItems(items, "c", 1)).toBe(items);
     expect(reorderChecklistItems(items, "missing", 1)).toBe(items);
+  });
+
+  it("diffs checklist items by id for proposal review", () => {
+    expect(diffChecklist([], [])).toEqual([]);
+    expect(
+      diffChecklist(
+        [{ id: "a", label: "Bias" }],
+        [{ id: "a", label: "Bias" }, { id: "b", label: "PD" }],
+      ),
+    ).toEqual([
+      {
+        id: "a",
+        status: "same",
+        before: { id: "a", label: "Bias" },
+        after: { id: "a", label: "Bias" },
+      },
+      { id: "b", status: "add", after: { id: "b", label: "PD" } },
+    ]);
+    expect(
+      diffChecklist(
+        [{ id: "a", label: "Bias" }, { id: "gone", label: "Old" }],
+        [{ id: "a", label: "HTF bias" }],
+      ),
+    ).toEqual([
+      {
+        id: "a",
+        status: "change",
+        before: { id: "a", label: "Bias" },
+        after: { id: "a", label: "HTF bias" },
+      },
+      { id: "gone", status: "remove", before: { id: "gone", label: "Old" } },
+    ]);
+    expect(
+      diffChecklist(
+        [{ id: "a", label: "Bias", checked: false }],
+        [{ id: "a", label: "Bias", checked: true }],
+      ),
+    ).toEqual([
+      {
+        id: "a",
+        status: "change",
+        before: { id: "a", label: "Bias", checked: false },
+        after: { id: "a", label: "Bias", checked: true },
+      },
+    ]);
+  });
+
+  it("detects checklist reorder without add/remove", () => {
+    expect(checklistOrderChanged([], [])).toBe(false);
+    expect(
+      checklistOrderChanged(
+        [{ id: "a" }, { id: "b" }],
+        [{ id: "b" }, { id: "a" }],
+      ),
+    ).toBe(true);
+    expect(
+      checklistOrderChanged(
+        [{ id: "a" }, { id: "b" }],
+        [{ id: "a" }, { id: "b" }],
+      ),
+    ).toBe(false);
+    expect(
+      checklistOrderChanged([{ id: "a" }], [{ id: "a" }, { id: "b" }]),
+    ).toBe(false);
+    expect(
+      checklistOrderChanged(
+        [{ id: "a" }, { id: "b" }],
+        [{ id: "a" }, { id: "c" }],
+      ),
+    ).toBe(false);
   });
 });

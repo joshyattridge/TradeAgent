@@ -199,10 +199,11 @@ describe("ProposalReview", () => {
     const { rerender } = render(<ProposalReview />);
 
     await waitFor(() => {
-      expect(screen.getByText("Checklist")).toBeInTheDocument();
+      expect(screen.getByLabelText("Checklist comparison")).toBeInTheDocument();
     });
-    expect(screen.getByText("Bias")).toHaveClass("proposal-field__value--before");
-    expect(screen.getByText("—")).toHaveClass("proposal-field__value--after");
+    expect(screen.getByText("Bias")).toHaveClass("proposal-checklist__old");
+    expect(screen.getByText("1 removed")).toBeInTheDocument();
+    expect(screen.getByText("Removed")).toBeInTheDocument();
 
     pendingProposal = proposal([
       {
@@ -216,10 +217,130 @@ describe("ProposalReview", () => {
     ]);
     rerender(<ProposalReview />);
     await waitFor(() => {
-      expect(screen.getByText("PD zone")).toHaveClass(
-        "proposal-field__value--after",
-      );
+      expect(screen.getByText("PD zone")).toBeInTheDocument();
     });
+    expect(screen.getByText("1 added")).toBeInTheDocument();
+    expect(screen.getByText("Added")).toBeInTheDocument();
+  });
+
+  it("renders strategy checklist rename, kept items, and reorder note", async () => {
+    const before: Strategy = {
+      name: "Plan",
+      markdown: "# Plan\n",
+      updatedAt: "2026-01-01T00:00:00Z",
+      checklist: [
+        { id: "a", label: "Bias" },
+        { id: "b", label: "FVG" },
+      ],
+    };
+    pendingProposal = proposal([
+      {
+        kind: "strategy",
+        before,
+        after: {
+          ...before,
+          checklist: [
+            { id: "b", label: "FVG" },
+            { id: "a", label: "HTF bias" },
+          ],
+        },
+      },
+    ]);
+    proposalReviewOpen = true;
+    render(<ProposalReview />);
+
+    await waitFor(() => {
+      expect(screen.getByText("1 renamed · Order changed")).toBeInTheDocument();
+    });
+    expect(screen.getByText("Bias")).toHaveClass("proposal-checklist__old");
+    expect(screen.getByText("HTF bias")).toBeInTheDocument();
+    expect(screen.getByText("FVG")).toBeInTheDocument();
+    expect(screen.getByText("Renamed")).toBeInTheDocument();
+    expect(screen.queryByText("Kept")).not.toBeInTheDocument();
+  });
+
+  it("renders trade checklist diffs and new-trade checklist rows", async () => {
+    pendingProposal = proposal([
+      {
+        kind: "add",
+        trade: sampleTrade({
+          id: "new-cl",
+          checklist: [
+            { id: "a", label: "Bias", checked: true },
+            { id: "b", label: "FVG", checked: false },
+          ],
+        }),
+      },
+      {
+        kind: "update",
+        id: "t1",
+        before: sampleTrade({
+          notes: "Old",
+          checklist: [
+            { id: "a", label: "Bias", checked: false },
+            { id: "keep", label: "Session", checked: true },
+            { id: "gone", label: "Old step", checked: true },
+          ],
+        }),
+        after: sampleTrade({
+          notes: "New",
+          checklist: [
+            { id: "a", label: "HTF bias", checked: true },
+            { id: "keep", label: "Session", checked: true },
+            { id: "c", label: "New step", checked: true },
+          ],
+        }),
+        changedKeys: ["notes", "checklist"],
+      },
+      {
+        kind: "update",
+        id: "t-empty",
+        before: sampleTrade({ id: "t-empty", checklist: undefined }),
+        after: sampleTrade({
+          id: "t-empty",
+          checklist: [{ id: "n", label: "From scratch", checked: true }],
+        }),
+        changedKeys: ["checklist"],
+      },
+      {
+        kind: "update",
+        id: "t-clear",
+        before: sampleTrade({
+          id: "t-clear",
+          checklist: [{ id: "x", label: "Cleared item", checked: false }],
+        }),
+        after: sampleTrade({ id: "t-clear", checklist: undefined }),
+        changedKeys: ["checklist"],
+      },
+      {
+        kind: "update",
+        id: "t-same-cl",
+        before: sampleTrade({
+          id: "t-same-cl",
+          checklist: [{ id: "s", label: "Same item", checked: true }],
+        }),
+        after: sampleTrade({
+          id: "t-same-cl",
+          checklist: [{ id: "s", label: "Same item", checked: true }],
+        }),
+        changedKeys: ["checklist"],
+      },
+    ]);
+    proposalReviewOpen = true;
+    render(<ProposalReview />);
+
+    await waitFor(() => {
+      expect(screen.getAllByLabelText("Checklist").length).toBeGreaterThan(0);
+    });
+    expect(screen.getAllByLabelText("Checklist comparison").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Done").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Not done").length).toBeGreaterThan(0);
+    expect(screen.getByText("Old step")).toHaveClass("proposal-checklist__old");
+    expect(screen.getByText("HTF bias")).toBeInTheDocument();
+    expect(screen.getByText("From scratch")).toBeInTheDocument();
+    expect(screen.getByText("Cleared item")).toBeInTheDocument();
+    expect(screen.getByText("Same item")).toBeInTheDocument();
+    expect(screen.getByText(/1 updated/)).toBeInTheDocument();
   });
 
   it("accepts, rejects, closes via backdrop, X, and Escape", async () => {

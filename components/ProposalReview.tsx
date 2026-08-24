@@ -10,8 +10,155 @@ import {
   TRADE_FIELD_LABELS,
   type ProposalChange,
 } from "@/lib/chat-proposals";
+import {
+  checklistOrderChanged,
+  diffChecklist,
+  type ChecklistDiffItem,
+} from "@/lib/checklist";
 import { useTradingStore } from "@/lib/store";
 import type { Trade } from "@/lib/types";
+
+function DonePill({ checked }: { checked: boolean }) {
+  return (
+    <span
+      className={`proposal-checklist__pill${checked ? " proposal-checklist__pill--done" : ""}`}
+    >
+      {checked ? "Done" : "Not done"}
+    </span>
+  );
+}
+
+function ChecklistState({
+  before,
+  after,
+}: {
+  before?: boolean;
+  after?: boolean;
+}) {
+  if (before === undefined) return <DonePill checked={Boolean(after)} />;
+  if (after === undefined) return <DonePill checked={before} />;
+  if (before === after) return <DonePill checked={after} />;
+  return (
+    <span className="proposal-checklist__state-change">
+      <DonePill checked={before} />
+      <span aria-hidden>→</span>
+      <DonePill checked={after} />
+    </span>
+  );
+}
+
+function ChecklistItems({ items }: { items: ChecklistDiffItem[] }) {
+  return (
+    <ul className="proposal-checklist__list" aria-label="Checklist">
+      {items.map((item) => (
+        <li
+          key={item.id}
+          className="proposal-checklist__row proposal-checklist__row--same"
+        >
+          <span className="proposal-checklist__mark" aria-hidden />
+          <span className="proposal-checklist__copy">{item.label}</span>
+          <DonePill checked={Boolean(item.checked)} />
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function checklistRowLabel(row: {
+  after?: ChecklistDiffItem;
+  before?: ChecklistDiffItem;
+}) {
+  return (row.after ?? row.before)!.label;
+}
+
+function ChecklistCompare({
+  before,
+  after,
+  answers,
+}: {
+  before: ChecklistDiffItem[];
+  after: ChecklistDiffItem[];
+  answers?: boolean;
+}) {
+  const rows = diffChecklist(before, after);
+  const reordered = checklistOrderChanged(before, after);
+  const added = rows.filter((row) => row.status === "add").length;
+  const removed = rows.filter((row) => row.status === "remove").length;
+  const changed = rows.filter((row) => row.status === "change").length;
+  const notes = [
+    added ? `${added} added` : null,
+    removed ? `${removed} removed` : null,
+    changed ? `${changed} ${answers ? "updated" : "renamed"}` : null,
+    reordered ? "Order changed" : null,
+  ].filter((note): note is string => Boolean(note));
+
+  return (
+    <div className="proposal-checklist">
+      <div className="proposal-checklist__head">
+        <p className="proposal-col-label">Checklist</p>
+        {notes.length ? (
+          <span className="proposal-checklist__note">{notes.join(" · ")}</span>
+        ) : null}
+      </div>
+      <ul className="proposal-checklist__list" aria-label="Checklist comparison">
+        {rows.map((row) => {
+          const label = checklistRowLabel(row);
+          const renamed = Boolean(
+            row.before &&
+              row.after &&
+              row.before.label !== row.after.label,
+          );
+          return (
+            <li
+              key={row.id}
+              className={`proposal-checklist__row proposal-checklist__row--${row.status}`}
+            >
+              <span className="proposal-checklist__mark" aria-hidden>
+                {row.status === "add"
+                  ? "+"
+                  : row.status === "remove"
+                    ? "−"
+                    : row.status === "change"
+                      ? "→"
+                      : "·"}
+              </span>
+              {renamed ? (
+                <span className="proposal-checklist__rename">
+                  <span className="proposal-checklist__old">{row.before?.label}</span>
+                  <span>{row.after?.label}</span>
+                </span>
+              ) : (
+                <span
+                  className={
+                    row.status === "remove"
+                      ? "proposal-checklist__copy proposal-checklist__old"
+                      : "proposal-checklist__copy"
+                  }
+                >
+                  {label}
+                </span>
+              )}
+              {answers ? (
+                <ChecklistState
+                  before={row.before?.checked}
+                  after={row.after?.checked}
+                />
+              ) : row.status === "same" ? null : (
+                <span className="proposal-checklist__tag">
+                  {row.status === "add"
+                    ? "Added"
+                    : row.status === "remove"
+                      ? "Removed"
+                      : "Renamed"}
+                </span>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+}
 
 function TradeFieldRows({
   trade,
@@ -42,6 +189,14 @@ function TradeFieldRows({
                   "—"
                 )}
               </strong>
+            </div>
+          );
+        }
+        if (key === "checklist" && trade.checklist?.length) {
+          return (
+            <div className="proposal-field proposal-field--stack" key={key}>
+              <span>Checklist</span>
+              <ChecklistItems items={trade.checklist} />
             </div>
           );
         }
@@ -83,6 +238,8 @@ function ChangeBlock({ change }: { change: ProposalChange }) {
   }
 
   if (change.kind === "update") {
+    const fieldKeys = change.changedKeys.filter((key) => key !== "checklist");
+    const checklistChanged = change.changedKeys.includes("checklist");
     return (
       <section className="proposal-change">
         <header className="proposal-change__head">
@@ -95,24 +252,33 @@ function ChangeBlock({ change }: { change: ProposalChange }) {
           </h3>
           <p className="proposal-change__meta mono">{change.id}</p>
         </header>
-        <div className="proposal-diff-grid">
-          <div>
-            <p className="proposal-col-label">Before</p>
-            <TradeFieldRows
-              trade={change.before}
-              keys={change.changedKeys}
-              mode="before"
-            />
+        {fieldKeys.length ? (
+          <div className="proposal-diff-grid">
+            <div>
+              <p className="proposal-col-label">Before</p>
+              <TradeFieldRows
+                trade={change.before}
+                keys={fieldKeys}
+                mode="before"
+              />
+            </div>
+            <div>
+              <p className="proposal-col-label">After</p>
+              <TradeFieldRows
+                trade={change.after}
+                keys={fieldKeys}
+                mode="after"
+              />
+            </div>
           </div>
-          <div>
-            <p className="proposal-col-label">After</p>
-            <TradeFieldRows
-              trade={change.after}
-              keys={change.changedKeys}
-              mode="after"
-            />
-          </div>
-        </div>
+        ) : null}
+        {checklistChanged ? (
+          <ChecklistCompare
+            before={change.before.checklist ?? []}
+            after={change.after.checklist ?? []}
+            answers
+          />
+        ) : null}
       </section>
     );
   }
@@ -162,19 +328,7 @@ function ChangeBlock({ change }: { change: ProposalChange }) {
         ) : null}
       </header>
       {checklistChanged ? (
-        <div className="proposal-checklist-diff">
-          <p className="proposal-change__meta">Checklist</p>
-          <p className="proposal-field__value--before">
-            {beforeChecklist.length
-              ? beforeChecklist.map((item) => item.label).join("; ")
-              : "—"}
-          </p>
-          <p className="proposal-field__value--after">
-            {afterChecklist.length
-              ? afterChecklist.map((item) => item.label).join("; ")
-              : "—"}
-          </p>
-        </div>
+        <ChecklistCompare before={beforeChecklist} after={afterChecklist} />
       ) : null}
       <div className="proposal-md-diff" aria-label="Strategy markdown diff">
         {showDiff.map((line, i) => (

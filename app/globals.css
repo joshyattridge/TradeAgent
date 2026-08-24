@@ -2425,6 +2425,167 @@ textarea {
   border: 1px solid var(--line);
 }
 
+.proposal-field--stack {
+  grid-template-columns: 1fr;
+  gap: 0.45rem;
+}
+
+.proposal-checklist {
+  margin-top: 0.85rem;
+  margin-bottom: 0.85rem;
+}
+
+.proposal-checklist__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.proposal-checklist__note {
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+  text-align: right;
+}
+
+.proposal-checklist__list {
+  list-style: none;
+  margin: 0.4rem 0 0;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: rgba(255, 253, 248, 0.72);
+}
+
+.proposal-checklist__row {
+  display: grid;
+  grid-template-columns: 1.25rem minmax(0, 1fr) auto;
+  gap: 0.55rem 0.7rem;
+  align-items: center;
+  padding: 0.62rem 0.8rem;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  background: transparent;
+  font-size: 0.9rem;
+}
+
+.proposal-checklist__row:last-child {
+  border-bottom: 0;
+}
+
+.proposal-checklist__row--add {
+  background: rgba(13, 148, 136, 0.1);
+  box-shadow: inset 3px 0 0 var(--teal-deep);
+}
+
+.proposal-checklist__row--remove {
+  background: rgba(225, 29, 72, 0.07);
+  box-shadow: inset 3px 0 0 var(--coral);
+}
+
+.proposal-checklist__row--change {
+  background: rgba(13, 148, 136, 0.06);
+  box-shadow: inset 3px 0 0 rgba(13, 148, 136, 0.55);
+}
+
+.proposal-checklist__row--same {
+  color: var(--ink-soft);
+}
+
+.proposal-checklist__mark {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--muted);
+  text-align: center;
+}
+
+.proposal-checklist__row--add .proposal-checklist__mark,
+.proposal-checklist__row--change .proposal-checklist__mark {
+  color: var(--teal-deep);
+}
+
+.proposal-checklist__row--remove .proposal-checklist__mark {
+  color: var(--coral);
+}
+
+.proposal-checklist__copy,
+.proposal-checklist__rename {
+  min-width: 0;
+  color: var(--ink);
+  font-weight: 500;
+  line-height: 1.35;
+}
+
+.proposal-checklist__rename {
+  display: grid;
+  gap: 0.12rem;
+}
+
+.proposal-checklist__old {
+  color: var(--muted);
+  text-decoration: line-through;
+  text-decoration-color: rgba(225, 29, 72, 0.45);
+  font-weight: 500;
+}
+
+.proposal-checklist__tag {
+  justify-self: end;
+  font-size: 0.7rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.proposal-checklist__row--add .proposal-checklist__tag {
+  color: var(--teal-deep);
+}
+
+.proposal-checklist__row--remove .proposal-checklist__tag {
+  color: var(--coral);
+}
+
+.proposal-checklist__row--change .proposal-checklist__tag {
+  color: var(--teal-deep);
+}
+
+.proposal-checklist__pill {
+  display: inline-flex;
+  align-items: center;
+  justify-self: end;
+  border-radius: 999px;
+  padding: 0.18rem 0.55rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--muted);
+  background: rgba(28, 25, 23, 0.06);
+  white-space: nowrap;
+}
+
+.proposal-checklist__pill--done {
+  color: var(--teal-deep);
+  background: rgba(13, 148, 136, 0.16);
+}
+
+.proposal-checklist__state-change {
+  display: inline-flex;
+  align-items: center;
+  justify-self: end;
+  gap: 0.35rem;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.proposal-field--stack .proposal-checklist,
+.proposal-field--stack .proposal-checklist__list {
+  margin-top: 0;
+}
+
 .proposal-md-diff {
   max-height: 22rem;
   overflow: auto;
@@ -2516,5 +2677,16 @@ textarea {
   .proposal-field {
     grid-template-columns: 1fr;
     gap: 0.15rem;
+  }
+
+  .proposal-checklist__row {
+    grid-template-columns: 1.25rem minmax(0, 1fr);
+  }
+
+  .proposal-checklist__tag,
+  .proposal-checklist__pill,
+  .proposal-checklist__state-change {
+    grid-column: 2;
+    justify-self: start;
   }
 }

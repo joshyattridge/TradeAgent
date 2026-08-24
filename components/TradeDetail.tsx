@@ -567,13 +567,19 @@ export function TradeDetail({
           role="dialog"
           aria-modal="true"
           aria-label="Screenshot"
-          onClick={() => setLightboxSrc(null)}
+          onClick={(e) => {
+            e.stopPropagation();
+            setLightboxSrc(null);
+          }}
         >
           <button
             type="button"
             className="trade-lightbox__close"
             aria-label="Close screenshot"
-            onClick={() => setLightboxSrc(null)}
+            onClick={(e) => {
+              e.stopPropagation();
+              setLightboxSrc(null);
+            }}
           >
             <X size={18} />
           </button>

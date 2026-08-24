@@ -80,7 +80,7 @@ export interface Strategy {
 
 export type ChartKind =
   | "equity"
-  | "rByDay"
+  | "pnlByDay"
   | "winLoss"
   | "bySymbol"
   | "bySetup"
@@ -118,8 +118,6 @@ export interface ChartPoint {
   count?: number;
 }
 
-export type PerformanceUnit = "r" | "usd";
-
 export interface ChartSpec {
   id: string;
   title: string;
@@ -128,7 +126,7 @@ export interface ChartSpec {
   xLabel?: string;
   yLabel?: string;
   /** How to format series values in axes / tooltips */
-  valueUnit?: PerformanceUnit;
+  valueUnit?: "usd";
   data?: ChartPoint[];
 }
 

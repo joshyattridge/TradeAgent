@@ -24,7 +24,7 @@ export function PnlCalendar({
   days?: number;
   now?: Date;
 }) {
-  const cells = pnlCalendar(trades, "usd", days, now ?? new Date());
+  const cells = pnlCalendar(trades, days, now ?? new Date());
 
   return (
     <div className="chart-panel pnl-cal" data-testid="pnl-calendar">

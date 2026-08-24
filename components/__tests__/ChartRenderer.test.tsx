@@ -211,38 +211,38 @@ describe("ChartRenderer", () => {
     expect(captured.xAxisDataKey).toBe("label");
   });
 
-  it("renders equity with r unit formatting", () => {
+  it("renders equity with $ unit formatting", () => {
     render(
       <ChartRenderer
         chart={chart({
           type: "equity",
-          valueUnit: "r",
+          valueUnit: "usd",
           data: [{ id: "t1", label: "Jul 1", value: 1.234, x: 0 }],
         })}
       />,
     );
-    expect(captured.yTickFormatter!(1.234)).toBe("+1.23R");
+    expect(captured.yTickFormatter!(1.234)).toBe("+$1.23");
     expect(captured.tooltipFormatter!("not-a-number", "value", {})).toEqual([
       "not-a-number",
       "Value",
     ]);
   });
 
-  it("renders line chart with yLabel and r formatters", () => {
+  it("renders line chart with yLabel and $ formatters", () => {
     render(
       <ChartRenderer
         chart={chart({
           type: "line",
-          yLabel: "R multiple",
-          valueUnit: "r",
+          yLabel: "P&L",
+          valueUnit: "usd",
           data: sampleData,
         })}
       />,
     );
     expect(screen.getByTestId("recharts-linechart")).toBeInTheDocument();
-    expect(captured.yAxisLabel).toMatchObject({ value: "R multiple" });
-    expect(captured.yTickFormatter!(2)).toBe("+2.00R");
-    expect(captured.tooltipFormatter!(2, "value")).toEqual(["+2.00R", "R multiple"]);
+    expect(captured.yAxisLabel).toMatchObject({ value: "P&L" });
+    expect(captured.yTickFormatter!(2)).toBe("+$2.00");
+    expect(captured.tooltipFormatter!(2, "value")).toEqual(["+$2.00", "P&L"]);
   });
 
   it("renders bar chart with colored cells for positive and negative values", () => {
@@ -296,8 +296,8 @@ describe("ChartRenderer", () => {
       <ChartRenderer
         chart={chart({
           type: "bySymbol",
-          valueUnit: "r",
-          yLabel: "R",
+          valueUnit: "usd",
+          yLabel: "$",
           data: [{ id: "GBPJPY", label: "GBPJPY", value: 1.97, count: 3 }],
         })}
       />,
@@ -306,7 +306,7 @@ describe("ChartRenderer", () => {
       captured.tooltipFormatter!(1.97, "value", {
         payload: { label: "GBPJPY", count: 3 },
       }),
-    ).toEqual(["+1.97R · 3 trades", "Net R"]);
+    ).toEqual(["+$1.97 · 3 trades", "Net $"]);
   });
 
   it("defaults net tooltip series label when yLabel is omitted", () => {
@@ -407,18 +407,18 @@ describe("ChartRenderer", () => {
     expect(captured.tooltipFormatter!(0, "value")).toEqual(["$0.00", "Value"]);
   });
 
-  it("formats positive R tick values with a plus sign", () => {
+  it("formats positive $ tick values with a plus sign", () => {
     render(
       <ChartRenderer
         chart={chart({
           type: "line",
-          valueUnit: "r",
+          valueUnit: "usd",
           data: [{ label: "A", value: 1.5 }],
         })}
       />,
     );
-    expect(captured.yTickFormatter!(1.5)).toBe("+1.50R");
-    expect(captured.yTickFormatter!(-0.5)).toBe("-0.50R");
+    expect(captured.yTickFormatter!(1.5)).toBe("+$1.50");
+    expect(captured.yTickFormatter!(-0.5)).toBe("$-0.50");
   });
 
   it("maps scatter points without y or secondary to zero", () => {
