@@ -20,6 +20,7 @@ function badgeClass(result: Trade["result"]) {
   if (result === "win") return "badge badge--win";
   if (result === "loss") return "badge badge--loss";
   if (result === "open") return "badge badge--open";
+  if (result === "missed") return "badge badge--missed";
   return "badge";
 }
 
@@ -255,6 +256,7 @@ export function TradeDetail({
               <option value="loss">loss</option>
               <option value="breakeven">breakeven</option>
               <option value="open">open</option>
+              <option value="missed">missed</option>
             </select>
             <span className={`mono ${pnlClass}`}>{formatPnlUsd(trade.pnlUsd)}</span>
           </div>

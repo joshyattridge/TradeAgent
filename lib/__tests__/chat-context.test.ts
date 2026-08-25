@@ -197,6 +197,13 @@ describe("selectRelevantTrades", () => {
         symbol: "GBPUSD",
         result: "open",
       }),
+      makeTrade({
+        id: "missed-one",
+        date: "2026-07-12",
+        symbol: "NAS100",
+        result: "missed",
+        notes: "never filled",
+      }),
     ];
 
     const symbolPick = selectRelevantTrades(trades, "How did EURUSD do?");
@@ -226,6 +233,9 @@ describe("selectRelevantTrades", () => {
 
     const openPick = selectRelevantTrades(trades, "Any open active trades?");
     expect(openPick.trades[0]?.id).toBe("open-one");
+
+    const missedPick = selectRelevantTrades(trades, "Which setups did I miss?");
+    expect(missedPick.trades[0]?.id).toBe("missed-one");
 
     const tokenPick = selectRelevantTrades(trades, "Tell me about liquidity sweep");
     expect(tokenPick.trades[0]?.id).toBe("winner");

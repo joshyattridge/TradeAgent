@@ -141,6 +141,17 @@ const trades: Trade[] = [
     notes: undefined,
     tags: undefined,
   }),
+  trade({
+    id: "e",
+    date: "2026-07-04",
+    symbol: "MISS",
+    side: "long",
+    entry: 1.2,
+    stop: 1.19,
+    target: 1.22,
+    result: "missed",
+    notes: "Never filled",
+  }),
 ];
 
 function escapeRegex(value: string) {
@@ -192,6 +203,7 @@ describe("TradeTable", () => {
     expect(screen.getAllByText("—").length).toBeGreaterThan(0);
     expect(screen.getByText("breakeven")).toBeInTheDocument();
     expect(screen.getByText("open")).toHaveClass("badge--open");
+    expect(screen.getByText("missed")).toHaveClass("badge--missed");
 
     const firstRow = screen.getByText("AAA").closest("tr")!;
     await user.click(firstRow);

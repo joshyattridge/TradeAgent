@@ -146,6 +146,7 @@ describe("buildSystemPrompt", () => {
     expect(prompt).toContain("query_trades");
     expect(prompt).toContain("Charts are $ only");
     expect(prompt).toContain("Never request R-multiple");
+    expect(prompt).toContain("result=missed");
   });
 
   it("uses unset when strategy name is missing", () => {

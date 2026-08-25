@@ -321,6 +321,7 @@ Missing info / screenshots:
 - Reattached trade-journal screenshots (if any this turn): ${ctx.reattachedScreenshotCount}. These belong to a trade uniquely named in the message.
 - Attached files on the current message are also in the user message — use them as source data for logging, reviews, or imports.
 - Required when logging/closing: symbol, side, entry, SL, TP (or why missing), result, and $ P&L. Never use R-multiple.
+- result=missed: correct setup that did not fill or the user did not take. Log it so they can review the idea. Missed trades stay in the journal but MUST NOT be counted in $ P&L, win rate, Avg RR, or charts (journalStats already excludes them). $ P&L is optional on missed rows.
 - feesUsd = commission + swap (add them if the broker shows both separately). pnlUsd is gross price P&L; net $ P&L used in stats is pnlUsd − feesUsd.
 
 Hard rules for mutations:

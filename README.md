@@ -28,6 +28,7 @@ You can also set `OPENAI_API_KEY` in `.env.local` as a server fallback.
 - `show my equity curve`
 - `$ P&L by symbol`
 - `log EURUSD long, +$200, London CE fill`
+- `log missed NAS100 long, setup was there but it never filled`
 - `update strategy: no trades during red folder news`
 
 Data persists in the browser via IndexedDB. Seeded with your 1H FVG continuation playbook + sample trades.

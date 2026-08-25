@@ -1,4 +1,4 @@
-import { buildChartFromRequest, computeStats, visibleJournalTrades } from "@/lib/stats";
+import { buildChartFromRequest, computeStats, isStatsClosedTrade, visibleJournalTrades } from "@/lib/stats";
 import { normalizeSymbol, tradeSnapshot } from "@/lib/chat-context";
 import type {
   AnnotateTradeInput,
@@ -335,6 +335,17 @@ function sortTrades(trades: Trade[], sort: QueryTradesInput["sort"] = "newest") 
   }
 }
 
+function journalHeadcount(live: Trade[]) {
+  const open = live.filter((t) => t.result === "open").length;
+  const missed = live.filter((t) => t.result === "missed").length;
+  return {
+    total: live.length,
+    open,
+    closed: live.length - open - missed,
+    missed,
+  };
+}
+
 /** Mutable journal used while the model calls tools within one request. */
 export class JournalSession {
   trades: Trade[];
@@ -362,7 +373,7 @@ export class JournalSession {
 
   getStats(filter?: TradeFilterInput, closedOnly?: boolean) {
     let pool = filter ? filterTrades(this.trades, filter) : this.trades;
-    if (closedOnly) pool = pool.filter((t) => t.result !== "open");
+    if (closedOnly) pool = pool.filter(isStatsClosedTrade);
     return computeStats(pool);
   }
 
@@ -805,18 +816,13 @@ export class JournalSession {
     const sorted = sortTrades(filtered, input.sort);
     const limit = input.limit ?? 10;
     const slice = sorted.slice(0, limit);
-    const openCount = live.filter((t) => t.result === "open").length;
-    const closedCount = live.length - openCount;
+    const journal = journalHeadcount(live);
     const narrowed = filterIsActive(filter);
     const journalStats = computeStats(this.trades);
     return {
       ok: true as const,
       action: "query_trades",
-      journal: {
-        total: live.length,
-        open: openCount,
-        closed: closedCount,
-      },
+      journal,
       /** Full-book scoreboard — use this for win/loss/$ PnL, not the filtered trades[] slice. */
       journalStats,
       count: filtered.length,
@@ -833,19 +839,14 @@ export class JournalSession {
     const closedOnly = input.closedOnly !== false;
     const live = visibleJournalTrades(this.trades);
     const pool = closedOnly
-      ? live.filter((t) => t.result !== "open")
+      ? live.filter(isStatsClosedTrade)
       : live;
     const stats = computeStats(pool);
-    const openCount = live.filter((t) => t.result === "open").length;
-    const closedCount = live.length - openCount;
+    const journal = journalHeadcount(live);
     return {
       ok: true as const,
       action: "get_stats",
-      journal: {
-        total: live.length,
-        open: openCount,
-        closed: closedCount,
-      },
+      journal,
       matched: live.length,
       poolSize: pool.length,
       closedOnly,

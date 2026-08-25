@@ -129,6 +129,11 @@ describe("TradeDetail", () => {
       <TradeDetail trade={sampleTrade({ result: "breakeven", rMultiple: 0 })} onClose={vi.fn()} />,
     );
     expect(await screen.findByText("breakeven")).toBeInTheDocument();
+
+    rerender(
+      <TradeDetail trade={sampleTrade({ result: "missed", pnlUsd: undefined })} onClose={vi.fn()} />,
+    );
+    expect(await screen.findByDisplayValue("missed")).toHaveClass("badge--missed");
   });
 
   it("closes on backdrop click, close button, and Escape", async () => {
@@ -356,6 +361,9 @@ describe("TradeDetail", () => {
 
     await user.selectOptions(screen.getByLabelText("Result"), "loss");
     expect(updateTrade).toHaveBeenCalledWith("t1", { result: "loss" });
+
+    await user.selectOptions(screen.getByLabelText("Result"), "missed");
+    expect(updateTrade).toHaveBeenCalledWith("t1", { result: "missed" });
 
     async function blurChange(label: string, value: string) {
       const el = screen.getByLabelText(label);

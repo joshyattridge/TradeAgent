@@ -24,8 +24,8 @@ export default function LogsPage() {
         <h1>Trading Logs</h1>
         <p>
           Every trade on record. Keep the table light, click a row for full
-          details, and toggle columns anytime. Hidden rows stay in the list
-          but drop out of stats.
+          details, and toggle columns anytime. Hidden rows and missed setups
+          stay in the list but drop out of stats.
         </p>
       </section>
 

@@ -48,6 +48,7 @@ describe("LogsPage", () => {
     expect(screen.getByText("Avg RR")).toBeInTheDocument();
     expect(screen.getByText("Avg time in trade")).toBeInTheDocument();
     expect(screen.queryByText("Best / worst")).not.toBeInTheDocument();
+    expect(screen.getByText(/missed setups/i)).toBeInTheDocument();
 
     const pnlSign = stats.totalPnlUsd > 0 ? "+" : "";
     expect(
@@ -100,5 +101,22 @@ describe("LogsPage", () => {
     expect(screen.queryByRole("button", { name: /Show hidden/ })).not.toBeInTheDocument();
     expect(screen.getByText(String(stats.wins))).toBeInTheDocument();
     expect(screen.getByText(String(stats.losses))).toBeInTheDocument();
+  });
+
+  it("keeps missed trades in the table while excluding them from stats", () => {
+    const taken = seedTrades[0];
+    const missed = {
+      ...seedTrades[1],
+      id: "missed-setup",
+      result: "missed" as const,
+      pnlUsd: 9999,
+    };
+    resetStore({ trades: [taken, missed] });
+    const stats = computeStats([taken, missed]);
+    render(<LogsPage />);
+    expect(screen.getByTestId("trade-table")).toHaveTextContent("2 trades");
+    expect(stats.missedCount).toBe(1);
+    expect(stats.totalPnlUsd).toBe(computeStats([taken]).totalPnlUsd);
+    expect(screen.getByText(String(stats.wins))).toBeInTheDocument();
   });
 });

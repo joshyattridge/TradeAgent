@@ -197,6 +197,7 @@ function scoreTrade(
     wantsLosses: boolean;
     wantsWins: boolean;
     wantsOpen: boolean;
+    wantsMissed: boolean;
     queryTokens: string[];
   },
 ) {
@@ -217,6 +218,7 @@ function scoreTrade(
   if (opts.wantsLosses && trade.result === "loss") score += 15;
   if (opts.wantsWins && trade.result === "win") score += 15;
   if (opts.wantsOpen && trade.result === "open") score += 20;
+  if (opts.wantsMissed && trade.result === "missed") score += 20;
 
   for (const token of opts.queryTokens) {
     if (hay.includes(token) || trade.id.toLowerCase().includes(token)) {
@@ -243,6 +245,8 @@ export function selectRelevantTrades(
   const wantsLosses = /\b(loss|losses|losers|red)\b/i.test(userMessage);
   const wantsWins = /\b(win|wins|winners|green)\b/i.test(userMessage);
   const wantsOpen = /\b(open|active|running)\b/i.test(userMessage);
+  const wantsMissed =
+    /\b(miss(?:ed)?|never filled|didn't take|did not take)\b/i.test(userMessage);
   const queryTokens = userMessage
     .toLowerCase()
     .split(/[^a-z0-9]+/)
@@ -259,6 +263,7 @@ export function selectRelevantTrades(
       wantsLosses,
       wantsWins,
       wantsOpen,
+      wantsMissed,
       queryTokens,
     }),
   }));

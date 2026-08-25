@@ -161,6 +161,19 @@ describe("trade mutation schemas", () => {
     expect(parsed.session).toBe("Asian");
   });
 
+  it("logTradeSchema accepts missed result", () => {
+    const parsed = logTradeSchema.parse({
+      date: "2026-08-25",
+      symbol: "NAS100",
+      side: "long",
+      entry: 20000,
+      stop: 19950,
+      target: 20100,
+      result: "missed",
+    });
+    expect(parsed.result).toBe("missed");
+  });
+
   it("patchTradeSchema strips notes/tags so they cannot be overwritten via patch", () => {
     const parsed = patchTradeSchema.parse({
       id: "trade-a",

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { filterTrades, JournalSession } from "@/lib/journal-session";
 import { seedStrategy, seedTrades } from "@/lib/seed-data";
+import { computeStats } from "@/lib/stats";
 import type { Strategy, Trade } from "@/lib/types";
 
 function trade(overrides: Partial<Trade> = {}): Trade {
@@ -84,6 +85,12 @@ describe("filterTrades", () => {
   it("filters by side, result, tags, and session", () => {
     expect(filterTrades(pool, { side: "short" }).map((t) => t.id)).toEqual(["b"]);
     expect(filterTrades(pool, { result: "open" }).map((t) => t.id)).toEqual(["c"]);
+    expect(
+      filterTrades(
+        [...pool, trade({ id: "m", result: "missed", notes: "never filled" })],
+        { result: "missed" },
+      ).map((t) => t.id),
+    ).toEqual(["m"]);
     expect(filterTrades(pool, { tags: ["ob"] }).map((t) => t.id)).toEqual(["b"]);
     expect(filterTrades(pool, { session: "asian" }).map((t) => t.id)).toEqual(["c"]);
   });
@@ -212,7 +219,8 @@ describe("JournalSession.queryTrades", () => {
     const full = session.queryTrades({ limit: 25 });
     expect(full.note).toMatch(/Full-book query/i);
     expect(full.count).toBe(full.journal.total);
-    expect(full.journalStats.totalTrades).toBe(full.journal.total);
+    expect(full.journal.missed).toBe(0);
+    expect(full.journalStats.totalTrades).toBe(full.journal.total - full.journal.missed);
   });
 });
 
@@ -246,6 +254,7 @@ describe("getStats and getStatsTool", () => {
     expect(res.action).toBe("get_stats");
     expect(res.journal.total).toBe(seedTrades.length);
     expect(res.journal.open).toBe(1);
+    expect(res.journal.missed).toBe(0);
     expect(res.matched).toBe(seedTrades.length);
     expect(res.poolSize).toBe(seedTrades.length - 1);
     expect(res.closedOnly).toBe(true);
@@ -258,6 +267,23 @@ describe("getStats and getStatsTool", () => {
     const res = session.getStatsTool({ closedOnly: true });
     expect(res.note).toMatch(/Full-journal stats/i);
     expect(res.matched).toBe(seedTrades.length);
+  });
+
+  it("excludes missed setups from closed-only stats while keeping them in the journal", () => {
+    const missed = trade({
+      id: "missed-1",
+      result: "missed",
+      pnlUsd: 5000,
+      notes: "never filled",
+    });
+    const session = makeSession([...seedTrades, missed]);
+    const res = session.getStatsTool({ closedOnly: true });
+    expect(res.journal.total).toBe(seedTrades.length + 1);
+    expect(res.journal.missed).toBe(1);
+    expect(res.poolSize).toBe(seedTrades.length - 1);
+    expect(res.stats.missedCount).toBe(0);
+    expect(res.stats.totalPnlUsd).toBe(computeStats(seedTrades).totalPnlUsd);
+    expect(session.queryTrades({ result: "missed" }).trades[0]?.id).toBe("missed-1");
   });
 });
 

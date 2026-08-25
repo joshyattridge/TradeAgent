@@ -50,6 +50,7 @@ describe("remaining chat schemas", () => {
     expect(queryTradesSchema.parse({}).sort).toBe("newest");
     expect(queryTradesSchema.parse({}).side).toBe("any");
     expect(queryTradesSchema.parse({}).result).toBe("any");
+    expect(queryTradesSchema.parse({ result: "missed" }).result).toBe("missed");
     expect(queryTradesSchema.parse({ sort: "bestPnl", limit: 5 }).limit).toBe(5);
     expect(getStatsSchema.parse({}).closedOnly).toBe(true);
     expect(getStatsSchema.parse({ closedOnly: false }).closedOnly).toBe(false);

@@ -41,8 +41,13 @@ export function visibleJournalTrades(trades: Trade[]) {
   return trades.filter((t) => !t.hidden);
 }
 
+/** Taken, resolved trades that feed P&L / win rate / equity / calendar. */
+export function isStatsClosedTrade(trade: Trade): boolean {
+  return trade.result !== "open" && trade.result !== "missed";
+}
+
 export function closedTrades(trades: Trade[]) {
-  return visibleJournalTrades(trades).filter((t) => t.result !== "open");
+  return visibleJournalTrades(trades).filter(isStatsClosedTrade);
 }
 
 /**
@@ -85,10 +90,10 @@ export function plannedRewardRisk(trade: Trade): number | null {
 
 /**
  * Realized R from net $ / risk, else exit vs stop, else a legacy stored rMultiple.
- * Open trades have no realized R.
+ * Open and missed trades have no realized R.
  */
 export function realizedRewardRisk(trade: Trade): number | null {
-  if (trade.result === "open") return null;
+  if (trade.result === "open" || trade.result === "missed") return null;
   if (
     trade.riskUsd != null &&
     trade.riskUsd > 0 &&
@@ -163,11 +168,13 @@ export function computeStats(trades: Trade[]) {
     ? durations.reduce((a, b) => a + b, 0) / durations.length
     : undefined;
   const openCount = visible.filter((t) => t.result === "open").length;
+  const missedCount = visible.filter((t) => t.result === "missed").length;
 
   return {
-    totalTrades: visible.length,
+    totalTrades: visible.length - missedCount,
     closedCount: closed.length,
     openCount,
+    missedCount,
     wins: wins.length,
     losses: losses.length,
     winRate,

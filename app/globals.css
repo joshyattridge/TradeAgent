@@ -1073,6 +1073,11 @@ textarea {
   color: var(--amber);
 }
 
+.badge--missed {
+  background: rgba(87, 83, 78, 0.12);
+  color: var(--ink-soft);
+}
+
 .notes {
   display: block;
   max-width: 16rem;

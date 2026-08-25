@@ -76,6 +76,16 @@ describe("journal backup", () => {
     expect(parsed.backup.trades[0].checklist).toEqual(trades[0].checklist);
   });
 
+  it("round-trips missed result", () => {
+    const trades = [sampleTrade({ id: "miss", result: "missed", pnlUsd: 0 })];
+    const parsed = parseJournalBackup(
+      serializeJournalBackup(buildJournalBackup(trades, seedStrategy)),
+    );
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    expect(parsed.backup.trades[0].result).toBe("missed");
+  });
+
   it("migrates legacy structured strategy on import", () => {
     const backup = {
       format: BACKUP_FORMAT,

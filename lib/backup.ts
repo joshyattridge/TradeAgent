@@ -23,7 +23,13 @@ export type BackupParseResult =
   | { ok: false; error: string };
 
 const TRADE_SIDES: TradeSide[] = ["long", "short"];
-const TRADE_RESULTS: TradeResult[] = ["win", "loss", "breakeven", "open"];
+const TRADE_RESULTS: TradeResult[] = [
+  "win",
+  "loss",
+  "breakeven",
+  "open",
+  "missed",
+];
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);

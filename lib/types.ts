@@ -1,7 +1,7 @@
 import type { ChatAgentMessage } from "@/lib/chat-history";
 
 export type TradeSide = "long" | "short";
-export type TradeResult = "win" | "loss" | "breakeven" | "open";
+export type TradeResult = "win" | "loss" | "breakeven" | "open" | "missed";
 
 /** Checklist item defined on the strategy plan. */
 export interface StrategyChecklistItem {

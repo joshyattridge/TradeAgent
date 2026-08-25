@@ -10,6 +10,7 @@ import {
   computeStats,
   equityCurve,
   plannedRewardRisk,
+  isStatsClosedTrade,
   labelValue,
   metricLabel,
   metricValue,
@@ -55,6 +56,29 @@ describe("closedTrades", () => {
     const closed = closedTrades(trades);
     expect(closed).toHaveLength(2);
     expect(closed.every((t) => t.result !== "open")).toBe(true);
+  });
+
+  it("filters out missed setups so they never enter stats", () => {
+    const trades = [
+      makeTrade({ id: "a", result: "win", pnlUsd: 50 }),
+      makeTrade({
+        id: "m",
+        result: "missed",
+        pnlUsd: 9999,
+        rMultiple: 12,
+      }),
+    ];
+    expect(closedTrades(trades).map((t) => t.id)).toEqual(["a"]);
+    expect(isStatsClosedTrade(trades[1])).toBe(false);
+    const stats = computeStats(trades);
+    expect(stats.totalTrades).toBe(1);
+    expect(stats.closedCount).toBe(1);
+    expect(stats.missedCount).toBe(1);
+    expect(stats.totalPnlUsd).toBe(50);
+    expect(stats.wins).toBe(1);
+    expect(equityCurve(trades).some((p) => p.id === "m")).toBe(false);
+    expect(bySymbol(trades)[0]?.value).toBe(50);
+    expect(winLossBreakdown(trades).find((row) => row.id === "open")?.value).toBe(0);
   });
 });
 
@@ -108,6 +132,7 @@ describe("computeStats", () => {
     expect(stats.totalTrades).toBe(0);
     expect(stats.closedCount).toBe(0);
     expect(stats.openCount).toBe(0);
+    expect(stats.missedCount).toBe(0);
     expect(stats.wins).toBe(0);
     expect(stats.losses).toBe(0);
     expect(stats.winRate).toBe(0);
@@ -233,6 +258,7 @@ describe("plannedRewardRisk and realizedRewardRisk", () => {
 
   it("derives realized R from $ / risk, exit, or legacy rMultiple", () => {
     expect(realizedRewardRisk(makeTrade({ id: "open", result: "open" }))).toBeNull();
+    expect(realizedRewardRisk(makeTrade({ id: "missed", result: "missed" }))).toBeNull();
     expect(
       realizedRewardRisk(
         makeTrade({ id: "net", pnlUsd: 200, feesUsd: 2.4, riskUsd: 100, rMultiple: 2 }),

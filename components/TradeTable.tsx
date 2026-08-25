@@ -27,6 +27,7 @@ function badgeClass(result: Trade["result"]) {
   if (result === "win") return "badge badge--win";
   if (result === "loss") return "badge badge--loss";
   if (result === "open") return "badge badge--open";
+  if (result === "missed") return "badge badge--missed";
   return "badge";
 }
 

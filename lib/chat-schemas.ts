@@ -1,7 +1,11 @@
 import { z } from "zod";
 
 export const tradeSideSchema = z.enum(["long", "short"]);
-export const tradeResultSchema = z.enum(["win", "loss", "breakeven", "open"]);
+export const tradeResultSchema = z
+  .enum(["win", "loss", "breakeven", "open", "missed"])
+  .describe(
+    "win, loss, breakeven, open, or missed. missed = correct setup that did not fill or was not taken; stays in the journal but is excluded from $ P&L, win rate, Avg RR, and charts.",
+  );
 
 /** Filter-only enums — `any` is first so schema-filling models default to no filter. */
 export const tradeSideFilterSchema = z.enum(["any", "long", "short"]);
@@ -11,6 +15,7 @@ export const tradeResultFilterSchema = z.enum([
   "loss",
   "breakeven",
   "open",
+  "missed",
 ]);
 
 const optionalTradeFields = {
@@ -339,7 +344,7 @@ export const tradeFilterSchema = z.object({
     .optional()
     .default("any")
     .describe(
-      "Use any (default) for all results. Only set win/loss/breakeven/open when the user asks for that subset.",
+      "Use any (default) for all results. Only set win/loss/breakeven/open/missed when the user asks for that subset. missed = correct setup that did not fill or was not taken.",
     ),
   session: z
     .string()
