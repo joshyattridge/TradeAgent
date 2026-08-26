@@ -296,6 +296,7 @@ export const chartRequestSchema = z.object({
     "winLoss",
     "bySymbol",
     "bySetup",
+    "lossStreak",
     "bar",
     "scatter",
     "line",

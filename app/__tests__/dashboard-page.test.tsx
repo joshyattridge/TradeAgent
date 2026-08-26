@@ -49,6 +49,7 @@ describe("DashboardPage", () => {
     expect(screen.getByRole("heading", { name: "Last 30 days" })).toBeInTheDocument();
     expect(screen.getByText(/cumulative \$/, { exact: false })).toBeInTheDocument();
     expect(screen.getAllByTestId(/^chart-/).length).toBeGreaterThan(0);
+    expect(screen.getByText("Losing streak odds")).toBeInTheDocument();
   });
 
   it("colors calendar days by daily $ profit and shows amounts", () => {

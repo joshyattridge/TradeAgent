@@ -5,6 +5,8 @@ import {
   buildChartFromRequest,
   bySetup,
   bySymbol,
+  currentLosingStreak,
+  lossStreakProbabilities,
   closedTrades,
   compareTradesChronologically,
   computeStats,
@@ -725,6 +727,119 @@ describe("winLossBreakdown", () => {
   });
 });
 
+describe("currentLosingStreak", () => {
+  it("is zero with no closed trades or when the latest closed trade is not a loss", () => {
+    expect(currentLosingStreak([])).toBe(0);
+    expect(
+      currentLosingStreak([
+        makeTrade({ id: "open", result: "open" }),
+        makeTrade({ id: "hid", result: "loss", hidden: true, date: "2026-07-09" }),
+      ]),
+    ).toBe(0);
+    expect(
+      currentLosingStreak([
+        makeTrade({ id: "l", result: "loss", date: "2026-07-01", pnlUsd: -50 }),
+        makeTrade({ id: "w", result: "win", date: "2026-07-02" }),
+      ]),
+    ).toBe(0);
+    expect(
+      currentLosingStreak([
+        makeTrade({ id: "l", result: "loss", date: "2026-07-01", pnlUsd: -50 }),
+        makeTrade({ id: "be", result: "breakeven", date: "2026-07-02", pnlUsd: 0 }),
+      ]),
+    ).toBe(0);
+  });
+
+  it("counts trailing losses in chronological order and ignores opens", () => {
+    expect(
+      currentLosingStreak([
+        makeTrade({ id: "w", result: "win", date: "2026-07-01" }),
+        makeTrade({ id: "l1", result: "loss", date: "2026-07-03", pnlUsd: -50 }),
+        makeTrade({ id: "open", result: "open", date: "2026-07-09" }),
+      ]),
+    ).toBe(1);
+    expect(
+      currentLosingStreak([
+        makeTrade({ id: "l-new", result: "loss", date: "2026-07-08", pnlUsd: -40 }),
+        makeTrade({ id: "w", result: "win", date: "2026-07-01" }),
+        makeTrade({ id: "l-old", result: "loss", date: "2026-07-04", pnlUsd: -50 }),
+      ]),
+    ).toBe(2);
+  });
+});
+
+describe("lossStreakProbabilities", () => {
+  it("returns empty when there are no closed trades", () => {
+    expect(
+      lossStreakProbabilities([
+        makeTrade({ id: "open", result: "open" }),
+        makeTrade({ id: "missed", result: "missed" }),
+        makeTrade({ id: "hid", result: "loss", hidden: true }),
+      ]),
+    ).toEqual([]);
+  });
+
+  it("uses (1 − win rate)^n for each streak length", () => {
+    const trades = [
+      makeTrade({ id: "w", result: "win" }),
+      makeTrade({ id: "l", result: "loss", rMultiple: -1, pnlUsd: -100 }),
+    ];
+    const rows = lossStreakProbabilities(trades, 4);
+    expect(rows).toEqual([
+      { id: "streak-1", label: "1", value: 50 },
+      { id: "streak-2", label: "2", value: 25 },
+      { id: "streak-3", label: "3", value: 12.5 },
+      { id: "streak-4", label: "4", value: 6.3 },
+    ]);
+  });
+
+  it("is all zeros at a 100% win rate and all 100 at a 0% win rate", () => {
+    const allWins = [makeTrade({ id: "w1" }), makeTrade({ id: "w2" })];
+    expect(lossStreakProbabilities(allWins, 3).map((p) => p.value)).toEqual([
+      0, 0, 0,
+    ]);
+
+    const allLosses = [
+      makeTrade({ id: "l1", result: "loss", rMultiple: -1, pnlUsd: -50 }),
+      makeTrade({ id: "l2", result: "loss", rMultiple: -1, pnlUsd: -50 }),
+    ];
+    expect(lossStreakProbabilities(allLosses, 3).map((p) => p.value)).toEqual([
+      100, 100, 100,
+    ]);
+  });
+
+  it("clamps a sub-1 max streak to one bar and rounds tiny probabilities", () => {
+    const highWr = [
+      ...Array.from({ length: 9 }, (_, i) => makeTrade({ id: `w${i}` })),
+      makeTrade({ id: "l", result: "loss", rMultiple: -1, pnlUsd: -50 }),
+    ];
+    expect(lossStreakProbabilities(highWr, 0)).toEqual([
+      { id: "streak-1", label: "1", value: 10 },
+    ]);
+    const tiny = lossStreakProbabilities(highWr, 6);
+    expect(tiny.map((p) => p.value)).toEqual([10, 1, 0.1, 0.01, 0.001, 0]);
+  });
+
+  it("marks the current losing streak and extends the axis to include it", () => {
+    const trades = [
+      makeTrade({ id: "w", result: "win", date: "2026-07-01" }),
+      makeTrade({ id: "l1", result: "loss", date: "2026-07-02", pnlUsd: -50 }),
+      makeTrade({ id: "l2", result: "loss", date: "2026-07-03", pnlUsd: -50 }),
+      makeTrade({ id: "l3", result: "loss", date: "2026-07-04", pnlUsd: -50 }),
+    ];
+    const rows = lossStreakProbabilities(trades, 2);
+    expect(rows).toHaveLength(3);
+    expect(rows[1]?.label).toBe("2");
+    expect(rows[1]?.current).toBeUndefined();
+    expect(rows[2]).toEqual({
+      id: "streak-3",
+      label: "3 · now",
+      value: 42.2,
+      current: true,
+    });
+  });
+});
+
 describe("bySymbol", () => {
   it("sums $ by symbol descending", () => {
     const trades = [
@@ -1077,6 +1192,40 @@ describe("buildChart", () => {
     expect(chart.yLabel).toBe("$");
   });
 
+  it("builds lossStreak preset from current win rate", () => {
+    const chart = buildChart("lossStreak", seedTrades);
+    expect(chart.type).toBe("lossStreak");
+    expect(chart.title).toBe("Losing streak odds");
+    expect(chart.description).toBe(
+      "Chance the next N trades are all losses, at your 70% win rate. You are not currently in a losing streak.",
+    );
+    expect(chart.xLabel).toBe("Losses in a row");
+    expect(chart.yLabel).toBe("Probability %");
+    expect(chart.valueUnit).toBe("percent");
+    expect(chart.data).toEqual(lossStreakProbabilities(seedTrades));
+
+    const custom = buildChart("lossStreak", seedTrades, "Streak risk");
+    expect(custom.title).toBe("Streak risk");
+
+    const empty = buildChart("lossStreak", []);
+    expect(empty.data).toEqual([]);
+    expect(empty.description).toBe(
+      "Needs closed trades so we can use your win rate",
+    );
+
+    const oneLoss = buildChart("lossStreak", [
+      makeTrade({ id: "w", result: "win", date: "2026-07-01" }),
+      makeTrade({ id: "l", result: "loss", date: "2026-07-02", pnlUsd: -50 }),
+    ]);
+    expect(oneLoss.description).toContain("You are currently on a 1-loss streak.");
+
+    const twoLoss = buildChart("lossStreak", [
+      makeTrade({ id: "l1", result: "loss", date: "2026-07-01", pnlUsd: -50 }),
+      makeTrade({ id: "l2", result: "loss", date: "2026-07-02", pnlUsd: -50 }),
+    ]);
+    expect(twoLoss.description).toContain("You are currently on a 2-loss streak.");
+  });
+
   it("builds bar, line, and scatter with custom data and titles", () => {
     for (const type of ["bar", "line", "scatter"] as const) {
       const defaultChart = buildChart(type, trades);
@@ -1092,7 +1241,14 @@ describe("buildChart", () => {
 
 describe("buildChartFromRequest", () => {
   it("builds preset charts and applies description override", () => {
-    for (const type of ["equity", "pnlByDay", "winLoss", "bySymbol", "bySetup"] as const) {
+    for (const type of [
+      "equity",
+      "pnlByDay",
+      "winLoss",
+      "bySymbol",
+      "bySetup",
+      "lossStreak",
+    ] as const) {
       const chart = buildChartFromRequest(
         { type, description: `About ${type}` },
         seedTrades,

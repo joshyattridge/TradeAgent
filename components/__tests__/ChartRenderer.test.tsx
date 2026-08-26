@@ -378,6 +378,61 @@ describe("ChartRenderer", () => {
     expect(captured.tooltipFormatter!(2, "y")).toEqual([2, "Y"]);
   });
 
+  it("renders lossStreak bars in coral with percent formatting and x label", () => {
+    render(
+      <ChartRenderer
+        chart={chart({
+          type: "lossStreak",
+          valueUnit: "percent",
+          xLabel: "Losses in a row",
+          yLabel: "Probability %",
+          data: [
+            { id: "streak-1", label: "1", value: 30 },
+            { id: "streak-2", label: "2", value: 12.5 },
+            { id: "streak-3", label: "3", value: 0.81 },
+            { id: "streak-4", label: "4", value: 0 },
+          ],
+        })}
+      />,
+    );
+    const cells = screen.getAllByTestId("recharts-cell");
+    expect(cells).toHaveLength(4);
+    expect(cells[0]).toHaveAttribute("data-fill", "#e11d48");
+    expect(captured.xAxisLabel).toMatchObject({ value: "Losses in a row" });
+    expect(captured.yTickFormatter!(30)).toBe("30%");
+    expect(captured.yTickFormatter!(12.5)).toBe("12.5%");
+    expect(captured.yTickFormatter!(0.81)).toBe("0.81%");
+    expect(captured.yTickFormatter!(0)).toBe("0%");
+    expect(captured.tooltipFormatter!(30, "value")).toEqual([
+      "30%",
+      "Probability %",
+    ]);
+  });
+
+  it("highlights the current losing-streak bar and labels the tooltip", () => {
+    render(
+      <ChartRenderer
+        chart={chart({
+          type: "lossStreak",
+          valueUnit: "percent",
+          yLabel: "Probability %",
+          data: [
+            { id: "streak-1", label: "1", value: 30 },
+            { id: "streak-2", label: "2 · now", value: 9, current: true },
+          ],
+        })}
+      />,
+    );
+    const cells = screen.getAllByTestId("recharts-cell");
+    expect(cells[0]).toHaveAttribute("data-fill", "rgba(225, 29, 72, 0.32)");
+    expect(cells[1]).toHaveAttribute("data-fill", "#e11d48");
+    expect(
+      captured.tooltipFormatter!(9, "value", {
+        payload: { current: true, label: "2 · now" },
+      }),
+    ).toEqual(["9% · you are here", "Probability %"]);
+  });
+
   it("renders bar chart without value unit using plain numeric formatting", () => {
     render(
       <ChartRenderer

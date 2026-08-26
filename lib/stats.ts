@@ -274,6 +274,57 @@ export function winLossBreakdown(trades: Trade[]) {
   ];
 }
 
+/** Consecutive losses at the end of the closed journal, newest first. */
+export function currentLosingStreak(trades: Trade[]): number {
+  const closed = [...closedTrades(trades)].sort(compareTradesChronologically);
+  let n = 0;
+  for (let i = closed.length - 1; i >= 0; i--) {
+    if (closed[i]!.result === "loss") n += 1;
+    else break;
+  }
+  return n;
+}
+
+function losingStreakCaption(streak: number): string {
+  if (streak <= 0) return "You are not currently in a losing streak.";
+  if (streak === 1) return "You are currently on a 1-loss streak.";
+  return `You are currently on a ${streak}-loss streak.`;
+}
+
+/**
+ * Geometric P(next n trades are all losses) = (1 − win rate)^n.
+ * Uses the same win rate as the dashboard (wins / closed trades).
+ * Marks the bar for the trader's current consecutive-loss streak when > 0.
+ */
+export function lossStreakProbabilities(
+  trades: Trade[],
+  maxStreak = 10,
+): ChartPoint[] {
+  const { winRate, closedCount } = computeStats(trades);
+  if (!closedCount) return [];
+  const streak = currentLosingStreak(trades);
+  const pLoss = 1 - winRate / 100;
+  const limit = Math.max(1, Math.trunc(maxStreak), streak);
+  const points: ChartPoint[] = [];
+  for (let n = 1; n <= limit; n++) {
+    const pct = pLoss ** n * 100;
+    const current = streak === n;
+    points.push({
+      id: `streak-${n}`,
+      label: current ? `${n} · now` : String(n),
+      value: roundStreakPct(pct),
+      ...(current ? { current: true } : {}),
+    });
+  }
+  return points;
+}
+
+function roundStreakPct(pct: number): number {
+  if (pct >= 1) return round(pct, 1);
+  if (pct >= 0.01) return round(pct, 2);
+  return round(pct, 3);
+}
+
 export function bySymbol(trades: Trade[]) {
   const totals = new Map<string, number>();
   const counts = new Map<string, number>();
@@ -386,7 +437,8 @@ function isPreset(type: ChartKind): type is Exclude<ChartKind, "bar" | "scatter"
     type === "pnlByDay" ||
     type === "winLoss" ||
     type === "bySymbol" ||
-    type === "bySetup"
+    type === "bySetup" ||
+    type === "lossStreak"
   );
 }
 
@@ -445,6 +497,21 @@ export function buildChart(
         valueUnit: "usd",
         data: bySymbol(trades),
       };
+    case "lossStreak": {
+      const { winRate, closedCount } = computeStats(trades);
+      return {
+        id,
+        type,
+        title: title ?? "Losing streak odds",
+        description: closedCount
+          ? `Chance the next N trades are all losses, at your ${winRate.toFixed(0)}% win rate. ${losingStreakCaption(currentLosingStreak(trades))}`
+          : "Needs closed trades so we can use your win rate",
+        xLabel: "Losses in a row",
+        yLabel: "Probability %",
+        valueUnit: "percent",
+        data: lossStreakProbabilities(trades),
+      };
+    }
     case "bar":
     case "line":
     case "scatter":

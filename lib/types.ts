@@ -84,6 +84,7 @@ export type ChartKind =
   | "winLoss"
   | "bySymbol"
   | "bySetup"
+  | "lossStreak"
   | "bar"
   | "scatter"
   | "line";
@@ -116,6 +117,8 @@ export interface ChartPoint {
   estimated?: boolean;
   /** How many trades contributed to this aggregated point */
   count?: number;
+  /** True when this point is the trader's current position (e.g. live losing streak). */
+  current?: boolean;
 }
 
 export interface ChartSpec {
@@ -126,7 +129,7 @@ export interface ChartSpec {
   xLabel?: string;
   yLabel?: string;
   /** How to format series values in axes / tooltips */
-  valueUnit?: "usd";
+  valueUnit?: "usd" | "percent";
   data?: ChartPoint[];
 }
 

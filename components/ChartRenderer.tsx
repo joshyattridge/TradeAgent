@@ -23,6 +23,7 @@ import type { ChartPoint, ChartSpec } from "@/lib/types";
 
 const TEAL = "#0d9488";
 const CORAL = "#e11d48";
+const CORAL_MUTED = "rgba(225, 29, 72, 0.32)";
 const MUTED = "#78716c";
 const GRID = "rgba(28,25,23,0.08)";
 
@@ -44,12 +45,19 @@ function pointColor(value: number) {
   return value >= 0 ? TEAL : CORAL;
 }
 
-function formatChartValue(value: unknown, unit?: "usd"): string {
+function formatChartValue(value: unknown, unit?: "usd" | "percent"): string {
   const n = typeof value === "number" ? value : Number(value);
   if (!Number.isFinite(n)) return String(value ?? "");
   if (unit === "usd") {
     const sign = n > 0 ? "+" : "";
     return `${sign}$${n.toFixed(Math.abs(n) >= 100 ? 0 : 2)}`;
+  }
+  if (unit === "percent") {
+    if (n === 0) return "0%";
+    if (Math.abs(n) >= 1) {
+      return `${Number.isInteger(n) ? String(n) : n.toFixed(1)}%`;
+    }
+    return `${n.toFixed(2)}%`;
   }
   return String(n);
 }
@@ -181,11 +189,28 @@ function LineBody({ chart, data }: { chart: ChartSpec; data: ChartPoint[] }) {
 }
 
 function BarBody({ chart, data }: { chart: ChartSpec; data: ChartPoint[] }) {
+  const hasCurrent = data.some((d) => d.current);
   return (
     <ResponsiveContainer width="100%" height={220}>
       <BarChart data={data}>
         <CartesianGrid stroke={GRID} vertical={false} />
-        <XAxis dataKey="label" tick={axisTick()} axisLine={false} tickLine={false} />
+        <XAxis
+          dataKey="label"
+          tick={axisTick()}
+          axisLine={false}
+          tickLine={false}
+          label={
+            chart.xLabel
+              ? {
+                  value: chart.xLabel,
+                  position: "insideBottom",
+                  offset: -2,
+                  fill: MUTED,
+                  fontSize: 11,
+                }
+              : undefined
+          }
+        />
         <YAxis
           tick={axisTick()}
           axisLine={false}
@@ -200,6 +225,7 @@ function BarBody({ chart, data }: { chart: ChartSpec; data: ChartPoint[] }) {
             const formatted = formatChartValue(value, chart.valueUnit);
             const bits = [formatted];
             if (point?.estimated) bits.push("(est.)");
+            if (point?.current) bits.push("· you are here");
             if (point?.count != null && point.count > 0) {
               bits.push(`· ${point.count} trade${point.count === 1 ? "" : "s"}`);
             }
@@ -218,7 +244,11 @@ function BarBody({ chart, data }: { chart: ChartSpec; data: ChartPoint[] }) {
               fill={
                 entry.estimated && entry.value === 0
                   ? MUTED
-                  : pointColor(entry.value)
+                  : chart.type === "lossStreak"
+                    ? entry.current || !hasCurrent
+                      ? CORAL
+                      : CORAL_MUTED
+                    : pointColor(entry.value)
               }
             />
           ))}

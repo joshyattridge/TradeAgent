@@ -41,9 +41,13 @@ describe("remaining chat schemas", () => {
     ).toBe("scatter");
     expect(
       generateChartsSchema.parse({
-        charts: [{ type: "equity" }, { type: "bar", aggregate: "winRate" }],
+        charts: [
+          { type: "equity" },
+          { type: "bar", aggregate: "winRate" },
+          { type: "lossStreak" },
+        ],
       }).charts,
-    ).toHaveLength(2);
+    ).toHaveLength(3);
   });
 
   it("parses query/stats/find/get schemas", () => {

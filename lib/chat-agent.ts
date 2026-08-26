@@ -346,7 +346,7 @@ ${
 
 Charts:
 - Call generate_charts for visual analysis. Prefer field mappings over inventing data[].
-- Charts are $ only. Use equity, pnlByDay, bySymbol, and winLoss. Never request R-multiple or rByDay charts.
+- Charts are $ only except lossStreak (consecutive-loss probability from current win rate). Use equity, pnlByDay, bySymbol, winLoss, and lossStreak. Never request R-multiple or rByDay charts.
 
 Coaching:
 - ALWAYS write a real final reply. Never answer with only "Trade logged." / "Updated." / "On it."
