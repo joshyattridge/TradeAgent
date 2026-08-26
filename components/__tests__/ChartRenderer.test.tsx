@@ -59,6 +59,7 @@ vi.mock("recharts", () => {
     ResponsiveContainer: ({ children }: { children: React.ReactNode }) => (
       <div data-testid="responsive-container">{children}</div>
     ),
+    ComposedChart: passthrough("ComposedChart"),
     AreaChart: passthrough("AreaChart"),
     Area: () => <div data-testid="recharts-area" />,
     BarChart: passthrough("BarChart"),
@@ -433,6 +434,47 @@ describe("ChartRenderer", () => {
     ).toEqual(["9% · you are here", "Probability %"]);
   });
 
+  it("renders winWithin bars in teal and highlights the next-trade bar", () => {
+    render(
+      <ChartRenderer
+        chart={chart({
+          type: "winWithin",
+          valueUnit: "percent",
+          xLabel: "Trades from now",
+          yLabel: "Probability %",
+          data: [
+            { id: "wait-1", label: "this one", value: 30, current: true },
+            { id: "wait-2", label: "2", value: 51 },
+          ],
+        })}
+      />,
+    );
+    const cells = screen.getAllByTestId("recharts-cell");
+    expect(cells[0]).toHaveAttribute("data-fill", "#0d9488");
+    expect(cells[1]).toHaveAttribute("data-fill", "rgba(13, 148, 136, 0.32)");
+    expect(captured.xAxisLabel).toMatchObject({ value: "Trades from now" });
+    expect(
+      captured.tooltipFormatter!(30, "value", {
+        payload: { current: true, label: "this one" },
+      }),
+    ).toEqual(["30% · you are here", "Probability %"]);
+  });
+
+  it("keeps winWithin bars fully teal when none are marked current", () => {
+    render(
+      <ChartRenderer
+        chart={chart({
+          type: "winWithin",
+          data: [{ id: "wait-1", label: "this one", value: 40 }],
+        })}
+      />,
+    );
+    expect(screen.getAllByTestId("recharts-cell")[0]).toHaveAttribute(
+      "data-fill",
+      "#0d9488",
+    );
+  });
+
   it("renders bar chart without value unit using plain numeric formatting", () => {
     render(
       <ChartRenderer
@@ -486,6 +528,81 @@ describe("ChartRenderer", () => {
       />,
     );
     expect(screen.getByTestId("recharts-scatter")).toBeInTheDocument();
+  });
+
+  it("renders an equity fan with percentile tooltip and sparse x ticks", () => {
+    const data: ChartPoint[] = [
+      { id: "start", label: "Start", value: 0, lo: 0, hi: 0, x: 0 },
+      { id: "t0", label: "Jun 30", value: 10, lo: 10, hi: 10, x: 1 },
+      { id: "t1", label: "Jul 1", value: 20, lo: 20, hi: 20, x: 2, current: true },
+      { id: "fan-3", label: "3", value: 30, lo: 10, hi: 50, x: 2, estimated: true },
+      { id: "fan-5", label: "5", value: 40, lo: 15, hi: 70, x: 3, estimated: true },
+      { id: "fan-10", label: "10", value: 55, lo: 5, hi: 90, x: 4, estimated: true },
+    ];
+    render(
+      <ChartRenderer
+        chart={chart({
+          type: "equityFan",
+          valueUnit: "usd",
+          data,
+        })}
+      />,
+    );
+    expect(screen.getByTestId("recharts-composedchart")).toBeInTheDocument();
+    expect(captured.yTickFormatter!(150.5)).toBe("+$151");
+    expect(captured.xTickFormatter!("start", 0)).toBe("Start");
+    expect(captured.xTickFormatter!("t0", 1)).toBe("");
+    expect(captured.xTickFormatter!("t1", 2)).toBe("Now");
+    expect(captured.xTickFormatter!("fan-3", 3)).toBe("");
+    expect(captured.xTickFormatter!("fan-5", 4)).toBe("+5");
+    expect(captured.xTickFormatter!("fan-10", 5)).toBe("+10");
+    expect(captured.xTickFormatter!("missing", 99)).toBe("");
+    expect(
+      captured.labelFormatter!("ignored", [{ payload: { label: "Jul 1" } }]),
+    ).toBe("Jul 1");
+    expect(
+      captured.labelFormatter!("ignored", [
+        { payload: { label: "Jul 1", current: true } },
+      ]),
+    ).toBe("Jul 1 · now");
+    expect(
+      captured.labelFormatter!("ignored", [
+        { payload: { label: "3", estimated: true } },
+      ]),
+    ).toBe("+3 trades");
+    expect(captured.labelFormatter!("ignored", [])).toBe("");
+    expect(
+      captured.tooltipFormatter!(20, "actual", { payload: { value: 20 } }),
+    ).toEqual(["+$20.00", "Equity"]);
+    expect(
+      captured.tooltipFormatter!(40, "forecast", {
+        payload: { value: 40, lo: 15, hi: 70, estimated: true },
+      }),
+    ).toEqual(["+$40.00  ·  10–90: +$15.00 to +$70.00", "Median"]);
+    expect(
+      captured.tooltipFormatter!(20, "forecast", {
+        payload: { value: 20, lo: 20, hi: 20, current: true },
+      }),
+    ).toEqual(["+$20.00", "Median"]);
+    expect(captured.tooltipFormatter!(20, "band", { payload: {} })).toEqual([
+      null,
+      null,
+    ]);
+  });
+
+  it("falls back to a median-only fan tooltip when the band is missing", () => {
+    render(
+      <ChartRenderer
+        chart={chart({
+          type: "equityFan",
+          valueUnit: "usd",
+          data: [{ id: "fan-0", label: "Now", value: 0 }],
+        })}
+      />,
+    );
+    expect(
+      captured.tooltipFormatter!(0, "forecast", { payload: { value: 0 } }),
+    ).toEqual(["$0.00", "Median"]);
   });
 
   it("defaults unknown chart kinds to bar body", () => {

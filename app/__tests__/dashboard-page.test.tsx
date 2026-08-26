@@ -50,6 +50,8 @@ describe("DashboardPage", () => {
     expect(screen.getByText(/cumulative \$/, { exact: false })).toBeInTheDocument();
     expect(screen.getAllByTestId(/^chart-/).length).toBeGreaterThan(0);
     expect(screen.getByText("Losing streak odds")).toBeInTheDocument();
+    expect(screen.getByText("Odds of a win soon")).toBeInTheDocument();
+    expect(screen.getByText("Monte Carlo equity fan")).toBeInTheDocument();
   });
 
   it("colors calendar days by daily $ profit and shows amounts", () => {

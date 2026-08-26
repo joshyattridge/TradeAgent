@@ -11,6 +11,7 @@ import {
   LineChart,
   Pie,
   PieChart,
+  ComposedChart,
   ResponsiveContainer,
   Scatter,
   ScatterChart,
@@ -22,6 +23,7 @@ import {
 import type { ChartPoint, ChartSpec } from "@/lib/types";
 
 const TEAL = "#0d9488";
+const TEAL_MUTED = "rgba(13, 148, 136, 0.32)";
 const CORAL = "#e11d48";
 const CORAL_MUTED = "rgba(225, 29, 72, 0.32)";
 const MUTED = "#78716c";
@@ -188,6 +190,133 @@ function LineBody({ chart, data }: { chart: ChartSpec; data: ChartPoint[] }) {
   );
 }
 
+function barCellFill(
+  chart: ChartSpec,
+  entry: ChartPoint,
+  hasCurrent: boolean,
+): string {
+  if (entry.estimated && entry.value === 0) return MUTED;
+  if (chart.type === "lossStreak") {
+    return entry.current || !hasCurrent ? CORAL : CORAL_MUTED;
+  }
+  if (chart.type === "winWithin") {
+    return entry.current || !hasCurrent ? TEAL : TEAL_MUTED;
+  }
+  return pointColor(entry.value);
+}
+
+function FanBody({ chart, data }: { chart: ChartSpec; data: ChartPoint[] }) {
+  const rows = data.map((d) => {
+    const lo = d.lo ?? d.value;
+    const hi = d.hi ?? d.value;
+    return {
+      ...d,
+      p10: lo,
+      band: hi - lo,
+      actual: d.estimated ? null : d.value,
+      forecast: d.estimated || d.current ? d.value : null,
+    };
+  });
+
+  return (
+    <ResponsiveContainer width="100%" height={260}>
+      <ComposedChart data={rows} margin={{ top: 8, right: 8, bottom: 4, left: 0 }}>
+        <CartesianGrid stroke={GRID} vertical={false} />
+        <XAxis
+          dataKey="id"
+          type="category"
+          allowDuplicatedCategory
+          tick={axisTick()}
+          axisLine={false}
+          tickLine={false}
+          interval="preserveStartEnd"
+          tickFormatter={(_label, index) => {
+            const row = rows[index];
+            if (!row) return "";
+            if (row.current) return "Now";
+            if (row.estimated) {
+              return row.label === "10" || row.label === "5" ? `+${row.label}` : "";
+            }
+            if (index === 0) return String(row.label);
+            return "";
+          }}
+        />
+        <YAxis
+          tick={axisTick()}
+          axisLine={false}
+          tickLine={false}
+          width={52}
+          tickFormatter={(v) => formatChartValue(v, chart.valueUnit)}
+        />
+        <Tooltip
+          contentStyle={tooltipStyle()}
+          labelFormatter={(_label, payload) => {
+            const point = payload?.[0]?.payload as ChartPoint | undefined;
+            if (!point?.label) return "";
+            if (point.estimated) return `+${point.label} trades`;
+            if (point.current) return `${point.label} · now`;
+            return point.label;
+          }}
+          formatter={(value, name, item) => {
+            const point = item?.payload as ChartPoint | undefined;
+            if (name === "actual") {
+              return [formatChartValue(value, chart.valueUnit), "Equity"];
+            }
+            if (name !== "forecast") return [null, null];
+            const median = formatChartValue(value, chart.valueUnit);
+            if (point?.lo == null || point?.hi == null || point.lo === point.hi) {
+              return [median, "Median"];
+            }
+            const lo = formatChartValue(point.lo, chart.valueUnit);
+            const hi = formatChartValue(point.hi, chart.valueUnit);
+            return [`${median}  ·  10–90: ${lo} to ${hi}`, "Median"];
+          }}
+        />
+        <Area
+          stackId="fan"
+          dataKey="p10"
+          fill="transparent"
+          stroke="none"
+          tooltipType="none"
+          legendType="none"
+          isAnimationActive={false}
+        />
+        <Area
+          stackId="fan"
+          dataKey="band"
+          fill={TEAL}
+          fillOpacity={0.2}
+          stroke="none"
+          tooltipType="none"
+          legendType="none"
+          isAnimationActive={false}
+        />
+        <Line
+          type="linear"
+          dataKey="actual"
+          stroke={TEAL}
+          strokeWidth={2.2}
+          connectNulls={false}
+          dot={{ r: 3, fill: TEAL, strokeWidth: 0 }}
+          activeDot={{ r: 5 }}
+          isAnimationActive={false}
+        />
+        <Line
+          type="monotone"
+          dataKey="forecast"
+          stroke={TEAL}
+          strokeWidth={2.2}
+          strokeDasharray="5 4"
+          connectNulls={false}
+          dot={false}
+          activeDot={{ r: 5 }}
+          isAnimationActive={false}
+        />
+      </ComposedChart>
+    </ResponsiveContainer>
+  );
+}
+
 function BarBody({ chart, data }: { chart: ChartSpec; data: ChartPoint[] }) {
   const hasCurrent = data.some((d) => d.current);
   return (
@@ -241,15 +370,7 @@ function BarBody({ chart, data }: { chart: ChartSpec; data: ChartPoint[] }) {
           {data.map((entry, i) => (
             <Cell
               key={entry.id ?? `${entry.label}-${i}`}
-              fill={
-                entry.estimated && entry.value === 0
-                  ? MUTED
-                  : chart.type === "lossStreak"
-                    ? entry.current || !hasCurrent
-                      ? CORAL
-                      : CORAL_MUTED
-                    : pointColor(entry.value)
-              }
+              fill={barCellFill(chart, entry, hasCurrent)}
             />
           ))}
         </Bar>
@@ -297,6 +418,8 @@ export function ChartRenderer({ chart }: { chart: ChartSpec }) {
               <Tooltip contentStyle={tooltipStyle()} />
             </PieChart>
           </ResponsiveContainer>
+        ) : chart.type === "equityFan" ? (
+          <FanBody chart={chart} data={data} />
         ) : chart.type === "equity" || chart.type === "line" ? (
           chart.type === "line" ? (
             <LineBody chart={chart} data={data} />

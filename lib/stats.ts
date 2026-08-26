@@ -325,6 +325,134 @@ function roundStreakPct(pct: number): number {
   return round(pct, 3);
 }
 
+function winWithinCaption(winRate: number, streak: number): string {
+  const next = `Chance the next trade is a win: ${winRate.toFixed(0)}%.`;
+  if (streak <= 0) {
+    return `You are not currently in a losing streak. ${next}`;
+  }
+  if (streak === 1) {
+    return `You are currently on a 1-loss streak. ${next}`;
+  }
+  return `You are currently on a ${streak}-loss streak. ${next}`;
+}
+
+/**
+ * Geometric CDF: P(at least one win in the next k trades) = 1 − (1 − win rate)^k.
+ * Marks k = 1 ("this one") as the live next-trade probability.
+ */
+export function winWithinProbabilities(
+  trades: Trade[],
+  maxK = 10,
+): ChartPoint[] {
+  const { winRate, closedCount } = computeStats(trades);
+  if (!closedCount) return [];
+  const pLoss = 1 - winRate / 100;
+  const limit = Math.max(1, Math.trunc(maxK));
+  const points: ChartPoint[] = [];
+  for (let k = 1; k <= limit; k++) {
+    const pct = (1 - pLoss ** k) * 100;
+    const current = k === 1;
+    points.push({
+      id: `wait-${k}`,
+      label: current ? "this one" : String(k),
+      value: roundStreakPct(pct),
+      ...(current ? { current: true } : {}),
+    });
+  }
+  return points;
+}
+
+export type MonteCarloFanOptions = {
+  paths?: number;
+  horizon?: number;
+  seed?: number;
+};
+
+function mulberry32(seed: number) {
+  let a = seed | 0;
+  return () => {
+    a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function percentile(sorted: number[], p: number): number {
+  if (sorted.length === 1) return sorted[0]!;
+  const idx = (sorted.length - 1) * p;
+  const lo = Math.floor(idx);
+  const hi = Math.ceil(idx);
+  if (lo === hi) return sorted[lo]!;
+  return sorted[lo]! + (sorted[hi]! - sorted[lo]!) * (idx - lo);
+}
+
+function fanSeed(trades: Trade[]): number {
+  const closed = closedTrades(trades);
+  let h = 0x811c9dc5;
+  h = Math.imul(h ^ closed.length, 0x01000193);
+  for (const t of closed) {
+    h = Math.imul(h ^ t.id.length, 0x01000193);
+    h ^= Math.round(resolvePnlUsd(t) * 100);
+  }
+  return h >>> 0;
+}
+
+/**
+ * Bootstrap future equity from closed-trade $ P&L, attached to the live curve.
+ * Each path resamples the empirical distribution with replacement.
+ */
+export function monteCarloEquityFan(
+  trades: Trade[],
+  opts: MonteCarloFanOptions = {},
+): ChartPoint[] {
+  const closed = closedTrades(trades);
+  if (!closed.length) return [];
+  const paths = Math.max(1, Math.trunc(opts.paths ?? 500));
+  const horizon = Math.max(1, Math.trunc(opts.horizon ?? 10));
+  const rng = mulberry32(opts.seed ?? fanSeed(closed));
+  const pnls = closed.map((t) => resolvePnlUsd(t));
+  const curve = equityCurve(trades);
+  const start = curve.at(-1)!.value;
+
+  const history: ChartPoint[] = curve.map((p, index) => {
+    const value = roundUnit(p.value);
+    const last = index === curve.length - 1;
+    return {
+      ...p,
+      value,
+      lo: value,
+      hi: value,
+      ...(last ? { current: true } : {}),
+    };
+  });
+
+  const running = Array.from({ length: paths }, () => start);
+  const forecast: ChartPoint[] = [];
+  const originX = history.at(-1)!.x!;
+
+  for (let step = 1; step <= horizon; step++) {
+    for (let i = 0; i < paths; i++) {
+      const draw = pnls[Math.floor(rng() * pnls.length)]!;
+      running[i] = running[i]! + draw;
+    }
+    const sorted = [...running].sort((a, b) => a - b);
+    const lo = percentile(sorted, 0.1);
+    const mid = percentile(sorted, 0.5);
+    const hi = percentile(sorted, 0.9);
+    forecast.push({
+      id: `fan-${step}`,
+      label: String(step),
+      value: roundUnit(mid),
+      lo: roundUnit(lo),
+      hi: roundUnit(hi),
+      x: originX + step,
+      estimated: true,
+    });
+  }
+  return [...history, ...forecast];
+}
+
 export function bySymbol(trades: Trade[]) {
   const totals = new Map<string, number>();
   const counts = new Map<string, number>();
@@ -438,7 +566,9 @@ function isPreset(type: ChartKind): type is Exclude<ChartKind, "bar" | "scatter"
     type === "winLoss" ||
     type === "bySymbol" ||
     type === "bySetup" ||
-    type === "lossStreak"
+    type === "lossStreak" ||
+    type === "winWithin" ||
+    type === "equityFan"
   );
 }
 
@@ -510,6 +640,36 @@ export function buildChart(
         yLabel: "Probability %",
         valueUnit: "percent",
         data: lossStreakProbabilities(trades),
+      };
+    }
+    case "winWithin": {
+      const { winRate, closedCount } = computeStats(trades);
+      return {
+        id,
+        type,
+        title: title ?? "Odds of a win soon",
+        description: closedCount
+          ? `Chance of at least one win in the next k trades, at your ${winRate.toFixed(0)}% win rate. ${winWithinCaption(winRate, currentLosingStreak(trades))}`
+          : "Needs closed trades so we can use your win rate",
+        xLabel: "Trades from now",
+        yLabel: "Probability %",
+        valueUnit: "percent",
+        data: winWithinProbabilities(trades),
+      };
+    }
+    case "equityFan": {
+      const closedCount = closedTrades(trades).length;
+      return {
+        id,
+        type,
+        title: title ?? "Monte Carlo equity fan",
+        description: closedCount
+          ? "Your live equity curve, then 500 resampled paths of the next 10 trades. Line is the median; band is the 10th–90th percentile."
+          : "Needs closed trades to simulate future equity",
+        xLabel: "Trades",
+        yLabel: "$",
+        valueUnit: "usd",
+        data: monteCarloEquityFan(trades),
       };
     }
     case "bar":

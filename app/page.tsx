@@ -20,6 +20,8 @@ export default function DashboardPage() {
   const winLoss = buildChart("winLoss", trades, "Win / loss");
   const bySymbol = buildChart("bySymbol", trades);
   const lossStreak = buildChart("lossStreak", trades);
+  const winWithin = buildChart("winWithin", trades);
+  const equityFan = buildChart("equityFan", trades);
 
   if (!hydrated) {
     return <div className="page"><p className="empty-note">Loading book…</p></div>;
@@ -72,8 +74,16 @@ export default function DashboardPage() {
       </section>
 
       <section className="grid-2" style={{ marginTop: "1rem" }}>
-        <ChartRenderer chart={bySymbol} />
         <ChartRenderer chart={lossStreak} />
+        <ChartRenderer chart={winWithin} />
+      </section>
+
+      <section style={{ marginTop: "1rem" }}>
+        <ChartRenderer chart={equityFan} />
+      </section>
+
+      <section style={{ marginTop: "1rem" }}>
+        <ChartRenderer chart={bySymbol} />
       </section>
 
       <section style={{ marginTop: "1rem" }}>

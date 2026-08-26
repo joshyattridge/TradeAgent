@@ -85,6 +85,8 @@ export type ChartKind =
   | "bySymbol"
   | "bySetup"
   | "lossStreak"
+  | "winWithin"
+  | "equityFan"
   | "bar"
   | "scatter"
   | "line";
@@ -119,6 +121,10 @@ export interface ChartPoint {
   count?: number;
   /** True when this point is the trader's current position (e.g. live losing streak). */
   current?: boolean;
+  /** Lower percentile (Monte Carlo fan). */
+  lo?: number;
+  /** Upper percentile (Monte Carlo fan). */
+  hi?: number;
 }
 
 export interface ChartSpec {

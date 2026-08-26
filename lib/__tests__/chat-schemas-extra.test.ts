@@ -45,9 +45,11 @@ describe("remaining chat schemas", () => {
           { type: "equity" },
           { type: "bar", aggregate: "winRate" },
           { type: "lossStreak" },
+          { type: "winWithin" },
+          { type: "equityFan" },
         ],
       }).charts,
-    ).toHaveLength(3);
+    ).toHaveLength(5);
   });
 
   it("parses query/stats/find/get schemas", () => {

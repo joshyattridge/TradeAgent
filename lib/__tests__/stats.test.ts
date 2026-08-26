@@ -7,6 +7,8 @@ import {
   bySymbol,
   currentLosingStreak,
   lossStreakProbabilities,
+  winWithinProbabilities,
+  monteCarloEquityFan,
   closedTrades,
   compareTradesChronologically,
   computeStats,
@@ -840,6 +842,119 @@ describe("lossStreakProbabilities", () => {
   });
 });
 
+describe("winWithinProbabilities", () => {
+  it("returns empty when there are no closed trades", () => {
+    expect(winWithinProbabilities([makeTrade({ id: "open", result: "open" })])).toEqual(
+      [],
+    );
+  });
+
+  it("uses 1 − (1 − win rate)^k and marks the next trade", () => {
+    const trades = [
+      makeTrade({ id: "w", result: "win" }),
+      makeTrade({ id: "l", result: "loss", rMultiple: -1, pnlUsd: -100 }),
+    ];
+    expect(winWithinProbabilities(trades, 4)).toEqual([
+      { id: "wait-1", label: "this one", value: 50, current: true },
+      { id: "wait-2", label: "2", value: 75 },
+      { id: "wait-3", label: "3", value: 87.5 },
+      { id: "wait-4", label: "4", value: 93.8 },
+    ]);
+  });
+
+  it("is all zeros at a 0% win rate and all 100 at a 100% win rate", () => {
+    const allLosses = [
+      makeTrade({ id: "l1", result: "loss", rMultiple: -1, pnlUsd: -50 }),
+      makeTrade({ id: "l2", result: "loss", rMultiple: -1, pnlUsd: -50 }),
+    ];
+    expect(winWithinProbabilities(allLosses, 3).map((p) => p.value)).toEqual([
+      0, 0, 0,
+    ]);
+    expect(winWithinProbabilities([makeTrade({ id: "w1" })], 3).map((p) => p.value)).toEqual([
+      100, 100, 100,
+    ]);
+  });
+
+  it("clamps a sub-1 horizon to the next-trade bar", () => {
+    expect(winWithinProbabilities([makeTrade({ id: "w" })], 0)).toEqual([
+      { id: "wait-1", label: "this one", value: 100, current: true },
+    ]);
+  });
+});
+
+describe("monteCarloEquityFan", () => {
+  it("returns empty when there are no closed trades", () => {
+    expect(monteCarloEquityFan([makeTrade({ id: "open", result: "open" })])).toEqual(
+      [],
+    );
+  });
+
+  it("has a degenerate band when every closed $ result is identical", () => {
+    const trades = [
+      makeTrade({ id: "a", pnlUsd: 50, feesUsd: 0 }),
+      makeTrade({ id: "b", pnlUsd: 50, feesUsd: 0 }),
+    ];
+    const curve = equityCurve(trades);
+    const start = curve.at(-1)!.value;
+    const rows = monteCarloEquityFan(trades, { paths: 1, horizon: 3, seed: 1 });
+    expect(rows).toHaveLength(curve.length + 3);
+    expect(rows.slice(0, curve.length).map((p) => p.value)).toEqual(
+      curve.map((p) => p.value),
+    );
+    expect(rows[curve.length - 1]).toMatchObject({
+      id: curve.at(-1)!.id,
+      current: true,
+      lo: start,
+      hi: start,
+    });
+    expect(rows.slice(curve.length).map((p) => p.value)).toEqual([
+      start + 50,
+      start + 100,
+      start + 150,
+    ]);
+    expect(rows.slice(curve.length).every((p) => p.estimated)).toBe(true);
+    expect(rows.every((p) => p.lo === p.value && p.hi === p.value)).toBe(true);
+  });
+
+  it("widens a percentile band when outcomes are mixed and is deterministic for a seed", () => {
+    const trades = [
+      makeTrade({ id: "win", pnlUsd: 200, feesUsd: 0 }),
+      makeTrade({ id: "loss", result: "loss", pnlUsd: -100, feesUsd: 0 }),
+    ];
+    const a = monteCarloEquityFan(trades, { paths: 10, horizon: 4, seed: 7 });
+    const b = monteCarloEquityFan(trades, { paths: 10, horizon: 4, seed: 7 });
+    expect(a).toEqual(b);
+    expect(a).toHaveLength(equityCurve(trades).length + 4);
+    const last = a.at(-1)!;
+    expect(last.estimated).toBe(true);
+    expect(last.hi).toBeGreaterThanOrEqual(last.value);
+    expect(last.value).toBeGreaterThanOrEqual(last.lo!);
+    expect(last.hi).toBeGreaterThan(last.lo!);
+  });
+
+  it("clamps sub-1 paths and horizon and interpolates odd-sized percentile samples", () => {
+    const trades = [
+      makeTrade({ id: "w", pnlUsd: 80 }),
+      makeTrade({ id: "l", result: "loss", pnlUsd: -40 }),
+    ];
+    const history = equityCurve(trades).length;
+    const clamped = monteCarloEquityFan(trades, { paths: 0, horizon: 0, seed: 3 });
+    expect(clamped).toHaveLength(history + 1);
+    expect(clamped[0]?.label).toBe("Start");
+    expect(clamped.at(-1)?.estimated).toBe(true);
+
+    const odd = monteCarloEquityFan(trades, { paths: 11, horizon: 2, seed: 4 });
+    expect(odd).toHaveLength(history + 2);
+    expect(odd.at(-1)!.hi).toBeGreaterThanOrEqual(odd.at(-1)!.lo!);
+  });
+
+  it("uses a stable default seed derived from the journal and projects 10 trades", () => {
+    const trades = seedTrades;
+    expect(monteCarloEquityFan(trades)).toEqual(monteCarloEquityFan(trades));
+    expect(monteCarloEquityFan(trades)).toHaveLength(equityCurve(trades).length + 10);
+  });
+});
+
 describe("bySymbol", () => {
   it("sums $ by symbol descending", () => {
     const trades = [
@@ -1226,6 +1341,62 @@ describe("buildChart", () => {
     expect(twoLoss.description).toContain("You are currently on a 2-loss streak.");
   });
 
+  it("builds winWithin preset from current win rate", () => {
+    const chart = buildChart("winWithin", seedTrades);
+    expect(chart.type).toBe("winWithin");
+    expect(chart.title).toBe("Odds of a win soon");
+    expect(chart.description).toBe(
+      "Chance of at least one win in the next k trades, at your 70% win rate. You are not currently in a losing streak. Chance the next trade is a win: 70%.",
+    );
+    expect(chart.xLabel).toBe("Trades from now");
+    expect(chart.yLabel).toBe("Probability %");
+    expect(chart.valueUnit).toBe("percent");
+    expect(chart.data).toEqual(winWithinProbabilities(seedTrades));
+
+    const custom = buildChart("winWithin", seedTrades, "Waiting time");
+    expect(custom.title).toBe("Waiting time");
+
+    const empty = buildChart("winWithin", []);
+    expect(empty.data).toEqual([]);
+    expect(empty.description).toBe(
+      "Needs closed trades so we can use your win rate",
+    );
+
+    const oneLoss = buildChart("winWithin", [
+      makeTrade({ id: "w", result: "win", date: "2026-07-01" }),
+      makeTrade({ id: "l", result: "loss", date: "2026-07-02", pnlUsd: -50 }),
+    ]);
+    expect(oneLoss.description).toContain("You are currently on a 1-loss streak.");
+    expect(oneLoss.description).toContain("Chance the next trade is a win: 50%.");
+
+    const twoLoss = buildChart("winWithin", [
+      makeTrade({ id: "l1", result: "loss", date: "2026-07-01", pnlUsd: -50 }),
+      makeTrade({ id: "l2", result: "loss", date: "2026-07-02", pnlUsd: -50 }),
+    ]);
+    expect(twoLoss.description).toContain("You are currently on a 2-loss streak.");
+    expect(twoLoss.description).toContain("Chance the next trade is a win: 0%.");
+  });
+
+  it("builds equityFan preset from closed $ results", () => {
+    const chart = buildChart("equityFan", seedTrades);
+    expect(chart.type).toBe("equityFan");
+    expect(chart.title).toBe("Monte Carlo equity fan");
+    expect(chart.description).toBe(
+      "Your live equity curve, then 500 resampled paths of the next 10 trades. Line is the median; band is the 10th–90th percentile.",
+    );
+    expect(chart.xLabel).toBe("Trades");
+    expect(chart.yLabel).toBe("$");
+    expect(chart.valueUnit).toBe("usd");
+    expect(chart.data).toEqual(monteCarloEquityFan(seedTrades));
+
+    const custom = buildChart("equityFan", seedTrades, "Simulated book");
+    expect(custom.title).toBe("Simulated book");
+
+    const empty = buildChart("equityFan", []);
+    expect(empty.data).toEqual([]);
+    expect(empty.description).toBe("Needs closed trades to simulate future equity");
+  });
+
   it("builds bar, line, and scatter with custom data and titles", () => {
     for (const type of ["bar", "line", "scatter"] as const) {
       const defaultChart = buildChart(type, trades);
@@ -1248,6 +1419,8 @@ describe("buildChartFromRequest", () => {
       "bySymbol",
       "bySetup",
       "lossStreak",
+      "winWithin",
+      "equityFan",
     ] as const) {
       const chart = buildChartFromRequest(
         { type, description: `About ${type}` },
