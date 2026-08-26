@@ -381,7 +381,7 @@ export async function* streamAgentLoop(opts: {
   model: string;
   strategy: Strategy;
   trades: Trade[];
-  stats: Record<string, number | undefined>;
+  stats: Record<string, unknown>;
   history: HistoryMessage[];
   userText: string;
   images: string[];
