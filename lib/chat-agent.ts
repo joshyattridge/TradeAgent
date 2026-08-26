@@ -246,7 +246,7 @@ function createJournalTools(session: JournalSession) {
     }),
     get_stats: tool({
       description:
-        "Full-journal performance scoreboard (wins, losses, win rate, $ PnL). Does NOT accept symbol/side/result filters — always the whole book. Prefer closedOnly=true.",
+        "Full-journal performance scoreboard (wins, losses, win rate, $ PnL, sampleConfidence). Does NOT accept symbol/side/result filters — always the whole book. Prefer closedOnly=true. sampleConfidence.level is noise/thin/readable — do not treat a tiny book as strategy proof.",
       inputSchema: getStatsSchema,
       execute: async (input) => session.getStatsTool(input),
     }),
@@ -264,7 +264,7 @@ On-demand context (IMPORTANT):
 - Call query_trades / find_trade / get_trade / get_stats when you need history or to identify a row.
 - Before answering questions about "my trades", "entries", "closed trades", "how am I doing", or journal size: ALWAYS call get_stats (closedOnly=true) and query_trades with limit=25 and NO symbol/side/result filters.
 - Performance numbers come ONLY from get_stats.stats or query_trades.journalStats — never tally a filtered trades[] slice. If query_trades was filtered, still use journalStats for the scoreboard and re-query unfiltered if you need every row.
-- Never invent "visible" / "need review" / "can't assess yet" filler when journalStats/get_stats is present.
+- Use stats.sampleConfidence (also on journalStats). If level is noise or thin, say the book is still too small / noisy and do not treat win rate, average $, Monte Carlo, or the +$ edge % as proof the strategy works or is broken. If level is readable, do not hedge with "too early". Quote sampleConfidence.title/summary and sampleConfidence.positiveEdgePct (chance the true average $ is positive) instead of inventing a "can't assess yet" hedge.
 - Only add side/result/symbol filters on query_trades when the user explicitly asks for that subset (e.g. "my losing NQ longs"). get_stats never takes those filters.
 - When coaching whether trades fit the plan: call get_strategy, then query_trades + get_stats. Compare yourself from those tool results — there is no separate compare tool.
 - Never invent trades, stats, or strategy rules from memory.

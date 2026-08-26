@@ -3,12 +3,49 @@
 import { ChartRenderer } from "@/components/ChartRenderer";
 import { PnlCalendar } from "@/components/PnlCalendar";
 import { useTradingStore } from "@/lib/store";
-import { buildChart, computeStats } from "@/lib/stats";
+import { buildChart, computeStats, type SampleConfidence } from "@/lib/stats";
 import { formatRewardRisk } from "@/lib/trade-format";
 
 function formatSignedUsd(value: number, digits = 0): string {
   const sign = value > 0 ? "+" : "";
   return `${sign}$${value.toFixed(digits)}`;
+}
+
+function SampleConfidenceBanner({ confidence }: { confidence: SampleConfidence }) {
+  const score =
+    confidence.positiveEdgePct == null ? "—" : `${confidence.positiveEdgePct}%`;
+  return (
+    <section
+      className={`sample-confidence sample-confidence--${confidence.level}`}
+      aria-label="Sample confidence"
+    >
+      <div className="sample-confidence__body">
+        <div className="sample-confidence__copy">
+          <p className="sample-confidence__kicker">Can you trust these numbers?</p>
+          <h2>{confidence.title}</h2>
+          <p>{confidence.summary}</p>
+          {confidence.closedCount > 0 ? (
+            <ul className="sample-confidence__facts">
+              <li>{confidence.closedCount} closed</li>
+              <li>Win rate {confidence.winRateRangeLabel}</li>
+              {confidence.avgRangeLabel ? (
+                <li>Avg $ {confidence.avgRangeLabel}</li>
+              ) : (
+                <li>Avg $ range needs 2 trades</li>
+              )}
+            </ul>
+          ) : null}
+        </div>
+        <div
+          className={`sample-confidence__edge sample-confidence__edge--${confidence.edgeTone}`}
+        >
+          <p className="sample-confidence__kicker">+$ edge</p>
+          <p className="sample-confidence__edge-value">{score}</p>
+          <p>{confidence.edgeScoreLabel}</p>
+        </div>
+      </div>
+    </section>
+  );
 }
 
 export default function DashboardPage() {
@@ -36,6 +73,8 @@ export default function DashboardPage() {
           actually printing.
         </p>
       </section>
+
+      <SampleConfidenceBanner confidence={stats.sampleConfidence} />
 
       <section className="stat-row">
         <div className="stat">

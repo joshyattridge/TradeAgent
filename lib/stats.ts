@@ -186,7 +186,330 @@ export function computeStats(trades: Trade[]) {
     totalPnlUsd,
     avgPnlUsd,
     avgTimeInTradeMinutes,
+    sampleConfidence: sampleConfidence(trades),
   };
+}
+
+export type SampleConfidenceLevel = "empty" | "noise" | "thin" | "readable";
+export type SampleEdge = "unclear" | "likely-positive" | "likely-negative";
+
+export type SampleConfidence = {
+  level: SampleConfidenceLevel;
+  closedCount: number;
+  winRate: number;
+  winRateLo: number;
+  winRateHi: number;
+  avgPnlUsd: number;
+  avgPnlLo: number | null;
+  avgPnlHi: number | null;
+  avgIncludesZero: boolean;
+  edge: SampleEdge;
+  moreClosedNeeded: number;
+  title: string;
+  summary: string;
+  winRateRangeLabel: string;
+  avgRangeLabel: string | null;
+  /** 0–100 chance the true average $ is positive. Null until 2 closed trades. */
+  positiveEdgePct: number | null;
+  edgeTone: "pos" | "neg" | "flat";
+  edgeScoreLabel: string;
+};
+
+const Z_95 = 1.959964;
+const MIN_N_READABLE = 40;
+const TARGET_WR_WIDTH_PP = 20;
+const T_CRIT_95 = [
+  12.706, 4.303, 3.182, 2.776, 2.571, 2.447, 2.365, 2.306, 2.262, 2.228, 2.201,
+  2.179, 2.16, 2.145, 2.131, 2.12, 2.11, 2.101, 2.093, 2.086, 2.08, 2.074, 2.069,
+  2.064, 2.06, 2.056, 2.052, 2.048, 2.045, 2.042,
+];
+
+function tCritical95(df: number): number {
+  if (df <= T_CRIT_95.length) return T_CRIT_95[df - 1]!;
+  return Z_95 + 2.4 / df + 3.2 / (df * df);
+}
+
+/** Wilson score interval for a binomial proportion, in percent. */
+export function wilsonIntervalPct(
+  successes: number,
+  n: number,
+): { lo: number; hi: number } {
+  if (n <= 0) return { lo: 0, hi: 0 };
+  const p = successes / n;
+  const z2 = Z_95 * Z_95;
+  const denom = 1 + z2 / n;
+  const center = (p + z2 / (2 * n)) / denom;
+  const margin =
+    (Z_95 * Math.sqrt((p * (1 - p)) / n + z2 / (4 * n * n))) / denom;
+  return {
+    lo: clampPct((center - margin) * 100),
+    hi: clampPct((center + margin) * 100),
+  };
+}
+
+function clampPct(value: number): number {
+  if (value <= 1e-10) return 0;
+  if (value >= 100 - 1e-10) return 100;
+  return value;
+}
+
+/** Student's t 95% CI for the mean. Null when variance is unidentified (n < 2). */
+export function meanTInterval(
+  values: number[],
+): { lo: number; hi: number } | null {
+  const n = values.length;
+  if (n < 2) return null;
+  const mean = values.reduce((sum, v) => sum + v, 0) / n;
+  const variance =
+    values.reduce((sum, v) => sum + (v - mean) ** 2, 0) / (n - 1);
+  const se = Math.sqrt(variance / n);
+  if (!(se > 0)) return { lo: mean, hi: mean };
+  const t = tCritical95(n - 1);
+  return { lo: mean - t * se, hi: mean + t * se };
+}
+
+const LANCZOS = [
+  676.5203681218851, -1259.1392167224128, 771.3234287778304,
+  -176.61502916214059, 12.507343278686905, -0.13857109526572012,
+  9.984369726010533e-6, 1.5056327351493116e-7,
+];
+
+function logGamma(z: number): number {
+  let x = 0.99999999999980993;
+  const z1 = z - 1;
+  for (let i = 0; i < LANCZOS.length; i++) x += LANCZOS[i]! / (z1 + i + 1);
+  const t = z1 + LANCZOS.length - 0.5;
+  return 0.5 * Math.log(2 * Math.PI) + (z1 + 0.5) * Math.log(t) - t + Math.log(x);
+}
+
+function betaContinuedFraction(a: number, b: number, x: number): number {
+  const qab = a + b;
+  const qap = a + 1;
+  const qam = a - 1;
+  let c = 1;
+  let d = 1 - (qab * x) / qap;
+  d = 1 / d;
+  let h = d;
+  for (let m = 1; m <= 200; m++) {
+    const m2 = 2 * m;
+    let aa = (m * (b - m) * x) / ((qam + m2) * (a + m2));
+    d = 1 / (1 + aa * d);
+    c = 1 + aa / c;
+    h *= d * c;
+    aa = (-(a + m) * (qab + m) * x) / ((a + m2) * (qap + m2));
+    d = 1 / (1 + aa * d);
+    c = 1 + aa / c;
+    const del = d * c;
+    h *= del;
+    if (Math.abs(del - 1) < 1e-10) break;
+  }
+  return h;
+}
+
+function regularizedIncompleteBeta(a: number, b: number, x: number): number {
+  if (x >= 1) return 1;
+  const bt = Math.exp(
+    a * Math.log(x) + b * Math.log(1 - x) + logGamma(a + b) - logGamma(a) - logGamma(b),
+  );
+  if (x < (a + 1) / (a + b + 2)) {
+    return (bt * betaContinuedFraction(a, b, x)) / a;
+  }
+  return 1 - (bt * betaContinuedFraction(b, a, 1 - x)) / b;
+}
+
+/** Student's t CDF. Used for P(true mean $ > 0) from the sample. */
+export function studentTCdf(t: number, df: number): number {
+  if (!(df > 0) || !Number.isFinite(t)) return 0.5;
+  const x = df / (df + t * t);
+  const ib = regularizedIncompleteBeta(df / 2, 0.5, x);
+  return t >= 0 ? 1 - ib / 2 : ib / 2;
+}
+
+function positiveEdgeProbability(values: number[]): number | null {
+  const n = values.length;
+  if (n < 2) return null;
+  const mean = values.reduce((sum, v) => sum + v, 0) / n;
+  const variance =
+    values.reduce((sum, v) => sum + (v - mean) ** 2, 0) / (n - 1);
+  const se = Math.sqrt(variance / n);
+  if (!(se > 0)) {
+    if (mean > 0) return 1;
+    if (mean < 0) return 0;
+    return 0.5;
+  }
+  return studentTCdf(mean / se, n - 1);
+}
+
+function edgeToneFromPct(pct: number | null): "pos" | "neg" | "flat" {
+  if (pct == null) return "flat";
+  if (pct >= 56) return "pos";
+  if (pct <= 44) return "neg";
+  return "flat";
+}
+
+function edgeScoreLabel(pct: number | null): string {
+  if (pct == null) return "Need 2 closed trades for an edge score";
+  return "Chance the true average $ is positive";
+}
+
+function nForWinRateWidth(p: number): number {
+  const clipped = Math.min(0.95, Math.max(0.05, p));
+  const half = TARGET_WR_WIDTH_PP / 200;
+  return Math.ceil((Z_95 * Math.sqrt(clipped * (1 - clipped)) / half) ** 2);
+}
+
+function formatSignedUsdCompact(value: number): string {
+  const digits = Math.abs(value) >= 10 ? 0 : 2;
+  const rounded = Number(value.toFixed(digits));
+  if (rounded === 0) return "$0";
+  const sign = rounded > 0 ? "+" : "";
+  return `${sign}$${rounded.toFixed(digits)}`;
+}
+
+function closedPhrase(n: number): string {
+  return `${n} closed ${n === 1 ? "trade" : "trades"}`;
+}
+
+function classifySample(opts: {
+  n: number;
+  wrWidth: number;
+}): SampleConfidenceLevel {
+  if (opts.n <= 0) return "empty";
+  if (opts.n < 20) return "noise";
+  if (opts.n >= MIN_N_READABLE && opts.wrWidth <= TARGET_WR_WIDTH_PP) {
+    return "readable";
+  }
+  return "thin";
+}
+
+function edgeFromMeanInterval(
+  interval: { lo: number; hi: number } | null,
+): SampleEdge {
+  if (!interval) return "unclear";
+  if (interval.lo > 0) return "likely-positive";
+  if (interval.hi < 0) return "likely-negative";
+  return "unclear";
+}
+
+function avgSentence(
+  avg: number,
+  interval: { lo: number; hi: number } | null,
+  edge: SampleEdge,
+): string {
+  if (!interval) {
+    return "Average $ needs at least two closed trades for a range.";
+  }
+  const range = `${formatSignedUsdCompact(interval.lo)} to ${formatSignedUsdCompact(interval.hi)}`;
+  if (edge === "likely-positive") {
+    return `Average ${formatSignedUsdCompact(avg)} is likely positive (95% range ${range}).`;
+  }
+  if (edge === "likely-negative") {
+    return `Average ${formatSignedUsdCompact(avg)} is likely negative (95% range ${range}).`;
+  }
+  return `Average ${formatSignedUsdCompact(avg)} still includes $0 in its 95% range (${range}) — no evidence of an edge yet.`;
+}
+
+function sampleCopy(opts: {
+  level: SampleConfidenceLevel;
+  n: number;
+  winRate: number;
+  wrRange: string;
+  avgText: string;
+  moreClosedNeeded: number;
+}): { title: string; summary: string } {
+  if (opts.level === "empty") {
+    return {
+      title: "No closed trades yet",
+      summary:
+        "Closed trades will build a sample. Win rate, average $, and the Monte Carlo fan are noise until then.",
+    };
+  }
+  if (opts.level === "noise") {
+    return {
+      title: "Too early — this is still noise",
+      summary: `${closedPhrase(opts.n)}. Win rate ${opts.winRate.toFixed(0)}% has a 95% range of ${opts.wrRange}. ${opts.avgText} Need about ${opts.moreClosedNeeded} more closed trades before the win-rate range is tight enough to trust.`,
+    };
+  }
+  if (opts.level === "thin") {
+    return {
+      title: "Early sample — still a lot of noise",
+      summary: `${closedPhrase(opts.n)}. Win rate ${opts.winRate.toFixed(0)}% (95% range ${opts.wrRange}). ${opts.avgText} About ${opts.moreClosedNeeded} more closed trades would tighten the win-rate range to ~20 points.`,
+    };
+  }
+  return {
+    title: "Sample is large enough to read",
+    summary: `${closedPhrase(opts.n)}. Win rate ${opts.winRate.toFixed(0)}% (95% range ${opts.wrRange}). ${opts.avgText}`,
+  };
+}
+
+/**
+ * Whether the closed book is large enough to treat headline stats as
+ * strategy evidence, vs a small-sample sketch.
+ */
+export function sampleConfidence(trades: Trade[]): SampleConfidence {
+  const closed = closedTrades(trades);
+  const n = closed.length;
+  const wins = closed.filter((t) => t.result === "win").length;
+  const pnls = closed.map((t) => resolvePnlUsd(t));
+  const avgPnlUsd = n ? pnls.reduce((sum, v) => sum + v, 0) / n : 0;
+  const winRate = n ? (wins / n) * 100 : 0;
+  const wr = wilsonIntervalPct(wins, n);
+  const meanInterval = meanTInterval(pnls);
+  const wrWidth = wr.hi - wr.lo;
+  const level = classifySample({ n, wrWidth });
+  const edge = edgeFromMeanInterval(meanInterval);
+  const avgIncludesZero = meanInterval
+    ? meanInterval.lo <= 0 && meanInterval.hi >= 0
+    : true;
+  const targetN = Math.max(MIN_N_READABLE, nForWinRateWidth(n ? wins / n : 0.5));
+  const moreClosedNeeded = level === "readable" ? 0 : Math.max(0, targetN - n);
+  const wrRange = `${Math.round(wr.lo)}–${Math.round(wr.hi)}%`;
+  const avgRangeLabel = meanInterval
+    ? `${formatSignedUsdCompact(meanInterval.lo)} to ${formatSignedUsdCompact(meanInterval.hi)}`
+    : null;
+  const pPositive = positiveEdgeProbability(pnls);
+  const positiveEdgePct =
+    pPositive == null ? null : Math.round(pPositive * 100);
+  const copy = sampleCopy({
+    level,
+    n,
+    winRate,
+    wrRange,
+    avgText: avgSentence(avgPnlUsd, meanInterval, edge),
+    moreClosedNeeded,
+  });
+
+  return {
+    level,
+    closedCount: n,
+    winRate,
+    winRateLo: wr.lo,
+    winRateHi: wr.hi,
+    avgPnlUsd,
+    avgPnlLo: meanInterval?.lo ?? null,
+    avgPnlHi: meanInterval?.hi ?? null,
+    avgIncludesZero,
+    edge,
+    moreClosedNeeded,
+    title: copy.title,
+    summary: copy.summary,
+    winRateRangeLabel: wrRange,
+    avgRangeLabel,
+    positiveEdgePct,
+    edgeTone: edgeToneFromPct(positiveEdgePct),
+    edgeScoreLabel: edgeScoreLabel(positiveEdgePct),
+  };
+}
+
+function appendSampleSketch(text: string, trades: Trade[]): string {
+  const { level } = sampleConfidence(trades);
+  if (level === "noise") {
+    return `${text} Small sample — treat this as a sketch, not a verdict.`;
+  }
+  if (level === "thin") {
+    return `${text} Sample is still thin — ranges can still move a lot.`;
+  }
+  return text;
 }
 
 export function equityCurve(trades: Trade[]) {
@@ -634,7 +957,10 @@ export function buildChart(
         type,
         title: title ?? "Losing streak odds",
         description: closedCount
-          ? `Chance the next N trades are all losses, at your ${winRate.toFixed(0)}% win rate. ${losingStreakCaption(currentLosingStreak(trades))}`
+          ? appendSampleSketch(
+              `Chance the next N trades are all losses, at your ${winRate.toFixed(0)}% win rate. ${losingStreakCaption(currentLosingStreak(trades))}`,
+              trades,
+            )
           : "Needs closed trades so we can use your win rate",
         xLabel: "Losses in a row",
         yLabel: "Probability %",
@@ -649,7 +975,10 @@ export function buildChart(
         type,
         title: title ?? "Odds of a win soon",
         description: closedCount
-          ? `Chance of at least one win in the next k trades, at your ${winRate.toFixed(0)}% win rate. ${winWithinCaption(winRate, currentLosingStreak(trades))}`
+          ? appendSampleSketch(
+              `Chance of at least one win in the next k trades, at your ${winRate.toFixed(0)}% win rate. ${winWithinCaption(winRate, currentLosingStreak(trades))}`,
+              trades,
+            )
           : "Needs closed trades so we can use your win rate",
         xLabel: "Trades from now",
         yLabel: "Probability %",
@@ -664,7 +993,10 @@ export function buildChart(
         type,
         title: title ?? "Monte Carlo equity fan",
         description: closedCount
-          ? "Your live equity curve, then 500 resampled paths of the next 10 trades. Line is the median; band is the 10th–90th percentile."
+          ? appendSampleSketch(
+              "Your live equity curve, then 500 resampled paths of the next 10 trades. Line is the median; band is the 10th–90th percentile.",
+              trades,
+            )
           : "Needs closed trades to simulate future equity",
         xLabel: "Trades",
         yLabel: "$",

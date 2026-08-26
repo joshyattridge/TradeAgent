@@ -851,7 +851,7 @@ export class JournalSession {
       poolSize: pool.length,
       closedOnly,
       stats,
-      note: "Full-journal stats (filters are not supported on get_stats). Use stats.wins/losses/totalPnlUsd for $ performance, and stats.avgR for average RR.",
+      note: "Full-journal stats (filters are not supported on get_stats). Use stats.wins/losses/totalPnlUsd for $ performance, and stats.avgR for average RR. stats.sampleConfidence says whether the sample is large enough (noise vs thin vs readable). stats.sampleConfidence.positiveEdgePct is the chance the true average $ is positive (null until 2 closed trades).",
     };
   }
 

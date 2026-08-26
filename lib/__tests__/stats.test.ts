@@ -12,6 +12,9 @@ import {
   closedTrades,
   compareTradesChronologically,
   computeStats,
+  meanTInterval,
+  sampleConfidence,
+  studentTCdf,
   equityCurve,
   plannedRewardRisk,
   isStatsClosedTrade,
@@ -25,6 +28,7 @@ import {
   tradeCloseMs,
   visibleJournalTrades,
   winLossBreakdown,
+  wilsonIntervalPct,
 } from "@/lib/stats";
 import type { Trade, TradeLabelField, TradeMetricField } from "@/lib/types";
 
@@ -204,6 +208,205 @@ describe("computeStats", () => {
     ]);
     expect(stats.totalPnlUsd).toBe(197.5);
     expect(stats.avgPnlUsd).toBe(197.5);
+    expect(stats.sampleConfidence.level).toBe("noise");
+  });
+});
+
+function makeBook(
+  n: number,
+  opts: { pnl?: number; pattern?: "wins" | "losses" | "alternate" } = {},
+): Trade[] {
+  const pnl = opts.pnl ?? 100;
+  const pattern = opts.pattern ?? "wins";
+  return Array.from({ length: n }, (_, i) => {
+    const loss =
+      pattern === "losses" || (pattern === "alternate" && i % 2 === 1);
+    return makeTrade({
+      id: `book-${i}`,
+      date: `2026-08-${String((i % 28) + 1).padStart(2, "0")}`,
+      result: loss ? "loss" : "win",
+      pnlUsd: loss ? -pnl : pnl,
+    });
+  });
+}
+
+describe("wilsonIntervalPct and meanTInterval", () => {
+  it("returns a zero Wilson interval when n is 0", () => {
+    expect(wilsonIntervalPct(0, 0)).toEqual({ lo: 0, hi: 0 });
+  });
+
+  it("keeps all-win and all-loss Wilson ranges inside 0–100", () => {
+    const wins = wilsonIntervalPct(10, 10);
+    expect(wins.lo).toBeGreaterThan(60);
+    expect(wins.hi).toBe(100);
+    const losses = wilsonIntervalPct(0, 10);
+    expect(losses.lo).toBe(0);
+    expect(losses.hi).toBeLessThan(40);
+  });
+
+  it("returns null mean interval for n < 2 and a point interval when variance is 0", () => {
+    expect(meanTInterval([])).toBeNull();
+    expect(meanTInterval([4])).toBeNull();
+    expect(meanTInterval([5, 5, 5])).toEqual({ lo: 5, hi: 5 });
+  });
+
+  it("uses the small-sample t table and the large-df approximation", () => {
+    const n2 = meanTInterval([0, 10]);
+    expect(n2).not.toBeNull();
+    expect(n2!.hi - n2!.lo).toBeGreaterThan(40);
+
+    const tableDf = meanTInterval(Array.from({ length: 31 }, (_, i) => (i % 2 === 0 ? 2 : 0)));
+    const approxDf = meanTInterval(Array.from({ length: 80 }, (_, i) => (i % 2 === 0 ? 2 : 0)));
+    expect(tableDf).not.toBeNull();
+    expect(approxDf).not.toBeNull();
+    expect(approxDf!.hi - approxDf!.lo).toBeLessThan(tableDf!.hi - tableDf!.lo);
+  });
+});
+
+describe("studentTCdf", () => {
+  it("matches Cauchy and standard-normal limits", () => {
+    expect(studentTCdf(0, 1)).toBeCloseTo(0.5, 6);
+    expect(studentTCdf(1, 1)).toBeCloseTo(0.75, 4);
+    expect(studentTCdf(-1, 1)).toBeCloseTo(0.25, 4);
+    expect(studentTCdf(12.706, 1)).toBeCloseTo(0.975, 3);
+    expect(studentTCdf(1.96, 800)).toBeCloseTo(0.975, 2);
+    expect(studentTCdf(8, 10)).toBeGreaterThan(0.999);
+  });
+
+  it("returns 0.5 for invalid df or non-finite t", () => {
+    expect(studentTCdf(1, 0)).toBe(0.5);
+    expect(studentTCdf(Number.NaN, 8)).toBe(0.5);
+  });
+});
+
+describe("sampleConfidence", () => {
+  it("marks an empty book as empty", () => {
+    const c = sampleConfidence([]);
+    expect(c.level).toBe("empty");
+    expect(c.edge).toBe("unclear");
+    expect(c.avgPnlLo).toBeNull();
+    expect(c.avgRangeLabel).toBeNull();
+    expect(c.title).toBe("No closed trades yet");
+    expect(c.summary).toContain("noise until then");
+    expect(c.positiveEdgePct).toBeNull();
+    expect(c.edgeTone).toBe("flat");
+    expect(c.edgeScoreLabel).toBe("Need 2 closed trades for an edge score");
+  });
+
+  it("uses singular copy and skips a mean range on one closed trade", () => {
+    const c = sampleConfidence([makeTrade({ id: "one", pnlUsd: 8 })]);
+    expect(c.level).toBe("noise");
+    expect(c.closedCount).toBe(1);
+    expect(c.summary).toContain("1 closed trade.");
+    expect(c.summary).toContain("Average $ needs at least two closed trades for a range.");
+    expect(c.avgRangeLabel).toBeNull();
+    expect(c.moreClosedNeeded).toBeGreaterThan(0);
+    expect(c.positiveEdgePct).toBeNull();
+  });
+
+  it("flags a 2-loss book as noise with a likely-negative average", () => {
+    const c = sampleConfidence([
+      makeTrade({ id: "l1", result: "loss", pnlUsd: -40 }),
+      makeTrade({ id: "l2", result: "loss", pnlUsd: -40 }),
+    ]);
+    expect(c.level).toBe("noise");
+    expect(c.edge).toBe("likely-negative");
+    expect(c.avgIncludesZero).toBe(false);
+    expect(c.summary).toContain("likely negative");
+    expect(c.winRateRangeLabel).toMatch(/%$/);
+    expect(c.positiveEdgePct).toBe(0);
+    expect(c.edgeTone).toBe("neg");
+  });
+
+  it("flags identical small wins as likely-positive noise", () => {
+    const c = sampleConfidence([
+      makeTrade({ id: "w1", pnlUsd: 4 }),
+      makeTrade({ id: "w2", pnlUsd: 4 }),
+    ]);
+    expect(c.edge).toBe("likely-positive");
+    expect(c.avgRangeLabel).toContain("+$4.00");
+    expect(c.summary).toContain("likely positive");
+    expect(c.positiveEdgePct).toBe(100);
+    expect(c.edgeTone).toBe("pos");
+  });
+
+  it("scores a mixed book between 0 and 100", () => {
+    const c = sampleConfidence([
+      makeTrade({ id: "m1", pnlUsd: 120 }),
+      makeTrade({ id: "m2", pnlUsd: 80 }),
+      makeTrade({ id: "m3", result: "loss", pnlUsd: -90 }),
+      makeTrade({ id: "m4", pnlUsd: 40 }),
+    ]);
+    expect(c.positiveEdgePct).toBeGreaterThan(50);
+    expect(c.positiveEdgePct).toBeLessThan(100);
+    expect(c.edgeTone).toBe("pos");
+  });
+
+  it("scores a flat zero-dollar book at 50%", () => {
+    const c = sampleConfidence([
+      makeTrade({ id: "z1", pnlUsd: 0 }),
+      makeTrade({ id: "z2", pnlUsd: 0 }),
+    ]);
+    expect(c.positiveEdgePct).toBe(50);
+    expect(c.edgeTone).toBe("flat");
+  });
+
+  it("treats a 25-trade mixed book as thin", () => {
+    const c = sampleConfidence(makeBook(25, { pattern: "alternate" }));
+    expect(c.level).toBe("thin");
+    expect(c.title).toBe("Early sample — still a lot of noise");
+    expect(c.moreClosedNeeded).toBeGreaterThan(0);
+    expect(c.summary).toContain("more closed trades would tighten");
+  });
+
+  it("treats a 50/50 hundred-trade book as readable with an unclear edge", () => {
+    const c = sampleConfidence(makeBook(100, { pattern: "alternate" }));
+    expect(c.level).toBe("readable");
+    expect(c.edge).toBe("unclear");
+    expect(c.avgIncludesZero).toBe(true);
+    expect(c.moreClosedNeeded).toBe(0);
+    expect(c.title).toBe("Sample is large enough to read");
+    expect(c.summary).toContain("no evidence of an edge yet");
+    expect(c.avgRangeLabel).toMatch(/\$/);
+    expect(c.positiveEdgePct).toBe(50);
+    expect(c.edgeTone).toBe("flat");
+    expect(c.edgeScoreLabel).toBe("Chance the true average $ is positive");
+  });
+
+  it("reads a large all-win book as a likely-positive sample", () => {
+    const c = sampleConfidence(makeBook(50, { pattern: "wins", pnl: 12 }));
+    expect(c.level).toBe("readable");
+    expect(c.edge).toBe("likely-positive");
+    expect(c.summary).toContain("likely positive");
+    expect(c.positiveEdgePct).toBe(100);
+  });
+
+  it("reads a large all-loss book as a likely-negative sample", () => {
+    const c = sampleConfidence(makeBook(50, { pattern: "losses", pnl: 12 }));
+    expect(c.level).toBe("readable");
+    expect(c.edge).toBe("likely-negative");
+    expect(c.summary).toContain("likely negative");
+    expect(c.positiveEdgePct).toBe(0);
+  });
+
+  it("scores a losing mixed book below 50%", () => {
+    const c = sampleConfidence([
+      makeTrade({ id: "d1", pnlUsd: 20 }),
+      makeTrade({ id: "d2", result: "loss", pnlUsd: -80 }),
+      makeTrade({ id: "d3", result: "loss", pnlUsd: -50 }),
+    ]);
+    expect(c.positiveEdgePct).toBeLessThan(50);
+    expect(c.positiveEdgePct).toBeGreaterThan(0);
+    expect(c.edgeTone).toBe("neg");
+  });
+
+  it("ignores hidden trades", () => {
+    const c = sampleConfidence([
+      makeTrade({ id: "hid", pnlUsd: 999, hidden: true }),
+      makeTrade({ id: "vis", pnlUsd: 10 }),
+    ]);
+    expect(c.closedCount).toBe(1);
+    expect(c.level).toBe("noise");
   });
 });
 
@@ -1312,7 +1515,7 @@ describe("buildChart", () => {
     expect(chart.type).toBe("lossStreak");
     expect(chart.title).toBe("Losing streak odds");
     expect(chart.description).toBe(
-      "Chance the next N trades are all losses, at your 70% win rate. You are not currently in a losing streak.",
+      "Chance the next N trades are all losses, at your 70% win rate. You are not currently in a losing streak. Small sample — treat this as a sketch, not a verdict.",
     );
     expect(chart.xLabel).toBe("Losses in a row");
     expect(chart.yLabel).toBe("Probability %");
@@ -1346,7 +1549,7 @@ describe("buildChart", () => {
     expect(chart.type).toBe("winWithin");
     expect(chart.title).toBe("Odds of a win soon");
     expect(chart.description).toBe(
-      "Chance of at least one win in the next k trades, at your 70% win rate. You are not currently in a losing streak. Chance the next trade is a win: 70%.",
+      "Chance of at least one win in the next k trades, at your 70% win rate. You are not currently in a losing streak. Chance the next trade is a win: 70%. Small sample — treat this as a sketch, not a verdict.",
     );
     expect(chart.xLabel).toBe("Trades from now");
     expect(chart.yLabel).toBe("Probability %");
@@ -1382,7 +1585,7 @@ describe("buildChart", () => {
     expect(chart.type).toBe("equityFan");
     expect(chart.title).toBe("Monte Carlo equity fan");
     expect(chart.description).toBe(
-      "Your live equity curve, then 500 resampled paths of the next 10 trades. Line is the median; band is the 10th–90th percentile.",
+      "Your live equity curve, then 500 resampled paths of the next 10 trades. Line is the median; band is the 10th–90th percentile. Small sample — treat this as a sketch, not a verdict.",
     );
     expect(chart.xLabel).toBe("Trades");
     expect(chart.yLabel).toBe("$");
@@ -1395,6 +1598,15 @@ describe("buildChart", () => {
     const empty = buildChart("equityFan", []);
     expect(empty.data).toEqual([]);
     expect(empty.description).toBe("Needs closed trades to simulate future equity");
+
+    const thinFan = buildChart("equityFan", makeBook(25, { pattern: "alternate" }));
+    expect(thinFan.description).toContain(
+      "Sample is still thin — ranges can still move a lot.",
+    );
+
+    const readableFan = buildChart("equityFan", makeBook(50, { pattern: "wins" }));
+    expect(readableFan.description).not.toContain("Small sample");
+    expect(readableFan.description).not.toContain("still thin");
   });
 
   it("builds bar, line, and scatter with custom data and titles", () => {

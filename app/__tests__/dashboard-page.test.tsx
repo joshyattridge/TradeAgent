@@ -2,7 +2,7 @@
  * @vitest-environment jsdom
  */
 import "fake-indexeddb/auto";
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import DashboardPage from "@/app/page";
 import { seedTrades } from "@/lib/seed-data";
@@ -52,6 +52,13 @@ describe("DashboardPage", () => {
     expect(screen.getByText("Losing streak odds")).toBeInTheDocument();
     expect(screen.getByText("Odds of a win soon")).toBeInTheDocument();
     expect(screen.getByText("Monte Carlo equity fan")).toBeInTheDocument();
+    expect(
+      screen.getByRole("region", { name: "Sample confidence" }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Can you trust these numbers?")).toBeInTheDocument();
+    expect(screen.getByText("Too early — this is still noise")).toBeInTheDocument();
+    expect(screen.getByText("+$ edge")).toBeInTheDocument();
+    expect(screen.getByText("Chance the true average $ is positive")).toBeInTheDocument();
   });
 
   it("colors calendar days by daily $ profit and shows amounts", () => {
@@ -120,5 +127,60 @@ describe("DashboardPage", () => {
     });
     render(<DashboardPage />);
     expect(screen.getAllByText("$-100").length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText("Avg $ range needs 2 trades")).toBeInTheDocument();
+    expect(screen.getByText("Need 2 closed trades for an edge score")).toBeInTheDocument();
+  });
+
+  it("shows an empty-sample banner when there are no closed trades", () => {
+    resetStore({ trades: [] });
+    render(<DashboardPage />);
+    expect(screen.getByText("No closed trades yet")).toBeInTheDocument();
+    expect(screen.queryByText("Win rate 0–0%")).not.toBeInTheDocument();
+    expect(screen.getByText("Need 2 closed trades for an edge score")).toBeInTheDocument();
+    expect(
+      within(screen.getByRole("region", { name: "Sample confidence" })).getByText("—"),
+    ).toBeInTheDocument();
+  });
+
+  it("shows a thin-sample banner once the book is past the tiny-n cutoff", () => {
+    resetStore({
+      trades: Array.from({ length: 25 }, (_, i) => ({
+        id: `thin-${i}`,
+        date: "2026-08-01",
+        symbol: "EURUSD",
+        side: "long" as const,
+        entry: 1.1,
+        stop: 1.09,
+        target: 1.12,
+        result: i % 2 === 0 ? ("win" as const) : ("loss" as const),
+        pnlUsd: i % 2 === 0 ? 100 : -100,
+        feesUsd: 0,
+      })),
+    });
+    render(<DashboardPage />);
+    expect(screen.getByText("Early sample — still a lot of noise")).toBeInTheDocument();
+  });
+
+  it("shows a readable-sample banner on a large all-win book", () => {
+    resetStore({
+      trades: Array.from({ length: 50 }, (_, i) => ({
+        id: `read-${i}`,
+        date: "2026-08-01",
+        symbol: "EURUSD",
+        side: "long" as const,
+        entry: 1.1,
+        stop: 1.09,
+        target: 1.12,
+        result: "win" as const,
+        pnlUsd: 20,
+        feesUsd: 0,
+      })),
+    });
+    render(<DashboardPage />);
+    expect(screen.getByText("Sample is large enough to read")).toBeInTheDocument();
+    expect(screen.getByText("Avg $ +$20 to +$20")).toBeInTheDocument();
+    expect(
+      within(screen.getByRole("region", { name: "Sample confidence" })).getByText("100%"),
+    ).toBeInTheDocument();
   });
 });

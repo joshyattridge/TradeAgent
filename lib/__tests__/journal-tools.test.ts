@@ -259,7 +259,8 @@ describe("getStats and getStatsTool", () => {
     expect(res.poolSize).toBe(seedTrades.length - 1);
     expect(res.closedOnly).toBe(true);
     expect(res.stats.closedCount).toBe(seedTrades.length - 1);
-    expect(res.note).toMatch(/Full-journal stats/i);
+    expect(res.stats.sampleConfidence.level).toBe("noise");
+    expect(res.note).toMatch(/sampleConfidence/i);
   });
 
   it("getStatsTool notes unfiltered performance pools", () => {
