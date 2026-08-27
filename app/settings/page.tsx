@@ -23,6 +23,7 @@ import {
   type ReasoningEffortId,
 } from "@/lib/models";
 import { useTradingStore } from "@/lib/store";
+import { ThemeToggle } from "@/components/ThemeToggle";
 
 export default function SettingsPage() {
   const hydrated = useTradingStore((s) => s.hydrated);
@@ -173,6 +174,20 @@ export default function SettingsPage() {
           Drop in your OpenAI API key and pick a model. TradeAgent uses these for
           the floating chat across dashboard, logs, and strategy.
         </p>
+      </section>
+
+      <section className="settings-form panel settings-section">
+        <h2>Appearance</h2>
+        <p>
+          System follows your computer. Choose Light or Dark to lock the palette.
+        </p>
+        <div className="field">
+          <span className="field__label">Theme</span>
+          <ThemeToggle labels />
+          <span className="field__hint">
+            Default is System. Your choice is stored in this browser.
+          </span>
+        </div>
       </section>
 
       <form className="settings-form panel" onSubmit={onSave}>

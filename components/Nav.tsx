@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { ThemeToggle } from "@/components/ThemeToggle";
 
 const links = [
   { href: "/", label: "Dashboard" },
@@ -19,23 +20,26 @@ export function Nav() {
         <span className="brand__mark" aria-hidden />
         <span className="brand__name">TradeAgent</span>
       </Link>
-      <nav className="site-nav" aria-label="Primary">
-        {links.map((link) => {
-          const active =
-            link.href === "/"
-              ? pathname === "/"
-              : pathname.startsWith(link.href);
-          return (
-            <Link
-              key={link.href}
-              href={link.href}
-              className={`site-nav__link${active ? " is-active" : ""}`}
-            >
-              {link.label}
-            </Link>
-          );
-        })}
-      </nav>
+      <div className="site-header__end">
+        <nav className="site-nav" aria-label="Primary">
+          {links.map((link) => {
+            const active =
+              link.href === "/"
+                ? pathname === "/"
+                : pathname.startsWith(link.href);
+            return (
+              <Link
+                key={link.href}
+                href={link.href}
+                className={`site-nav__link${active ? " is-active" : ""}`}
+              >
+                {link.label}
+              </Link>
+            );
+          })}
+        </nav>
+        <ThemeToggle />
+      </div>
     </header>
   );
 }

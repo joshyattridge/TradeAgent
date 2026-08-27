@@ -104,4 +104,14 @@ describe("Nav", () => {
     expectInactive("Dashboard");
     expectActive("Settings");
   });
+
+  it("includes an appearance switcher", () => {
+    mockUsePathname.mockReturnValue("/");
+    render(<Nav />);
+
+    expect(screen.getByRole("radiogroup", { name: "Appearance" })).toBeInTheDocument();
+    expect(screen.getByRole("radio", { name: "Light" })).toBeInTheDocument();
+    expect(screen.getByRole("radio", { name: "Dark" })).toBeInTheDocument();
+    expect(screen.getByRole("radio", { name: "System" })).toBeInTheDocument();
+  });
 });

@@ -1,0 +1,90 @@
+/* All color tokens for light + dark. `light-dark()` follows `color-scheme`:
+ * system default is `light dark` (OS preference). Explicit Light/Dark
+ * sets color-scheme on <html> so every token flips together. */
+
+:root {
+  color-scheme: light dark;
+
+  --ink: light-dark(#1c1917, #f4f1ea);
+  --ink-soft: light-dark(#44403c, #c8c2b8);
+  --muted: light-dark(#78716c, #9a948a);
+  --paper: light-dark(#eef2f0, #121816);
+  --paper-2: light-dark(#f8faf9, #1a211e);
+  --line: light-dark(rgba(15, 23, 22, 0.1), rgba(244, 241, 234, 0.12));
+
+  --teal: light-dark(#0d9488, #2dd4bf);
+  --teal-deep: light-dark(#0f766e, #5eead4);
+  --teal-shine: #5eead4;
+  --coral: light-dark(#e11d48, #fb7185);
+  --amber: light-dark(#d97706, #fbbf24);
+
+  --glow: light-dark(rgba(13, 148, 136, 0.18), rgba(45, 212, 191, 0.22));
+  --teal-muted: light-dark(rgba(13, 148, 136, 0.32), rgba(45, 212, 191, 0.38));
+  --coral-muted: light-dark(rgba(225, 29, 72, 0.32), rgba(251, 113, 133, 0.38));
+  --chart-grid: light-dark(rgba(28, 25, 23, 0.08), rgba(244, 241, 234, 0.1));
+
+  --shadow: light-dark(
+    0 24px 60px rgba(15, 23, 22, 0.12),
+    0 24px 60px rgba(0, 0, 0, 0.55)
+  );
+  --header-shadow: light-dark(
+    0 10px 30px rgba(28, 25, 23, 0.05),
+    0 10px 30px rgba(0, 0, 0, 0.28)
+  );
+  --panel-shadow: light-dark(
+    0 12px 40px rgba(28, 25, 23, 0.04),
+    0 12px 40px rgba(0, 0, 0, 0.22)
+  );
+  --float-shadow: light-dark(
+    0 8px 20px rgba(15, 23, 22, 0.1),
+    0 8px 20px rgba(0, 0, 0, 0.35)
+  );
+  --proposal-shadow: light-dark(
+    0 18px 50px rgba(28, 25, 23, 0.18),
+    0 18px 50px rgba(0, 0, 0, 0.45)
+  );
+  --lightbox-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
+
+  --surface: light-dark(rgba(255, 253, 248, 0.78), rgba(26, 33, 30, 0.78));
+  --surface-strong: light-dark(rgba(255, 253, 248, 0.92), rgba(26, 33, 30, 0.92));
+  --surface-solid: light-dark(rgba(248, 250, 249, 0.96), rgba(22, 28, 26, 0.96));
+  --surface-faint: light-dark(rgba(255, 253, 248, 0.55), rgba(26, 33, 30, 0.5));
+
+  --hover: light-dark(rgba(28, 25, 23, 0.04), rgba(244, 241, 234, 0.06));
+  --control: light-dark(rgba(28, 25, 23, 0.05), rgba(244, 241, 234, 0.08));
+  --wash: light-dark(rgba(28, 25, 23, 0.06), rgba(244, 241, 234, 0.1));
+  --chrome-border: light-dark(rgba(28, 25, 23, 0.12), rgba(244, 241, 234, 0.14));
+  --mark-border: light-dark(rgba(28, 25, 23, 0.28), rgba(244, 241, 234, 0.32));
+  --hairline: light-dark(rgba(28, 25, 23, 0.06), rgba(244, 241, 234, 0.08));
+
+  --overlay: light-dark(rgba(15, 23, 22, 0.48), rgba(0, 0, 0, 0.62));
+  --overlay-soft: light-dark(rgba(15, 23, 22, 0.22), rgba(0, 0, 0, 0.45));
+  --lightbox: light-dark(rgba(12, 10, 9, 0.82), rgba(0, 0, 0, 0.88));
+  --lightbox-btn: rgba(255, 255, 255, 0.14);
+  --on-accent: #fff;
+  --on-ink-border: light-dark(rgba(255, 253, 248, 0.2), rgba(18, 24, 22, 0.35));
+  --btn-hover: light-dark(#292524, #ece7de);
+  --float-hover: light-dark(rgba(255, 255, 255, 0.98), rgba(36, 44, 40, 0.98));
+
+  --idle-fill: light-dark(rgba(120, 113, 108, 0.08), rgba(154, 148, 138, 0.12));
+  --idle-border: light-dark(rgba(120, 113, 108, 0.12), rgba(154, 148, 138, 0.18));
+  --dim-row: light-dark(rgba(15, 23, 42, 0.045), rgba(0, 0, 0, 0.22));
+  --dim-row-hover: light-dark(rgba(15, 23, 42, 0.08), rgba(0, 0, 0, 0.32));
+
+  --body-glow: light-dark(rgba(13, 148, 136, 0.18), rgba(45, 212, 191, 0.14));
+  --body-mist: light-dark(rgba(15, 23, 42, 0.06), rgba(0, 0, 0, 0.4));
+  --body-base: light-dark(#e4ece8, #0c1210);
+  --body-base-end: light-dark(#e8efec, #0e1412);
+}
+
+html[data-theme="light"] {
+  color-scheme: light;
+}
+
+html[data-theme="dark"] {
+  color-scheme: dark;
+}
+
+html[data-theme="system"] {
+  color-scheme: light dark;
+}

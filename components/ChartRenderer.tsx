@@ -1,5 +1,6 @@
 "use client";
 
+import { useMemo } from "react";
 import {
   Area,
   AreaChart,
@@ -20,31 +21,35 @@ import {
   YAxis,
   ZAxis,
 } from "recharts";
+import { useTheme } from "@/components/ThemeProvider";
+import { readCssVar } from "@/lib/theme";
 import type { ChartPoint, ChartSpec } from "@/lib/types";
 
-const TEAL = "#0d9488";
-const TEAL_MUTED = "rgba(13, 148, 136, 0.32)";
-const CORAL = "#e11d48";
-const CORAL_MUTED = "rgba(225, 29, 72, 0.32)";
-const MUTED = "#78716c";
-const GRID = "rgba(28,25,23,0.08)";
-
-function tooltipStyle() {
-  return {
-    background: "#f8faf9",
-    border: "1px solid rgba(28,25,23,0.12)",
-    borderRadius: 12,
-    fontSize: 12,
-    color: "#1c1917",
-  };
-}
-
-function axisTick() {
-  return { fill: MUTED, fontSize: 11 };
-}
-
-function pointColor(value: number) {
-  return value >= 0 ? TEAL : CORAL;
+function useChartPalette() {
+  const { resolved } = useTheme();
+  return useMemo(() => {
+    void resolved;
+    const teal = readCssVar("--teal", "#0d9488");
+    const coral = readCssVar("--coral", "#e11d48");
+    const muted = readCssVar("--muted", "#78716c");
+    return {
+      teal,
+      tealMuted: readCssVar("--teal-muted", "rgba(13, 148, 136, 0.32)"),
+      coral,
+      coralMuted: readCssVar("--coral-muted", "rgba(225, 29, 72, 0.32)"),
+      muted,
+      grid: readCssVar("--chart-grid", "rgba(28,25,23,0.08)"),
+      tooltipStyle: {
+        background: readCssVar("--paper-2", "#f8faf9"),
+        border: `1px solid ${readCssVar("--line", "rgba(28,25,23,0.12)")}`,
+        borderRadius: 12,
+        fontSize: 12,
+        color: readCssVar("--ink", "#1c1917"),
+      },
+      axisTick: { fill: muted, fontSize: 11 },
+      pointColor: (value: number) => (value >= 0 ? teal : coral),
+    };
+  }, [resolved]);
 }
 
 function formatChartValue(value: unknown, unit?: "usd" | "percent"): string {
@@ -65,6 +70,14 @@ function formatChartValue(value: unknown, unit?: "usd" | "percent"): string {
 }
 
 function ScatterBody({ chart, data }: { chart: ChartSpec; data: ChartPoint[] }) {
+  const {
+    teal,
+    muted,
+    grid,
+    tooltipStyle,
+    axisTick,
+    pointColor,
+  } = useChartPalette();
   const rows = data.map((d, i) => ({
     ...d,
     x: d.x ?? d.value,
@@ -75,12 +88,12 @@ function ScatterBody({ chart, data }: { chart: ChartSpec; data: ChartPoint[] }) 
   return (
     <ResponsiveContainer width="100%" height={220}>
       <ScatterChart margin={{ top: 8, right: 8, bottom: 4, left: 0 }}>
-        <CartesianGrid stroke={GRID} vertical={false} />
+        <CartesianGrid stroke={grid} vertical={false} />
         <XAxis
           type="number"
           dataKey="x"
           name={chart.xLabel ?? "X"}
-          tick={axisTick()}
+          tick={axisTick}
           axisLine={false}
           tickLine={false}
           label={
@@ -89,7 +102,7 @@ function ScatterBody({ chart, data }: { chart: ChartSpec; data: ChartPoint[] }) 
                   value: chart.xLabel,
                   position: "insideBottom",
                   offset: -2,
-                  fill: MUTED,
+                  fill: muted,
                   fontSize: 11,
                 }
               : undefined
@@ -99,7 +112,7 @@ function ScatterBody({ chart, data }: { chart: ChartSpec; data: ChartPoint[] }) 
           type="number"
           dataKey="y"
           name={chart.yLabel ?? "Y"}
-          tick={axisTick()}
+          tick={axisTick}
           axisLine={false}
           tickLine={false}
           width={44}
@@ -109,7 +122,7 @@ function ScatterBody({ chart, data }: { chart: ChartSpec; data: ChartPoint[] }) 
                   value: chart.yLabel,
                   angle: -90,
                   position: "insideLeft",
-                  fill: MUTED,
+                  fill: muted,
                   fontSize: 11,
                 }
               : undefined
@@ -117,8 +130,8 @@ function ScatterBody({ chart, data }: { chart: ChartSpec; data: ChartPoint[] }) 
         />
         <ZAxis range={[60, 60]} />
         <Tooltip
-          cursor={{ strokeDasharray: "3 3", stroke: MUTED }}
-          contentStyle={tooltipStyle()}
+          cursor={{ strokeDasharray: "3 3", stroke: muted }}
+          contentStyle={tooltipStyle}
           formatter={(value, name) => {
             const n = typeof value === "number" ? value : Number(value);
             const label =
@@ -134,7 +147,7 @@ function ScatterBody({ chart, data }: { chart: ChartSpec; data: ChartPoint[] }) 
             return row?.label ?? "";
           }}
         />
-        <Scatter data={rows} fill={TEAL}>
+        <Scatter data={rows} fill={teal}>
           {rows.map((entry) => (
             <Cell key={`${entry.label}-${entry.i}`} fill={pointColor(entry.y)} />
           ))}
@@ -145,18 +158,19 @@ function ScatterBody({ chart, data }: { chart: ChartSpec; data: ChartPoint[] }) 
 }
 
 function LineBody({ chart, data }: { chart: ChartSpec; data: ChartPoint[] }) {
+  const { teal, muted, grid, tooltipStyle, axisTick } = useChartPalette();
   return (
     <ResponsiveContainer width="100%" height={220}>
       <LineChart data={data}>
-        <CartesianGrid stroke={GRID} vertical={false} />
+        <CartesianGrid stroke={grid} vertical={false} />
         <XAxis
           dataKey="label"
-          tick={axisTick()}
+          tick={axisTick}
           axisLine={false}
           tickLine={false}
         />
         <YAxis
-          tick={axisTick()}
+          tick={axisTick}
           axisLine={false}
           tickLine={false}
           width={52}
@@ -167,22 +181,22 @@ function LineBody({ chart, data }: { chart: ChartSpec; data: ChartPoint[] }) {
                   value: chart.yLabel,
                   angle: -90,
                   position: "insideLeft",
-                  fill: MUTED,
+                  fill: muted,
                   fontSize: 11,
                 }
               : undefined
           }
         />
         <Tooltip
-          contentStyle={tooltipStyle()}
+          contentStyle={tooltipStyle}
           formatter={(value) => [formatChartValue(value, chart.valueUnit), chart.yLabel ?? "Value"]}
         />
         <Line
           type="monotone"
           dataKey="value"
-          stroke={TEAL}
+          stroke={teal}
           strokeWidth={2.2}
-          dot={{ r: 3.5, fill: TEAL, strokeWidth: 0 }}
+          dot={{ r: 3.5, fill: teal, strokeWidth: 0 }}
           activeDot={{ r: 5 }}
         />
       </LineChart>
@@ -194,18 +208,20 @@ function barCellFill(
   chart: ChartSpec,
   entry: ChartPoint,
   hasCurrent: boolean,
+  palette: ReturnType<typeof useChartPalette>,
 ): string {
-  if (entry.estimated && entry.value === 0) return MUTED;
+  if (entry.estimated && entry.value === 0) return palette.muted;
   if (chart.type === "lossStreak") {
-    return entry.current || !hasCurrent ? CORAL : CORAL_MUTED;
+    return entry.current || !hasCurrent ? palette.coral : palette.coralMuted;
   }
   if (chart.type === "winWithin") {
-    return entry.current || !hasCurrent ? TEAL : TEAL_MUTED;
+    return entry.current || !hasCurrent ? palette.teal : palette.tealMuted;
   }
-  return pointColor(entry.value);
+  return palette.pointColor(entry.value);
 }
 
 function FanBody({ chart, data }: { chart: ChartSpec; data: ChartPoint[] }) {
+  const { teal, grid, tooltipStyle, axisTick } = useChartPalette();
   const rows = data.map((d) => {
     const lo = d.lo ?? d.value;
     const hi = d.hi ?? d.value;
@@ -221,12 +237,12 @@ function FanBody({ chart, data }: { chart: ChartSpec; data: ChartPoint[] }) {
   return (
     <ResponsiveContainer width="100%" height={260}>
       <ComposedChart data={rows} margin={{ top: 8, right: 8, bottom: 4, left: 0 }}>
-        <CartesianGrid stroke={GRID} vertical={false} />
+        <CartesianGrid stroke={grid} vertical={false} />
         <XAxis
           dataKey="id"
           type="category"
           allowDuplicatedCategory
-          tick={axisTick()}
+          tick={axisTick}
           axisLine={false}
           tickLine={false}
           interval="preserveStartEnd"
@@ -242,14 +258,14 @@ function FanBody({ chart, data }: { chart: ChartSpec; data: ChartPoint[] }) {
           }}
         />
         <YAxis
-          tick={axisTick()}
+          tick={axisTick}
           axisLine={false}
           tickLine={false}
           width={52}
           tickFormatter={(v) => formatChartValue(v, chart.valueUnit)}
         />
         <Tooltip
-          contentStyle={tooltipStyle()}
+          contentStyle={tooltipStyle}
           labelFormatter={(_label, payload) => {
             const point = payload?.[0]?.payload as ChartPoint | undefined;
             if (!point?.label) return "";
@@ -284,7 +300,7 @@ function FanBody({ chart, data }: { chart: ChartSpec; data: ChartPoint[] }) {
         <Area
           stackId="fan"
           dataKey="band"
-          fill={TEAL}
+          fill={teal}
           fillOpacity={0.2}
           stroke="none"
           tooltipType="none"
@@ -294,17 +310,17 @@ function FanBody({ chart, data }: { chart: ChartSpec; data: ChartPoint[] }) {
         <Line
           type="linear"
           dataKey="actual"
-          stroke={TEAL}
+          stroke={teal}
           strokeWidth={2.2}
           connectNulls={false}
-          dot={{ r: 3, fill: TEAL, strokeWidth: 0 }}
+          dot={{ r: 3, fill: teal, strokeWidth: 0 }}
           activeDot={{ r: 5 }}
           isAnimationActive={false}
         />
         <Line
           type="monotone"
           dataKey="forecast"
-          stroke={TEAL}
+          stroke={teal}
           strokeWidth={2.2}
           strokeDasharray="5 4"
           connectNulls={false}
@@ -318,14 +334,16 @@ function FanBody({ chart, data }: { chart: ChartSpec; data: ChartPoint[] }) {
 }
 
 function BarBody({ chart, data }: { chart: ChartSpec; data: ChartPoint[] }) {
+  const palette = useChartPalette();
+  const { muted, grid, tooltipStyle, axisTick } = palette;
   const hasCurrent = data.some((d) => d.current);
   return (
     <ResponsiveContainer width="100%" height={220}>
       <BarChart data={data}>
-        <CartesianGrid stroke={GRID} vertical={false} />
+        <CartesianGrid stroke={grid} vertical={false} />
         <XAxis
           dataKey="label"
-          tick={axisTick()}
+          tick={axisTick}
           axisLine={false}
           tickLine={false}
           label={
@@ -334,21 +352,21 @@ function BarBody({ chart, data }: { chart: ChartSpec; data: ChartPoint[] }) {
                   value: chart.xLabel,
                   position: "insideBottom",
                   offset: -2,
-                  fill: MUTED,
+                  fill: muted,
                   fontSize: 11,
                 }
               : undefined
           }
         />
         <YAxis
-          tick={axisTick()}
+          tick={axisTick}
           axisLine={false}
           tickLine={false}
           width={52}
           tickFormatter={(v) => formatChartValue(v, chart.valueUnit)}
         />
         <Tooltip
-          contentStyle={tooltipStyle()}
+          contentStyle={tooltipStyle}
           formatter={(value, _name, item) => {
             const point = item?.payload as ChartPoint | undefined;
             const formatted = formatChartValue(value, chart.valueUnit);
@@ -370,7 +388,7 @@ function BarBody({ chart, data }: { chart: ChartSpec; data: ChartPoint[] }) {
           {data.map((entry, i) => (
             <Cell
               key={entry.id ?? `${entry.label}-${i}`}
-              fill={barCellFill(chart, entry, hasCurrent)}
+              fill={barCellFill(chart, entry, hasCurrent, palette)}
             />
           ))}
         </Bar>
@@ -380,6 +398,7 @@ function BarBody({ chart, data }: { chart: ChartSpec; data: ChartPoint[] }) {
 }
 
 export function ChartRenderer({ chart }: { chart: ChartSpec }) {
+  const { teal, coral, muted, grid, tooltipStyle, axisTick } = useChartPalette();
   const data = chart.data ?? [];
 
   return (
@@ -407,15 +426,15 @@ export function ChartRenderer({ chart }: { chart: ChartSpec }) {
                     key={entry.id ?? `${entry.label}-${i}`}
                     fill={
                       entry.label === "Wins"
-                        ? TEAL
+                        ? teal
                         : entry.label === "Losses"
-                          ? CORAL
-                          : MUTED
+                          ? coral
+                          : muted
                     }
                   />
                 ))}
               </Pie>
-              <Tooltip contentStyle={tooltipStyle()} />
+              <Tooltip contentStyle={tooltipStyle} />
             </PieChart>
           </ResponsiveContainer>
         ) : chart.type === "equityFan" ? (
@@ -428,11 +447,11 @@ export function ChartRenderer({ chart }: { chart: ChartSpec }) {
               <AreaChart data={data}>
                 <defs>
                   <linearGradient id={`eq-${chart.id}`} x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor={TEAL} stopOpacity={0.35} />
-                    <stop offset="100%" stopColor={TEAL} stopOpacity={0.02} />
+                    <stop offset="0%" stopColor={teal} stopOpacity={0.35} />
+                    <stop offset="100%" stopColor={teal} stopOpacity={0.02} />
                   </linearGradient>
                 </defs>
-                <CartesianGrid stroke={GRID} vertical={false} />
+                <CartesianGrid stroke={grid} vertical={false} />
                 {/*
                   Prefer sequential `x` so same-day trades never share a category
                   key (duplicate date labels used to collapse points in Recharts).
@@ -441,21 +460,21 @@ export function ChartRenderer({ chart }: { chart: ChartSpec }) {
                   dataKey={data.every((d) => d.id != null && d.id !== "") ? "id" : "label"}
                   type="category"
                   allowDuplicatedCategory
-                  tick={axisTick()}
+                  tick={axisTick}
                   axisLine={false}
                   tickLine={false}
                   tickFormatter={(_value, index) => data[index]?.label ?? String(_value ?? "")}
                   interval="preserveStartEnd"
                 />
                 <YAxis
-                  tick={axisTick()}
+                  tick={axisTick}
                   axisLine={false}
                   tickLine={false}
                   width={52}
                   tickFormatter={(v) => formatChartValue(v, chart.valueUnit)}
                 />
                 <Tooltip
-                  contentStyle={tooltipStyle()}
+                  contentStyle={tooltipStyle}
                   labelFormatter={(_label, payload) => {
                     const point = payload?.[0]?.payload as ChartPoint | undefined;
                     return point?.label ?? "";
@@ -470,11 +489,11 @@ export function ChartRenderer({ chart }: { chart: ChartSpec }) {
                 <Area
                   type="linear"
                   dataKey="value"
-                  stroke={TEAL}
+                  stroke={teal}
                   strokeWidth={2.2}
                   fill={`url(#eq-${chart.id})`}
                   isAnimationActive={false}
-                  dot={{ r: 3, fill: TEAL, strokeWidth: 0 }}
+                  dot={{ r: 3, fill: teal, strokeWidth: 0 }}
                   activeDot={{ r: 5 }}
                 />
               </AreaChart>

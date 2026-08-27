@@ -6,6 +6,7 @@ import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import SettingsPage from "@/app/settings/page";
+import { ThemeProvider } from "@/components/ThemeProvider";
 import {
   buildJournalBackup,
   serializeJournalBackup,
@@ -402,5 +403,21 @@ describe("SettingsPage", () => {
     const input = document.getElementById("backup-import") as HTMLInputElement;
     fireEvent.change(input, { target: { files: null } });
     expect(screen.queryByText(/Restored|Merged/)).not.toBeInTheDocument();
+  });
+
+  it("lets the user pick a dark theme", async () => {
+    const user = userEvent.setup();
+    render(
+      <ThemeProvider>
+        <SettingsPage />
+      </ThemeProvider>,
+    );
+
+    await user.click(screen.getByRole("radio", { name: "Dark" }));
+    expect(document.documentElement.getAttribute("data-theme")).toBe("dark");
+    expect(screen.getByRole("radio", { name: "Dark" })).toHaveAttribute(
+      "aria-checked",
+      "true",
+    );
   });
 });

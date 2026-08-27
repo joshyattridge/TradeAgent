@@ -30,7 +30,7 @@ vi.mock("@/components/Providers", () => ({
 
 vi.mock("../globals.css", () => ({}));
 
-import RootLayout, { metadata } from "../layout";
+import RootLayout, { metadata, viewport } from "../layout";
 
 describe("RootLayout", () => {
   it("exports metadata", () => {
@@ -39,6 +39,10 @@ describe("RootLayout", () => {
       description:
         "Minimalist AI dashboard for day trading — plan, logs, and chat.",
     });
+  });
+
+  it("exports a system-aware color scheme", () => {
+    expect(viewport.colorScheme).toBe("light dark");
   });
 
   it("renders children within the app shell", () => {
@@ -57,5 +61,6 @@ describe("RootLayout", () => {
     expect(document.querySelector("main")).toContainElement(
       screen.getByText("Page content"),
     );
+    expect(document.documentElement.querySelector("script")).toBeTruthy();
   });
 });

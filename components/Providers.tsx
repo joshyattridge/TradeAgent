@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
+import { ThemeProvider } from "@/components/ThemeProvider";
 import { useTradingStore } from "@/lib/store";
 
 export function Providers({ children }: { children: React.ReactNode }) {
@@ -22,5 +23,5 @@ export function Providers({ children }: { children: React.ReactNode }) {
     };
   }, [setHydrated]);
 
-  return <>{children}</>;
+  return <ThemeProvider>{children}</ThemeProvider>;
 }
