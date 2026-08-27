@@ -5,7 +5,9 @@ import Link from "next/link";
 import {
   backupFilename,
   buildJournalBackup,
+  gzipUtf8,
   parseJournalBackup,
+  readBackupText,
   serializeJournalBackup,
   type ImportMode,
 } from "@/lib/backup";
@@ -101,21 +103,24 @@ export default function SettingsPage() {
     window.setTimeout(() => setSaved(false), 1800);
   }
 
-  function onExportBackup() {
+  async function onExportBackup() {
     setBackupError(null);
-    const backup = buildJournalBackup(trades, strategy);
-    const blob = new Blob([serializeJournalBackup(backup)], {
-      type: "application/json",
-    });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = backupFilename(new Date(backup.exportedAt));
-    a.click();
-    URL.revokeObjectURL(url);
-    setBackupStatus(
-      `Downloaded backup with ${trades.length} trade${trades.length === 1 ? "" : "s"} + strategy.`,
-    );
+    try {
+      const backup = buildJournalBackup(trades, strategy);
+      const gzipped = await gzipUtf8(serializeJournalBackup(backup));
+      const blob = new Blob([gzipped], { type: "application/gzip" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = backupFilename(new Date(backup.exportedAt));
+      a.click();
+      URL.revokeObjectURL(url);
+      setBackupStatus(
+        `Downloaded gzip backup with ${trades.length} trade${trades.length === 1 ? "" : "s"} + strategy.`,
+      );
+    } catch {
+      setBackupError("Could not compress backup.");
+    }
   }
 
   async function onImportFile(file: File) {
@@ -124,9 +129,16 @@ export default function SettingsPage() {
 
     let text: string;
     try {
-      text = await file.text();
-    } catch {
-      setBackupError("Could not read that file.");
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      text = await readBackupText(bytes, file.name);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "";
+      setBackupError(
+        message === "Could not decompress gzip backup" ||
+          message === "Gzip is not supported in this browser"
+          ? message
+          : "Could not read that file.",
+      );
       return;
     }
 
@@ -311,8 +323,10 @@ export default function SettingsPage() {
       <section className="settings-form panel settings-backup">
         <h2>Backup &amp; restore</h2>
         <p>
-          Download your trades and strategy as a JSON file, or restore from a
-          previous backup. Chat history and your API key are not included.
+          Download your trades and strategy as a gzipped JSON file
+          (<code>.json.gz</code>), or restore from a previous backup. Plain{" "}
+          <code>.json</code> files still import. Chat history and your API key
+          are not included.
         </p>
 
         <div className="settings-actions">
@@ -346,7 +360,7 @@ export default function SettingsPage() {
           <input
             ref={fileInputRef}
             type="file"
-            accept="application/json,.json"
+            accept="application/gzip,application/json,.json,.gz,.json.gz"
             className="sr-only"
             id="backup-import"
             onChange={(e) => {

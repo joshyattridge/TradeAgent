@@ -201,9 +201,87 @@ export function serializeJournalBackup(backup: JournalBackup): string {
   return `${JSON.stringify(backup, null, 2)}\n`;
 }
 
-export function backupFilename(exportedAt = new Date()): string {
+export function backupFilename(
+  exportedAt = new Date(),
+  gzip = true,
+): string {
   const stamp = exportedAt.toISOString().slice(0, 10);
-  return `tradeagent-backup-${stamp}.json`;
+  const base = `tradeagent-backup-${stamp}.json`;
+  return gzip ? `${base}.gz` : base;
+}
+
+const GZIP_MAGIC_0 = 0x1f;
+const GZIP_MAGIC_1 = 0x8b;
+
+export function isGzipBuffer(bytes: Uint8Array): boolean {
+  return bytes.length >= 2 && bytes[0] === GZIP_MAGIC_0 && bytes[1] === GZIP_MAGIC_1;
+}
+
+function bytesToStream(bytes: Uint8Array): ReadableStream<Uint8Array> {
+  return new ReadableStream({
+    start(controller) {
+      controller.enqueue(bytes);
+      controller.close();
+    },
+  });
+}
+
+async function collectStream(
+  stream: ReadableStream<Uint8Array>,
+): Promise<Uint8Array> {
+  const reader = stream.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    chunks.push(value);
+    total += value.byteLength;
+  }
+  const out = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    out.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return out;
+}
+
+export async function gzipUtf8(text: string): Promise<Uint8Array> {
+  if (typeof CompressionStream !== "function") {
+    throw new Error("Gzip is not supported in this browser");
+  }
+  const bytes = new TextEncoder().encode(text);
+  return collectStream(
+    bytesToStream(bytes).pipeThrough(new CompressionStream("gzip")),
+  );
+}
+
+export async function gunzipUtf8(bytes: Uint8Array): Promise<string> {
+  if (typeof DecompressionStream !== "function") {
+    throw new Error("Gzip is not supported in this browser");
+  }
+  const out = await collectStream(
+    bytesToStream(bytes).pipeThrough(new DecompressionStream("gzip")),
+  );
+  return new TextDecoder().decode(out);
+}
+
+/** Decode a backup file: gzip if magic bytes or `.gz` name, otherwise UTF-8 JSON. */
+export async function readBackupText(
+  bytes: Uint8Array,
+  fileName = "",
+): Promise<string> {
+  const gzip = isGzipBuffer(bytes) || /\.gz$/i.test(fileName);
+  if (!gzip) return new TextDecoder().decode(bytes);
+  try {
+    return await gunzipUtf8(bytes);
+  } catch (err) {
+    if (err instanceof Error && err.message === "Gzip is not supported in this browser") {
+      throw err;
+    }
+    throw new Error("Could not decompress gzip backup");
+  }
 }
 
 /** Parse + lightly validate a backup JSON string or object. */

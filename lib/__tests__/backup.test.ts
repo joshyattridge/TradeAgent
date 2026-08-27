@@ -4,8 +4,12 @@ import {
   BACKUP_VERSION,
   backupFilename,
   buildJournalBackup,
+  gunzipUtf8,
+  gzipUtf8,
+  isGzipBuffer,
   mergeTrades,
   parseJournalBackup,
+  readBackupText,
   serializeJournalBackup,
 } from "@/lib/backup";
 import { seedStrategy } from "@/lib/seed-data";
@@ -181,8 +185,14 @@ describe("journal backup", () => {
     expect(merged[2].symbol).toBe("XAUUSD");
   });
 
-  it("builds backup filenames", () => {
-    expect(backupFilename()).toMatch(/^tradeagent-backup-/);
+  it("builds gzip backup filenames by default", () => {
+    expect(backupFilename(new Date("2026-08-27T12:00:00.000Z"))).toBe(
+      "tradeagent-backup-2026-08-27.json.gz",
+    );
+    expect(backupFilename(new Date("2026-08-27T12:00:00.000Z"), false)).toBe(
+      "tradeagent-backup-2026-08-27.json",
+    );
+    expect(backupFilename()).toMatch(/^tradeagent-backup-.*\.json\.gz$/);
   });
 
   it("rejects wrong version and invalid strategy / exportedAt", () => {
@@ -352,6 +362,92 @@ describe("journal backup", () => {
       expect(parsed.ok, key).toBe(false);
       if (parsed.ok) continue;
       expect(parsed.error).toMatch(new RegExp(`Strategy\\.${key}`, "i"));
+    }
+  });
+});
+
+describe("journal backup gzip", () => {
+  it("detects gzip magic bytes", () => {
+    expect(isGzipBuffer(new Uint8Array())).toBe(false);
+    expect(isGzipBuffer(new Uint8Array([0x1f]))).toBe(false);
+    expect(isGzipBuffer(new Uint8Array([0x1f, 0x8b]))).toBe(true);
+    expect(isGzipBuffer(new Uint8Array([0x1f, 0x8c]))).toBe(false);
+  });
+
+  it("round-trips JSON through gzip", async () => {
+    const backup = buildJournalBackup([sampleTrade()], seedStrategy);
+    const json = serializeJournalBackup(backup);
+    const gz = await gzipUtf8(json);
+    expect(isGzipBuffer(gz)).toBe(true);
+    expect(gz.byteLength).toBeLessThan(json.length);
+    expect(await gunzipUtf8(gz)).toBe(json);
+    expect(parseJournalBackup(await gunzipUtf8(gz)).ok).toBe(true);
+  });
+
+  it("gzip-compresses a larger payload in chunks", async () => {
+    const bulky = `${"EURUSD long notes. ".repeat(4000)}\n`;
+    const gz = await gzipUtf8(bulky);
+    expect(await gunzipUtf8(gz)).toBe(bulky);
+    expect(gz.byteLength).toBeLessThan(bulky.length);
+  });
+
+  it("reads plain JSON bytes and gzip bytes", async () => {
+    const backup = buildJournalBackup([sampleTrade()], seedStrategy);
+    const json = serializeJournalBackup(backup);
+    expect(await readBackupText(new TextEncoder().encode(json))).toBe(json);
+
+    const gz = await gzipUtf8(json);
+    expect(await readBackupText(gz, "backup.json")).toBe(json);
+    expect(await readBackupText(gz, "backup.json.gz")).toBe(json);
+  });
+
+  it("treats .gz filenames as gzip even without relying on the caller", async () => {
+    const json = serializeJournalBackup(
+      buildJournalBackup([sampleTrade()], seedStrategy),
+    );
+    const gz = await gzipUtf8(json);
+    expect(await readBackupText(gz, "TRADEAGENT.JSON.GZ")).toBe(json);
+  });
+
+  it("rejects corrupt gzip payloads", async () => {
+    await expect(
+      readBackupText(new Uint8Array([0x1f, 0x8b, 0x00, 0xff]), "x.json.gz"),
+    ).rejects.toThrow("Could not decompress gzip backup");
+  });
+
+  it("tries gzip when the filename ends in .gz even without magic bytes", async () => {
+    await expect(
+      readBackupText(new TextEncoder().encode("{not gzip}"), "backup.json.gz"),
+    ).rejects.toThrow("Could not decompress gzip backup");
+  });
+
+  it("throws when CompressionStream is missing", async () => {
+    const original = globalThis.CompressionStream;
+    try {
+      // @ts-expect-error -- delete for the missing-API branch
+      delete globalThis.CompressionStream;
+      await expect(gzipUtf8("hi")).rejects.toThrow(
+        "Gzip is not supported in this browser",
+      );
+    } finally {
+      globalThis.CompressionStream = original;
+    }
+  });
+
+  it("throws when DecompressionStream is missing", async () => {
+    const original = globalThis.DecompressionStream;
+    const gz = await gzipUtf8("hello");
+    try {
+      // @ts-expect-error -- delete for the missing-API branch
+      delete globalThis.DecompressionStream;
+      await expect(gunzipUtf8(gz)).rejects.toThrow(
+        "Gzip is not supported in this browser",
+      );
+      await expect(readBackupText(gz, "backup.json.gz")).rejects.toThrow(
+        "Gzip is not supported in this browser",
+      );
+    } finally {
+      globalThis.DecompressionStream = original;
     }
   });
 });

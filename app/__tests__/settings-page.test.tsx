@@ -9,6 +9,7 @@ import SettingsPage from "@/app/settings/page";
 import { ThemeProvider } from "@/components/ThemeProvider";
 import {
   buildJournalBackup,
+  gzipUtf8,
   serializeJournalBackup,
 } from "@/lib/backup";
 import {
@@ -183,22 +184,38 @@ describe("SettingsPage", () => {
     expect(input).toHaveAttribute("type", "password");
   });
 
-  it("downloads backup JSON", async () => {
+  it("downloads a gzip backup", async () => {
     const user = userEvent.setup();
-    const createObjectURL = vi.fn(() => "blob:backup");
+    let blob: Blob | undefined;
+    let filename = "";
+    const createObjectURL = vi.fn((value: Blob | MediaSource) => {
+      blob = value as Blob;
+      return "blob:backup";
+    });
     const revokeObjectURL = vi.fn();
-    const click = vi.fn();
     vi.spyOn(URL, "createObjectURL").mockImplementation(createObjectURL);
     vi.spyOn(URL, "revokeObjectURL").mockImplementation(revokeObjectURL);
-    vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(click);
+    vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(
+      function click(this: HTMLAnchorElement) {
+        filename = this.download;
+      },
+    );
 
     render(<SettingsPage />);
     await user.click(screen.getByRole("button", { name: "Download backup" }));
 
+    await waitFor(() => {
+      expect(
+        screen.getByText(/Downloaded gzip backup with 1 trade/),
+      ).toBeInTheDocument();
+    });
+    expect(filename).toMatch(/\.json\.gz$/);
+    expect(blob?.type).toBe("application/gzip");
     expect(createObjectURL).toHaveBeenCalled();
-    expect(click).toHaveBeenCalled();
     expect(revokeObjectURL).toHaveBeenCalledWith("blob:backup");
-    expect(screen.getByText(/Downloaded backup with 1 trade/)).toBeInTheDocument();
+    const bytes = new Uint8Array(await blob!.arrayBuffer());
+    expect(bytes[0]).toBe(0x1f);
+    expect(bytes[1]).toBe(0x8b);
   });
 
   it("imports backup in replace mode after confirm", async () => {
@@ -281,7 +298,7 @@ describe("SettingsPage", () => {
   it("shows error when file read fails", async () => {
     const user = userEvent.setup();
     const file = new File(["{}"], "broken.json", { type: "application/json" });
-    vi.spyOn(file, "text").mockRejectedValue(new Error("read failed"));
+    vi.spyOn(file, "arrayBuffer").mockRejectedValue(new Error("read failed"));
 
     render(<SettingsPage />);
     const input = document.getElementById("backup-import") as HTMLInputElement;
@@ -290,6 +307,98 @@ describe("SettingsPage", () => {
     await waitFor(() => {
       expect(screen.getByText("Could not read that file.")).toBeInTheDocument();
     });
+  });
+
+  it("shows error when file read rejects a non-Error", async () => {
+    const user = userEvent.setup();
+    const file = new File(["{}"], "broken.json", { type: "application/json" });
+    vi.spyOn(file, "arrayBuffer").mockRejectedValue("nope");
+
+    render(<SettingsPage />);
+    const input = document.getElementById("backup-import") as HTMLInputElement;
+    await user.upload(input, file);
+
+    await waitFor(() => {
+      expect(screen.getByText("Could not read that file.")).toBeInTheDocument();
+    });
+  });
+
+  it("imports a gzip backup", async () => {
+    const user = userEvent.setup();
+    const backup = buildJournalBackup(
+      [sampleTrade({ id: "gz", symbol: "NAS100" })],
+      { ...seedStrategy, name: "Gzip Plan" },
+    );
+    const gz = await gzipUtf8(serializeJournalBackup(backup));
+    const file = new File([gz], "backup.json.gz", { type: "application/gzip" });
+
+    render(<SettingsPage />);
+    const input = document.getElementById("backup-import") as HTMLInputElement;
+    await user.upload(input, file);
+
+    await waitFor(() => {
+      expect(useTradingStore.getState().trades[0]?.symbol).toBe("NAS100");
+      expect(useTradingStore.getState().strategy.name).toBe("Gzip Plan");
+    });
+    expect(screen.getByText(/Restored 1 trade/)).toBeInTheDocument();
+  });
+
+  it("shows error for corrupt gzip backup", async () => {
+    const user = userEvent.setup();
+    const file = new File([new Uint8Array([0x1f, 0x8b, 0x00])], "bad.json.gz", {
+      type: "application/gzip",
+    });
+
+    render(<SettingsPage />);
+    const input = document.getElementById("backup-import") as HTMLInputElement;
+    await user.upload(input, file);
+
+    await waitFor(() => {
+      expect(
+        screen.getByText("Could not decompress gzip backup"),
+      ).toBeInTheDocument();
+    });
+  });
+
+  it("shows gzip-unsupported error on import", async () => {
+    const user = userEvent.setup();
+    const original = globalThis.DecompressionStream;
+    const gz = await gzipUtf8(
+      serializeJournalBackup(buildJournalBackup([sampleTrade()], seedStrategy)),
+    );
+    const file = new File([gz], "backup.json.gz", { type: "application/gzip" });
+    try {
+      // @ts-expect-error -- delete for the missing-API branch
+      delete globalThis.DecompressionStream;
+      render(<SettingsPage />);
+      const input = document.getElementById("backup-import") as HTMLInputElement;
+      await user.upload(input, file);
+      await waitFor(() => {
+        expect(
+          screen.getByText("Gzip is not supported in this browser"),
+        ).toBeInTheDocument();
+      });
+    } finally {
+      globalThis.DecompressionStream = original;
+    }
+  });
+
+  it("shows error when gzip export is unsupported", async () => {
+    const user = userEvent.setup();
+    const original = globalThis.CompressionStream;
+    try {
+      // @ts-expect-error -- delete for the missing-API branch
+      delete globalThis.CompressionStream;
+      render(<SettingsPage />);
+      await user.click(screen.getByRole("button", { name: "Download backup" }));
+      await waitFor(() => {
+        expect(
+          screen.getByText("Could not compress backup."),
+        ).toBeInTheDocument();
+      });
+    } finally {
+      globalThis.CompressionStream = original;
+    }
   });
 
   it("shows plural trade count on export with multiple trades", async () => {
@@ -302,9 +411,11 @@ describe("SettingsPage", () => {
     render(<SettingsPage />);
     await user.click(screen.getByRole("button", { name: "Download backup" }));
 
-    expect(
-      screen.getByText(new RegExp(`${seedTrades.length} trades \\+ strategy`)),
-    ).toBeInTheDocument();
+    await waitFor(() => {
+      expect(
+        screen.getByText(new RegExp(`${seedTrades.length} trades \\+ strategy`)),
+      ).toBeInTheDocument();
+    });
   });
 
   it("shows plural restore message for multi-trade replace import", async () => {
