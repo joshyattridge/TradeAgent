@@ -9,6 +9,7 @@ import {
   parseJournalBackup,
   readBackupText,
   serializeJournalBackup,
+  u8ToArrayBuffer,
   type ImportMode,
 } from "@/lib/backup";
 import {
@@ -108,7 +109,9 @@ export default function SettingsPage() {
     try {
       const backup = buildJournalBackup(trades, strategy);
       const gzipped = await gzipUtf8(serializeJournalBackup(backup));
-      const blob = new Blob([gzipped], { type: "application/gzip" });
+      const blob = new Blob([u8ToArrayBuffer(gzipped)], {
+        type: "application/gzip",
+      });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;

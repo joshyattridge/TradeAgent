@@ -11,6 +11,7 @@ import {
   parseJournalBackup,
   readBackupText,
   serializeJournalBackup,
+  u8ToArrayBuffer,
 } from "@/lib/backup";
 import { seedStrategy } from "@/lib/seed-data";
 import type { Trade } from "@/lib/types";
@@ -372,6 +373,14 @@ describe("journal backup gzip", () => {
     expect(isGzipBuffer(new Uint8Array([0x1f]))).toBe(false);
     expect(isGzipBuffer(new Uint8Array([0x1f, 0x8b]))).toBe(true);
     expect(isGzipBuffer(new Uint8Array([0x1f, 0x8c]))).toBe(false);
+  });
+
+  it("copies bytes into a standalone ArrayBuffer for Blob", () => {
+    const bytes = new Uint8Array([1, 2, 3]);
+    const buffer = u8ToArrayBuffer(bytes);
+    expect(buffer.byteLength).toBe(3);
+    expect(new Uint8Array(buffer)).toEqual(bytes);
+    expect(new Blob([buffer]).size).toBe(3);
   });
 
   it("round-trips JSON through gzip", async () => {

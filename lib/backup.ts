@@ -217,13 +217,11 @@ export function isGzipBuffer(bytes: Uint8Array): boolean {
   return bytes.length >= 2 && bytes[0] === GZIP_MAGIC_0 && bytes[1] === GZIP_MAGIC_1;
 }
 
-function bytesToStream(bytes: Uint8Array): ReadableStream<Uint8Array> {
-  return new ReadableStream({
-    start(controller) {
-      controller.enqueue(bytes);
-      controller.close();
-    },
-  });
+/** Copy into a real ArrayBuffer so Blob / CompressionStream type-check. */
+export function u8ToArrayBuffer(bytes: Uint8Array): ArrayBuffer {
+  const copy = new Uint8Array(bytes.byteLength);
+  copy.set(bytes);
+  return copy.buffer;
 }
 
 async function collectStream(
@@ -247,13 +245,29 @@ async function collectStream(
   return out;
 }
 
+async function runByteTransform(
+  bytes: Uint8Array,
+  transform: CompressionStream | DecompressionStream,
+): Promise<Uint8Array> {
+  const writer = transform.writable.getWriter();
+  const collected = collectStream(transform.readable);
+  try {
+    await writer.write(new Uint8Array(u8ToArrayBuffer(bytes)));
+    await writer.close();
+    return await collected;
+  } catch (err) {
+    await collected.catch(() => undefined);
+    throw err;
+  }
+}
+
 export async function gzipUtf8(text: string): Promise<Uint8Array> {
   if (typeof CompressionStream !== "function") {
     throw new Error("Gzip is not supported in this browser");
   }
-  const bytes = new TextEncoder().encode(text);
-  return collectStream(
-    bytesToStream(bytes).pipeThrough(new CompressionStream("gzip")),
+  return runByteTransform(
+    new TextEncoder().encode(text),
+    new CompressionStream("gzip"),
   );
 }
 
@@ -261,9 +275,7 @@ export async function gunzipUtf8(bytes: Uint8Array): Promise<string> {
   if (typeof DecompressionStream !== "function") {
     throw new Error("Gzip is not supported in this browser");
   }
-  const out = await collectStream(
-    bytesToStream(bytes).pipeThrough(new DecompressionStream("gzip")),
-  );
+  const out = await runByteTransform(bytes, new DecompressionStream("gzip"));
   return new TextDecoder().decode(out);
 }
 
