@@ -9,6 +9,9 @@ type Captured = {
   xTickFormatter?: (v: unknown, index: number) => string;
   tooltipFormatter?: (...args: unknown[]) => unknown;
   labelFormatter?: (...args: unknown[]) => unknown;
+  tooltipContentStyle?: Record<string, unknown>;
+  tooltipItemStyle?: Record<string, unknown>;
+  tooltipLabelStyle?: Record<string, unknown>;
   xAxisLabel?: unknown;
   yAxisLabel?: unknown;
   xAxisDataKey?: unknown;
@@ -42,6 +45,17 @@ vi.mock("recharts", () => {
       }
       if (formatter) captured.tooltipFormatter = formatter as (...args: unknown[]) => unknown;
       if (labelFormatter) captured.labelFormatter = labelFormatter as (...args: unknown[]) => unknown;
+      if (tag === "Tooltip") {
+        if (rest.contentStyle) {
+          captured.tooltipContentStyle = rest.contentStyle as Record<string, unknown>;
+        }
+        if (rest.itemStyle) {
+          captured.tooltipItemStyle = rest.itemStyle as Record<string, unknown>;
+        }
+        if (rest.labelStyle) {
+          captured.tooltipLabelStyle = rest.labelStyle as Record<string, unknown>;
+        }
+      }
       if (tag === "XAxis") {
         if (label) captured.xAxisLabel = label;
         if (dataKey != null) captured.xAxisDataKey = dataKey;
@@ -244,6 +258,26 @@ describe("ChartRenderer", () => {
     expect(captured.yAxisLabel).toMatchObject({ value: "P&L" });
     expect(captured.yTickFormatter!(2)).toBe("+$2.00");
     expect(captured.tooltipFormatter!(2, "value")).toEqual(["+$2.00", "P&L"]);
+  });
+
+  it("uses theme tokens for tooltip chrome and text so dark mode stays readable", () => {
+    render(
+      <ChartRenderer
+        chart={chart({
+          type: "line",
+          yLabel: "P&L",
+          valueUnit: "usd",
+          data: sampleData,
+        })}
+      />,
+    );
+    expect(captured.tooltipContentStyle).toMatchObject({
+      backgroundColor: "var(--paper-2)",
+      color: "var(--ink)",
+    });
+    expect(captured.tooltipContentStyle).not.toHaveProperty("background");
+    expect(captured.tooltipItemStyle).toMatchObject({ color: "var(--ink)" });
+    expect(captured.tooltipLabelStyle).toMatchObject({ color: "var(--ink)" });
   });
 
   it("renders bar chart with colored cells for positive and negative values", () => {

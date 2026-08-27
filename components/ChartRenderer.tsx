@@ -25,6 +25,19 @@ import { useTheme } from "@/components/ThemeProvider";
 import { readCssVar } from "@/lib/theme";
 import type { ChartPoint, ChartSpec } from "@/lib/types";
 
+/** Override Recharts defaults (#fff panel, #000 item text) with theme tokens. */
+const chartTooltipProps = {
+  contentStyle: {
+    backgroundColor: "var(--paper-2)",
+    border: "1px solid var(--line)",
+    borderRadius: 12,
+    fontSize: 12,
+    color: "var(--ink)",
+  },
+  itemStyle: { color: "var(--ink)" },
+  labelStyle: { color: "var(--ink)" },
+};
+
 function useChartPalette() {
   const { resolved } = useTheme();
   return useMemo(() => {
@@ -39,13 +52,6 @@ function useChartPalette() {
       coralMuted: readCssVar("--coral-muted", "rgba(225, 29, 72, 0.32)"),
       muted,
       grid: readCssVar("--chart-grid", "rgba(28,25,23,0.08)"),
-      tooltipStyle: {
-        background: readCssVar("--paper-2", "#f8faf9"),
-        border: `1px solid ${readCssVar("--line", "rgba(28,25,23,0.12)")}`,
-        borderRadius: 12,
-        fontSize: 12,
-        color: readCssVar("--ink", "#1c1917"),
-      },
       axisTick: { fill: muted, fontSize: 11 },
       pointColor: (value: number) => (value >= 0 ? teal : coral),
     };
@@ -74,7 +80,6 @@ function ScatterBody({ chart, data }: { chart: ChartSpec; data: ChartPoint[] }) 
     teal,
     muted,
     grid,
-    tooltipStyle,
     axisTick,
     pointColor,
   } = useChartPalette();
@@ -131,7 +136,7 @@ function ScatterBody({ chart, data }: { chart: ChartSpec; data: ChartPoint[] }) 
         <ZAxis range={[60, 60]} />
         <Tooltip
           cursor={{ strokeDasharray: "3 3", stroke: muted }}
-          contentStyle={tooltipStyle}
+          {...chartTooltipProps}
           formatter={(value, name) => {
             const n = typeof value === "number" ? value : Number(value);
             const label =
@@ -158,7 +163,7 @@ function ScatterBody({ chart, data }: { chart: ChartSpec; data: ChartPoint[] }) 
 }
 
 function LineBody({ chart, data }: { chart: ChartSpec; data: ChartPoint[] }) {
-  const { teal, muted, grid, tooltipStyle, axisTick } = useChartPalette();
+  const { teal, muted, grid, axisTick } = useChartPalette();
   return (
     <ResponsiveContainer width="100%" height={220}>
       <LineChart data={data}>
@@ -188,7 +193,7 @@ function LineBody({ chart, data }: { chart: ChartSpec; data: ChartPoint[] }) {
           }
         />
         <Tooltip
-          contentStyle={tooltipStyle}
+          {...chartTooltipProps}
           formatter={(value) => [formatChartValue(value, chart.valueUnit), chart.yLabel ?? "Value"]}
         />
         <Line
@@ -221,7 +226,7 @@ function barCellFill(
 }
 
 function FanBody({ chart, data }: { chart: ChartSpec; data: ChartPoint[] }) {
-  const { teal, grid, tooltipStyle, axisTick } = useChartPalette();
+  const { teal, grid, axisTick } = useChartPalette();
   const rows = data.map((d) => {
     const lo = d.lo ?? d.value;
     const hi = d.hi ?? d.value;
@@ -265,7 +270,7 @@ function FanBody({ chart, data }: { chart: ChartSpec; data: ChartPoint[] }) {
           tickFormatter={(v) => formatChartValue(v, chart.valueUnit)}
         />
         <Tooltip
-          contentStyle={tooltipStyle}
+          {...chartTooltipProps}
           labelFormatter={(_label, payload) => {
             const point = payload?.[0]?.payload as ChartPoint | undefined;
             if (!point?.label) return "";
@@ -335,7 +340,7 @@ function FanBody({ chart, data }: { chart: ChartSpec; data: ChartPoint[] }) {
 
 function BarBody({ chart, data }: { chart: ChartSpec; data: ChartPoint[] }) {
   const palette = useChartPalette();
-  const { muted, grid, tooltipStyle, axisTick } = palette;
+  const { muted, grid, axisTick } = palette;
   const hasCurrent = data.some((d) => d.current);
   return (
     <ResponsiveContainer width="100%" height={220}>
@@ -366,7 +371,7 @@ function BarBody({ chart, data }: { chart: ChartSpec; data: ChartPoint[] }) {
           tickFormatter={(v) => formatChartValue(v, chart.valueUnit)}
         />
         <Tooltip
-          contentStyle={tooltipStyle}
+          {...chartTooltipProps}
           formatter={(value, _name, item) => {
             const point = item?.payload as ChartPoint | undefined;
             const formatted = formatChartValue(value, chart.valueUnit);
@@ -398,7 +403,7 @@ function BarBody({ chart, data }: { chart: ChartSpec; data: ChartPoint[] }) {
 }
 
 export function ChartRenderer({ chart }: { chart: ChartSpec }) {
-  const { teal, coral, muted, grid, tooltipStyle, axisTick } = useChartPalette();
+  const { teal, coral, muted, grid, axisTick } = useChartPalette();
   const data = chart.data ?? [];
 
   return (
@@ -434,7 +439,7 @@ export function ChartRenderer({ chart }: { chart: ChartSpec }) {
                   />
                 ))}
               </Pie>
-              <Tooltip contentStyle={tooltipStyle} />
+              <Tooltip {...chartTooltipProps} />
             </PieChart>
           </ResponsiveContainer>
         ) : chart.type === "equityFan" ? (
@@ -474,7 +479,7 @@ export function ChartRenderer({ chart }: { chart: ChartSpec }) {
                   tickFormatter={(v) => formatChartValue(v, chart.valueUnit)}
                 />
                 <Tooltip
-                  contentStyle={tooltipStyle}
+                  {...chartTooltipProps}
                   labelFormatter={(_label, payload) => {
                     const point = payload?.[0]?.payload as ChartPoint | undefined;
                     return point?.label ?? "";
