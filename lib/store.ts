@@ -15,6 +15,11 @@ import {
 } from "./idb-storage";
 import { DEFAULT_OPENAI_MODEL, DEFAULT_REASONING_EFFORT } from "./models";
 import { seedStrategy, seedTrades } from "./seed-data";
+import {
+  DEFAULT_CALCULATOR_DRAFT,
+  normalizeCalculatorDraft,
+  type CalculatorDraft,
+} from "./position-size";
 import { normalizeStrategy, strategyNameFromMarkdown } from "./strategy-md";
 import {
   DEFAULT_VISIBLE_TRADE_COLUMNS,
@@ -111,6 +116,8 @@ interface Store {
   /** Whether the proposal review panel is visible. */
   proposalReviewOpen: boolean;
   hydrated: boolean;
+  /** Last calculator inputs so navigating away does not wipe the draft. */
+  calculator: CalculatorDraft;
   setHydrated: (v: boolean) => void;
   setOpenAIApiKey: (key: string) => void;
   setOpenAIModel: (model: string) => void;
@@ -144,6 +151,7 @@ interface Store {
   addChatMessage: (message: Omit<ChatMessage, "id" | "createdAt"> & { id?: string }) => void;
   clearChat: () => void;
   resetDemoData: () => void;
+  setCalculatorDraft: (patch: Partial<CalculatorDraft>) => void;
 }
 
 const migratingStorage = {
@@ -215,6 +223,7 @@ export const useTradingStore = create<Store>()(
       pendingProposal: null as ChatProposal | null,
       proposalReviewOpen: false,
       hydrated: false,
+      calculator: DEFAULT_CALCULATOR_DRAFT,
       setHydrated: (v) => set({ hydrated: v }),
       setOpenAIApiKey: (key) => set({ openaiApiKey: key.trim() }),
       setOpenAIModel: (model) => set({ openaiModel: model }),
@@ -403,6 +412,13 @@ export const useTradingStore = create<Store>()(
           trades: seedTrades,
           strategy: seedStrategy,
         }),
+      setCalculatorDraft: (patch) =>
+        set({
+          calculator: normalizeCalculatorDraft({
+            ...get().calculator,
+            ...patch,
+          }),
+        }),
     }),
     {
       name: STORE_KEY,
@@ -417,6 +433,7 @@ export const useTradingStore = create<Store>()(
         openaiModel: state.openaiModel,
         openaiReasoningEffort: state.openaiReasoningEffort,
         visibleTradeColumns: state.visibleTradeColumns,
+        calculator: normalizeCalculatorDraft(state.calculator),
       }),
       onRehydrateStorage: () => (state, error) => {
         if (error) {
@@ -437,6 +454,7 @@ export const useTradingStore = create<Store>()(
           if (!state.chatLogId) {
             state.chatLogId = crypto.randomUUID();
           }
+          state.calculator = normalizeCalculatorDraft(state.calculator);
           state.setHydrated(true);
         }
       },

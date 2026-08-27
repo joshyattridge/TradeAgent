@@ -2,12 +2,14 @@ import { buildChartFromRequest, computeStats, isStatsClosedTrade, visibleJournal
 import { normalizeSymbol, tradeSnapshot } from "@/lib/chat-context";
 import type {
   AnnotateTradeInput,
+  CalculatePositionSizeInput,
   FindTradeInput,
   LogTradeInput,
   PatchTradeInput,
   QueryTradesInput,
   TradeFilterInput,
 } from "@/lib/chat-schemas";
+import { calculatePositionSize as computePositionSize } from "@/lib/position-size";
 import {
   mergeTradeChecklist,
   normalizeStrategyChecklist,
@@ -927,6 +929,10 @@ export class JournalSession {
         ? `Best match ${bestMatch.trade.id} (${bestMatch.trade.symbol}). Call patch_trade or annotate_trade with this id.`
         : "No single confident match — compare candidates to the screenshot and pick an id, or ask the user which one.",
     };
+  }
+
+  calculatePositionSize(input: CalculatePositionSizeInput) {
+    return computePositionSize(input);
   }
 
 }

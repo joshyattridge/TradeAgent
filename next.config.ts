@@ -5,6 +5,7 @@ const nextConfig: NextConfig = {
   experimental: {
     proxyClientMaxBodySize: "50mb",
   },
+  transpilePackages: ["@jsr/neabyte__forex-calculator"],
 };
 
 export default nextConfig;

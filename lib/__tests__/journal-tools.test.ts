@@ -633,4 +633,17 @@ describe("annotateTrade and patchTrade edge paths", () => {
     const update = session.toActions().updateTrades?.find((u) => u.id === before.id);
     expect(update?.tags).toEqual(expect.arrayContaining(["a", "b"]));
   });
+
+  it("calculates position size without mutating the journal", () => {
+    const session = makeSession();
+    const res = session.calculatePositionSize({
+      symbol: "EURUSD",
+      entry: 1.1682,
+      stop: 1.1658,
+      riskUsd: 100,
+    });
+    expect(res.ok).toBe(true);
+    if (res.ok) expect(res.sizeLabel).toBe("0.42 lots");
+    expect(session.toActions()).toEqual({});
+  });
 });

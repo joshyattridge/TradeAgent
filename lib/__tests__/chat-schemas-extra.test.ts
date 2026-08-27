@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  calculatePositionSizeSchema,
   annotateTradeSchema,
   chartRequestSchema,
   findTradeSchema,
@@ -63,6 +64,27 @@ describe("remaining chat schemas", () => {
     expect(getStrategySchema.parse({}).section).toBe("all");
     expect(getTradeSchema.parse({ id: "t1" }).id).toBe("t1");
     expect(findTradeSchema.parse({ symbol: "EURUSD" }).limit).toBe(8);
+    expect(
+      calculatePositionSizeSchema.parse({
+        symbol: "EURUSD",
+        entry: 1.17,
+        stop: 1.165,
+        riskUsd: 100,
+      }),
+    ).toMatchObject({ symbol: "EURUSD", riskUsd: 100 });
+    expect(
+      calculatePositionSizeSchema.parse({
+        symbol: "EURUSD",
+        stopPips: 24,
+        riskUsd: 100,
+      }),
+    ).toMatchObject({ stopPips: 24, riskUsd: 100 });
+    expect(
+      calculatePositionSizeSchema.safeParse({
+        symbol: "EURUSD",
+        riskUsd: 100,
+      }).success,
+    ).toBe(false);
   });
 
   it("keeps empty replaceNotes/replaceTags when they are the only op", () => {

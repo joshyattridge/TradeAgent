@@ -27,6 +27,7 @@ import type { LlmCallLog } from "@/lib/chat-log-format";
 import { sanitizeLlmMessagesForLog } from "@/lib/chat-log-format";
 import {
   annotateTradeSchema,
+  calculatePositionSizeSchema,
   deleteTradeSchema,
   findTradeSchema,
   generateChartsSchema,
@@ -106,6 +107,7 @@ const TOOL_LABELS: Record<string, string> = {
   generate_charts: "Building charts",
   query_trades: "Searching trades",
   get_stats: "Computing stats",
+  calculate_position_size: "Sizing position",
 };
 
 function toolLabel(name: string) {
@@ -180,6 +182,11 @@ function toolResultDetail(output: unknown): { ok: boolean; detail?: string } {
     const n = Array.isArray(obj.candidates) ? obj.candidates.length : 0;
     return { ok, detail: `${n} candidate(s)` };
   }
+  if (obj.action === "calculate_position_size") {
+    if (typeof obj.sizeLabel === "string") {
+      return { ok, detail: obj.sizeLabel };
+    }
+  }
   return { ok };
 }
 
@@ -249,6 +256,12 @@ function createJournalTools(session: JournalSession) {
         "Full-journal performance scoreboard (wins, losses, win rate, $ PnL, sampleConfidence). Does NOT accept symbol/side/result filters — always the whole book. Prefer closedOnly=true. sampleConfidence.level is noise/thin/readable — do not treat a tiny book as strategy proof.",
       inputSchema: getStatsSchema,
       execute: async (input) => session.getStatsTool(input),
+    }),
+    calculate_position_size: tool({
+      description:
+        "Compute lots/contracts from symbol, $ risk, and either entry+stop prices or stopPips. Read-only — does not log a trade. Uses standard retail CFD specs (EURUSD $10/pip, XAUUSD 100oz, NAS100 $1/point). For USDJPY/USDCAD/USDCHF with stopPips, pass the current quote as entry. Pass pointValueUsd when the user's broker differs. Call this instead of guessing position size.",
+      inputSchema: calculatePositionSizeSchema,
+      execute: async (input) => session.calculatePositionSize(input),
     }),
   };
 }
@@ -347,6 +360,12 @@ ${
 Charts:
 - Call generate_charts for visual analysis. Prefer field mappings over inventing data[].
 - Charts are $ only except lossStreak (consecutive-loss probability from current win rate) and winWithin (chance of a win in the next k trades). Use equity, pnlByDay, bySymbol, winLoss, lossStreak, winWithin, and equityFan. Never request R-multiple or rByDay charts.
+
+Position size:
+- Call calculate_position_size when the user asks how many lots/contracts to trade, or to size a setup from $ risk plus entry/stop prices or stop size in pips/points.
+- Do not guess sizes. If they point at a journal row, get_trade first and pass its symbol/entry/stop/riskUsd. If they give a pip/point stop instead of prices, pass stopPips (and the quote as entry for USDJPY/USDCAD/USDCHF).
+- Specs are standard retail CFDs, not the live broker. For NAS100/gold mention that, and use pointValueUsd when they give a different $ per point.
+- This tool is read-only — it does not create a trade or a review proposal.
 
 Coaching:
 - ALWAYS write a real final reply. Never answer with only "Trade logged." / "Updated." / "On it."

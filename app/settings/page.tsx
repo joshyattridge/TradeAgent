@@ -172,7 +172,7 @@ export default function SettingsPage() {
         <h1>Settings</h1>
         <p>
           Drop in your OpenAI API key and pick a model. TradeAgent uses these for
-          the floating chat across dashboard, logs, and strategy.
+          the floating chat across dashboard, logs, strategy, and calculator.
         </p>
       </section>
 

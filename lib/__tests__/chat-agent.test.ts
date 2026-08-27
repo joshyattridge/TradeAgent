@@ -148,6 +148,7 @@ describe("buildSystemPrompt", () => {
     expect(prompt).toContain("positiveEdgePct");
     expect(prompt).toContain("Charts are $ only");
     expect(prompt).toContain("Never request R-multiple");
+    expect(prompt).toContain("calculate_position_size");
     expect(prompt).toContain("result=missed");
   });
 
@@ -566,6 +567,21 @@ describe("streamAgentLoop", () => {
         },
         {
           type: "tool-result",
+          toolCallId: "size",
+          toolName: "calculate_position_size",
+          output: {
+            action: "calculate_position_size",
+            sizeLabel: "0.42 lots",
+          },
+        },
+        {
+          type: "tool-result",
+          toolCallId: "size-empty",
+          toolName: "calculate_position_size",
+          output: { action: "calculate_position_size" },
+        },
+        {
+          type: "tool-result",
           toolCallId: "fallback",
           toolName: "unknown_branch",
           output: { action: "noop", ok: true },
@@ -597,6 +613,7 @@ describe("streamAgentLoop", () => {
       { toolCallId: "find-best", detail: "best t11", ok: true },
       { toolCallId: "find-candidates", detail: "2 candidate(s)", ok: true },
       { toolCallId: "strategy-get-default", detail: "strategy", ok: true },
+      { toolCallId: "size", name: "calculate_position_size", detail: "0.42 lots", ok: true },
     ];
 
     for (const expected of expectedDetails) {
@@ -605,6 +622,11 @@ describe("streamAgentLoop", () => {
 
     expect(toolResults.find((e) => e.type === "tool-result" && e.toolCallId === "stats-no-wr")).toMatchObject({
       name: "get_stats",
+      ok: true,
+      detail: undefined,
+    });
+    expect(toolResults.find((e) => e.type === "tool-result" && e.toolCallId === "size-empty")).toMatchObject({
+      name: "calculate_position_size",
       ok: true,
       detail: undefined,
     });
@@ -790,7 +812,11 @@ describe("streamAgentLoop", () => {
           kind: "agent",
           request: expect.objectContaining({
             system: expect.stringContaining("TradeAgent"),
-            tools: expect.arrayContaining(["get_stats", "query_trades"]),
+            tools: expect.arrayContaining([
+              "get_stats",
+              "query_trades",
+              "calculate_position_size",
+            ]),
           }),
           response: expect.objectContaining({ text: "Trade logged." }),
         }),
@@ -1023,6 +1049,13 @@ describe("journal tool execute wrappers", () => {
       getStatsTool: vi.spyOn(JournalSession.prototype, "getStatsTool").mockResolvedValue({
         action: "get_stats",
       }),
+      calculatePositionSize: vi
+        .spyOn(JournalSession.prototype, "calculatePositionSize")
+        .mockReturnValue({
+          ok: true,
+          action: "calculate_position_size",
+          sizeLabel: "0.40 lots",
+        } as never),
     };
 
     const tools = await captureTools();
@@ -1039,6 +1072,17 @@ describe("journal tool execute wrappers", () => {
     await tools.generate_charts.execute({ charts: [{ kind: "equity" }] });
     await tools.query_trades.execute({ symbol: "NQ" });
     await tools.get_stats.execute({ closedOnly: true });
+    await tools.calculate_position_size.execute({
+      symbol: "EURUSD",
+      entry: 1.17,
+      stop: 1.165,
+      riskUsd: 100,
+    });
+    await tools.calculate_position_size.execute({
+      symbol: "EURUSD",
+      stopPips: 24,
+      riskUsd: 100,
+    });
 
     expect(spies.getStrategy).toHaveBeenCalledWith("risk");
     expect(spies.getStrategy).toHaveBeenCalledWith("all");
@@ -1052,5 +1096,16 @@ describe("journal tool execute wrappers", () => {
     expect(spies.generateCharts).toHaveBeenCalledWith([{ kind: "equity" }]);
     expect(spies.queryTrades).toHaveBeenCalledWith({ symbol: "NQ" });
     expect(spies.getStatsTool).toHaveBeenCalledWith({ closedOnly: true });
+    expect(spies.calculatePositionSize).toHaveBeenCalledWith({
+      symbol: "EURUSD",
+      entry: 1.17,
+      stop: 1.165,
+      riskUsd: 100,
+    });
+    expect(spies.calculatePositionSize).toHaveBeenCalledWith({
+      symbol: "EURUSD",
+      stopPips: 24,
+      riskUsd: 100,
+    });
   });
 });

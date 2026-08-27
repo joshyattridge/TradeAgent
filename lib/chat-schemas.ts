@@ -390,6 +390,49 @@ export const getStrategySchema = z.object({
     .describe("Ignored — always returns the full strategy markdown"),
 });
 
+export const calculatePositionSizeSchema = z
+  .object({
+    symbol: z
+      .string()
+      .describe("Instrument, e.g. EURUSD, XAUUSD, NAS100, USDJPY"),
+    entry: z
+      .number()
+      .optional()
+      .describe(
+        "Entry price. Required unless stopPips is set. For USDJPY/USDCAD/USDCHF with stopPips, pass the current quote here.",
+      ),
+    stop: z
+      .number()
+      .optional()
+      .describe("Stop loss price. Required unless stopPips is set."),
+    stopPips: z
+      .number()
+      .optional()
+      .describe(
+        "Stop distance in pips (FX), gold pips of 0.1, or index points. Alternative to entry+stop prices.",
+      ),
+    riskUsd: z
+      .number()
+      .describe("Dollars to risk if stopped out (fixed R, not % of account)"),
+    target: z
+      .number()
+      .optional()
+      .describe("Optional take-profit price — only used to report planned R:R"),
+    pointValueUsd: z
+      .number()
+      .optional()
+      .describe(
+        "$ per 1.0 price move per lot/contract. Override when the broker spec differs (e.g. NAS100 $2/point).",
+      ),
+    leverage: z
+      .number()
+      .optional()
+      .describe("Account leverage for the margin estimate only. Default 100."),
+  })
+  .refine((v) => (v.entry != null && v.stop != null) || v.stopPips != null, {
+    message: "Provide entry and stop prices, or stopPips.",
+  });
+
 export const getTradeSchema = z.object({
   id: z.string().describe("Trade id to fetch"),
 });
@@ -429,6 +472,7 @@ export type TradeFilterInput = z.input<typeof tradeFilterSchema>;
 export type QueryTradesInput = z.infer<typeof queryTradesSchema>;
 export type GetStrategyInput = z.infer<typeof getStrategySchema>;
 export type GetTradeInput = z.infer<typeof getTradeSchema>;
+export type CalculatePositionSizeInput = z.infer<typeof calculatePositionSizeSchema>;
 export type FindTradeInput = z.infer<typeof findTradeSchema>;
 
 /** @deprecated Use LogTradeInput */

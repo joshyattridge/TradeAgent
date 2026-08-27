@@ -7,6 +7,7 @@ import { buildChatProposal } from "@/lib/chat-proposals";
 import * as idbModule from "@/lib/idb-storage";
 import { DEFAULT_OPENAI_MODEL, DEFAULT_REASONING_EFFORT } from "@/lib/models";
 import { seedStrategy, seedTrades } from "@/lib/seed-data";
+import { DEFAULT_CALCULATOR_DRAFT } from "@/lib/position-size";
 import {
   DEFAULT_VISIBLE_TRADE_COLUMNS,
   type TradeColumnId,
@@ -62,6 +63,7 @@ function resetStore(overrides: Partial<ReturnType<typeof useTradingStore.getStat
     pendingProposal: null,
     proposalReviewOpen: false,
     hydrated: true,
+    calculator: { ...DEFAULT_CALCULATOR_DRAFT },
     ...overrides,
   });
 }
@@ -133,6 +135,31 @@ describe("useTradingStore actions", () => {
     expect(useTradingStore.getState().openaiReasoningEffort).toBe(
       DEFAULT_REASONING_EFFORT,
     );
+  });
+
+  it("setCalculatorDraft keeps allowed symbols and field strings", () => {
+    useTradingStore.getState().setCalculatorDraft({
+      symbol: "USDJPY",
+      slSize: "24",
+      quote: "157.42",
+      risk: "100",
+    });
+    expect(useTradingStore.getState().calculator).toEqual({
+      symbol: "USDJPY",
+      slSize: "24",
+      quote: "157.42",
+      risk: "100",
+    });
+    useTradingStore.getState().setCalculatorDraft({
+      symbol: "EURJPY" as never,
+      slSize: 12 as never,
+    });
+    expect(useTradingStore.getState().calculator).toEqual({
+      symbol: "EURUSD",
+      slSize: "",
+      quote: "157.42",
+      risk: "100",
+    });
   });
 
   it("add/remove chat trade refs keeps unique composer pins", () => {
@@ -735,6 +762,57 @@ describe("persist storage and rehydrate", () => {
     expect(useTradingStore.getState().openaiReasoningEffort).toBe(
       DEFAULT_REASONING_EFFORT,
     );
+  });
+
+  it("defaults calculator draft when missing from legacy persist", async () => {
+    const payload = {
+      state: {
+        trades: [sampleTrade()],
+        strategy: seedStrategy,
+        chat: [],
+        chatSummary: "",
+        openaiApiKey: "",
+        openaiModel: DEFAULT_OPENAI_MODEL,
+        visibleTradeColumns: [...DEFAULT_VISIBLE_TRADE_COLUMNS],
+      },
+      version: 0,
+    };
+    await idbModule.idbStorage.setItem(STORE_KEY, JSON.stringify(payload));
+
+    await useTradingStore.persist.rehydrate();
+    await vi.waitFor(() => expect(useTradingStore.getState().hydrated).toBe(true));
+    expect(useTradingStore.getState().calculator).toEqual(DEFAULT_CALCULATOR_DRAFT);
+  });
+
+  it("rehydrates a saved calculator draft", async () => {
+    const payload = {
+      state: {
+        trades: [sampleTrade()],
+        strategy: seedStrategy,
+        chat: [],
+        chatSummary: "",
+        openaiApiKey: "",
+        openaiModel: DEFAULT_OPENAI_MODEL,
+        visibleTradeColumns: [...DEFAULT_VISIBLE_TRADE_COLUMNS],
+        calculator: {
+          symbol: "XAUUSD",
+          slSize: "8.5",
+          quote: "",
+          risk: "100",
+        },
+      },
+      version: 0,
+    };
+    await idbModule.idbStorage.setItem(STORE_KEY, JSON.stringify(payload));
+
+    await useTradingStore.persist.rehydrate();
+    await vi.waitFor(() => expect(useTradingStore.getState().hydrated).toBe(true));
+    expect(useTradingStore.getState().calculator).toEqual({
+      symbol: "XAUUSD",
+      slSize: "8.5",
+      quote: "",
+      risk: "100",
+    });
   });
 
   it("clears legacy localStorage on rehydrate error", async () => {

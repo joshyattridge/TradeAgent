@@ -54,6 +54,7 @@ describe("Nav", () => {
     expectActive("Dashboard");
     expectInactive("Trading Logs");
     expectInactive("Strategy");
+    expectInactive("Calculator");
     expectInactive("Settings");
   });
 
@@ -64,6 +65,7 @@ describe("Nav", () => {
     expectInactive("Dashboard");
     expectActive("Trading Logs");
     expectInactive("Strategy");
+    expectInactive("Calculator");
     expectInactive("Settings");
   });
 
@@ -74,6 +76,18 @@ describe("Nav", () => {
     expectInactive("Dashboard");
     expectInactive("Trading Logs");
     expectActive("Strategy");
+    expectInactive("Calculator");
+    expectInactive("Settings");
+  });
+
+  it("marks Calculator active on /calculator", () => {
+    mockUsePathname.mockReturnValue("/calculator");
+    render(<Nav />);
+
+    expectInactive("Dashboard");
+    expectInactive("Trading Logs");
+    expectInactive("Strategy");
+    expectActive("Calculator");
     expectInactive("Settings");
   });
 
@@ -84,6 +98,7 @@ describe("Nav", () => {
     expectInactive("Dashboard");
     expectInactive("Trading Logs");
     expectInactive("Strategy");
+    expectInactive("Calculator");
     expectActive("Settings");
   });
 
@@ -94,6 +109,7 @@ describe("Nav", () => {
     expectInactive("Dashboard");
     expectActive("Trading Logs");
     expectInactive("Strategy");
+    expectInactive("Calculator");
     expectInactive("Settings");
   });
 
