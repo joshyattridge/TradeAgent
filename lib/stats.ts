@@ -32,6 +32,8 @@ export type CalendarDayPnl = {
   inRange: boolean;
   /** Closed trades exist on this calendar day. */
   hasTrades: boolean;
+  /** Closed trades on this calendar day (0 when none). */
+  count: number;
   /** Net P&L for the day when in range; null for week-padding cells. */
   value: number | null;
 };
@@ -569,20 +571,26 @@ export function pnlCalendar(
   const end = startOfDay(now);
   const start = subDays(end, Math.max(days, 1) - 1);
   const byDay = new Map(pnlByDay(trades).map((d) => [d.id, d.value]));
+  const countByDay = new Map<string, number>();
+  for (const t of closedTrades(trades)) {
+    countByDay.set(t.date, (countByDay.get(t.date) ?? 0) + 1);
+  }
   const gridStart = startOfWeek(start, { weekStartsOn: 0 });
   const gridEnd = endOfWeek(end, { weekStartsOn: 0 });
 
   return eachDayOfInterval({ start: gridStart, end: gridEnd }).map((day) => {
     const date = format(day, "yyyy-MM-dd");
     const inRange = day >= start && day <= end;
+    const count = countByDay.get(date) ?? 0;
+    const hasTrades = count > 0;
     const value = byDay.get(date);
-    const hasTrades = value !== undefined;
     return {
       date,
       dayOfMonth: day.getDate(),
       label: format(day, "MMM d"),
       inRange,
       hasTrades,
+      count,
       value: inRange ? (hasTrades ? value! : 0) : null,
     };
   });

@@ -34,8 +34,9 @@ describe("PnlCalendar", () => {
 
     expect(screen.getByTestId("pnl-calendar")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Last 30 days" })).toBeInTheDocument();
-    expect(screen.getByText("Daily $ — green when profitable, red when not")).toBeInTheDocument();
-    expect(screen.getByLabelText("Jul 20: +$150")).toBeInTheDocument();
+    expect(screen.getByText("Daily $ and trade count — green when profitable, red when not")).toBeInTheDocument();
+    expect(screen.getByLabelText("Jul 20: +$150, 1 trade")).toBeInTheDocument();
+    expect(screen.getByText("1 trade")).toBeInTheDocument();
   });
 
   it("shows USD amounts for wins and losses", () => {
@@ -49,7 +50,24 @@ describe("PnlCalendar", () => {
       />,
     );
 
-    expect(screen.getByLabelText("Jul 20: +$200")).toBeInTheDocument();
-    expect(screen.getByLabelText("Jul 21: $-50.50")).toBeInTheDocument();
+    expect(screen.getByLabelText("Jul 20: +$200, 1 trade")).toBeInTheDocument();
+    expect(screen.getByLabelText("Jul 21: $-50.50, 1 trade")).toBeInTheDocument();
+  });
+
+  it("shows how many trades were taken on a day", () => {
+    render(
+      <PnlCalendar
+        trades={[
+          makeTrade({ id: "a", date: "2026-07-20", pnlUsd: 100 }),
+          makeTrade({ id: "b", date: "2026-07-20", pnlUsd: 50 }),
+          makeTrade({ id: "c", date: "2026-07-21", result: "loss", pnlUsd: -40 }),
+        ]}
+        now={now}
+      />,
+    );
+
+    expect(screen.getByLabelText("Jul 20: +$150, 2 trades")).toBeInTheDocument();
+    expect(screen.getByText("2 trades")).toBeInTheDocument();
+    expect(screen.getByLabelText("Jul 21: $-40.00, 1 trade")).toBeInTheDocument();
   });
 });

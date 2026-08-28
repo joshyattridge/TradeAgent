@@ -119,8 +119,8 @@ describe("DashboardPage", () => {
 
     render(<DashboardPage />);
 
-    expect(screen.getByLabelText(`${formatLabel(winDate)}: +$200`)).toBeInTheDocument();
-    expect(screen.getByLabelText(`${formatLabel(lossDate)}: $-100`)).toBeInTheDocument();
+    expect(screen.getByLabelText(`${formatLabel(winDate)}: +$200, 1 trade`)).toBeInTheDocument();
+    expect(screen.getByLabelText(`${formatLabel(lossDate)}: $-100, 1 trade`)).toBeInTheDocument();
   });
 
   it("shows negative dashboard $ stats", () => {

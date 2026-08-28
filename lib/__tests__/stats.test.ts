@@ -888,15 +888,18 @@ describe("pnlCalendar", () => {
     const win = cells.find((c) => c.date === "2026-07-14")!;
     expect(win.hasTrades).toBe(true);
     expect(win.value).toBe(200);
+    expect(win.count).toBe(1);
 
     const loss = cells.find((c) => c.date === "2026-07-22")!;
     expect(loss.hasTrades).toBe(true);
     expect(loss.value).toBe(-100);
+    expect(loss.count).toBe(1);
 
     const empty = cells.find((c) => c.date === "2026-07-15")!;
     expect(empty.inRange).toBe(true);
     expect(empty.hasTrades).toBe(false);
     expect(empty.value).toBe(0);
+    expect(empty.count).toBe(0);
 
     expect(cells.some((c) => c.date === "2026-06-01" && c.hasTrades)).toBe(false);
   });
@@ -914,6 +917,7 @@ describe("pnlCalendar", () => {
     const day = cells.find((c) => c.date === "2026-07-09")!;
     expect(day.value).toBe(200);
     expect(day.hasTrades).toBe(true);
+    expect(day.count).toBe(2);
   });
 });
 

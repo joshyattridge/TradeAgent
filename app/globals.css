@@ -513,11 +513,31 @@ textarea {
   color: var(--coral);
 }
 
+.pnl-cal__meta {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.15rem;
+}
+
 .pnl-cal__day {
   font-size: 0.72rem;
   font-weight: 600;
   opacity: 0.75;
   line-height: 1;
+}
+
+.pnl-cal__count {
+  font-size: 0.64rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  opacity: 0.78;
+  line-height: 1;
+  text-align: right;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 70%;
 }
 
 .pnl-cal__amount {
@@ -1132,6 +1152,10 @@ textarea {
 
   .pnl-cal__amount {
     font-size: 0.62rem;
+  }
+
+  .pnl-cal__count {
+    font-size: 0.52rem;
   }
 
   .pnl-cal__weekday {
