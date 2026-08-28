@@ -57,8 +57,9 @@ describe("SettingsPage", () => {
 
   it("shows loading state when not hydrated", () => {
     resetStore({ hydrated: false });
-    render(<SettingsPage />);
+    const { container } = render(<SettingsPage />);
     expect(screen.getByText("Loading settings…")).toBeInTheDocument();
+    expect(container.querySelector(".page--settings")).toBeInTheDocument();
   });
 
   it("saves preset model and API key", async () => {

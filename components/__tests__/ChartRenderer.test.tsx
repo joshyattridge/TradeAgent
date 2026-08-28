@@ -70,8 +70,16 @@ vi.mock("recharts", () => {
     };
 
   return {
-    ResponsiveContainer: ({ children }: { children: React.ReactNode }) => (
-      <div data-testid="responsive-container">{children}</div>
+    ResponsiveContainer: ({
+      children,
+      height,
+    }: {
+      children: React.ReactNode;
+      height?: number;
+    }) => (
+      <div data-testid="responsive-container" data-height={height}>
+        {children}
+      </div>
     ),
     ComposedChart: passthrough("ComposedChart"),
     AreaChart: passthrough("AreaChart"),
@@ -184,6 +192,29 @@ describe("ChartRenderer", () => {
       "+$50.00",
       "Value",
     ]);
+    expect(screen.getByTestId("responsive-container")).toHaveAttribute(
+      "data-height",
+      "220",
+    );
+  });
+
+  it("renders a taller featured equity chart", () => {
+    const { container } = render(
+      <ChartRenderer
+        featured
+        chart={chart({
+          type: "equity",
+          id: "eq-featured",
+          valueUnit: "usd",
+          data: [{ id: "t1", label: "Jul 1", value: 150, x: 0 }],
+        })}
+      />,
+    );
+    expect(container.querySelector(".chart-panel--featured")).toBeInTheDocument();
+    expect(screen.getByTestId("responsive-container")).toHaveAttribute(
+      "data-height",
+      "380",
+    );
   });
 
   it("equity tooltip marks estimated $ points and labels from payload", () => {

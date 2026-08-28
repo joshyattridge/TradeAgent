@@ -9,8 +9,19 @@ import { seedTrades } from "@/lib/seed-data";
 import { useTradingStore } from "@/lib/store";
 
 vi.mock("@/components/ChartRenderer", () => ({
-  ChartRenderer: ({ chart }: { chart: { id: string; title?: string } }) => (
-    <div data-testid={`chart-${chart.id}`}>{chart.title ?? chart.id}</div>
+  ChartRenderer: ({
+    chart,
+    featured,
+  }: {
+    chart: { id: string; title?: string };
+    featured?: boolean;
+  }) => (
+    <div
+      data-testid={`chart-${chart.id}`}
+      data-featured={featured ? "true" : undefined}
+    >
+      {chart.title ?? chart.id}
+    </div>
   ),
 }));
 
@@ -52,6 +63,11 @@ describe("DashboardPage", () => {
     expect(screen.getByText("Losing streak odds")).toBeInTheDocument();
     expect(screen.getByText("Odds of a win soon")).toBeInTheDocument();
     expect(screen.getByText("Monte Carlo equity fan")).toBeInTheDocument();
+    expect(screen.getByText("Equity curve ($)")).toBeInTheDocument();
+    expect(screen.getByText("Equity curve ($)")).toHaveAttribute(
+      "data-featured",
+      "true",
+    );
     expect(
       screen.getByRole("region", { name: "Sample confidence" }),
     ).toBeInTheDocument();

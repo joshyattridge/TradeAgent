@@ -173,7 +173,7 @@ export default function SettingsPage() {
 
   if (!hydrated) {
     return (
-      <div className="page">
+      <div className="page page--settings">
         <p className="empty-note">Loading settings…</p>
       </div>
     );
@@ -182,7 +182,7 @@ export default function SettingsPage() {
   const connected = Boolean(savedKey);
 
   return (
-    <div className="page">
+    <div className="page page--settings">
       <section className="page-hero">
         <h1>Settings</h1>
         <p>

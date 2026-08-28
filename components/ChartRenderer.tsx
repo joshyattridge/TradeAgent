@@ -25,6 +25,9 @@ import { useTheme } from "@/components/ThemeProvider";
 import { readCssVar } from "@/lib/theme";
 import type { ChartPoint, ChartSpec } from "@/lib/types";
 
+const CHART_HEIGHT = 220;
+const FEATURED_CHART_HEIGHT = 380;
+
 /** Override Recharts defaults (#fff panel, #000 item text) with theme tokens. */
 const chartTooltipProps = {
   contentStyle: {
@@ -91,7 +94,7 @@ function ScatterBody({ chart, data }: { chart: ChartSpec; data: ChartPoint[] }) 
   }));
 
   return (
-    <ResponsiveContainer width="100%" height={220}>
+    <ResponsiveContainer width="100%" height={CHART_HEIGHT}>
       <ScatterChart margin={{ top: 8, right: 8, bottom: 4, left: 0 }}>
         <CartesianGrid stroke={grid} vertical={false} />
         <XAxis
@@ -165,7 +168,7 @@ function ScatterBody({ chart, data }: { chart: ChartSpec; data: ChartPoint[] }) 
 function LineBody({ chart, data }: { chart: ChartSpec; data: ChartPoint[] }) {
   const { teal, muted, grid, axisTick } = useChartPalette();
   return (
-    <ResponsiveContainer width="100%" height={220}>
+    <ResponsiveContainer width="100%" height={CHART_HEIGHT}>
       <LineChart data={data}>
         <CartesianGrid stroke={grid} vertical={false} />
         <XAxis
@@ -343,7 +346,7 @@ function BarBody({ chart, data }: { chart: ChartSpec; data: ChartPoint[] }) {
   const { muted, grid, axisTick } = palette;
   const hasCurrent = data.some((d) => d.current);
   return (
-    <ResponsiveContainer width="100%" height={220}>
+    <ResponsiveContainer width="100%" height={CHART_HEIGHT}>
       <BarChart data={data}>
         <CartesianGrid stroke={grid} vertical={false} />
         <XAxis
@@ -402,12 +405,90 @@ function BarBody({ chart, data }: { chart: ChartSpec; data: ChartPoint[] }) {
   );
 }
 
-export function ChartRenderer({ chart }: { chart: ChartSpec }) {
-  const { teal, coral, muted, grid, axisTick } = useChartPalette();
+function EquityBody({
+  chart,
+  data,
+  featured,
+}: {
+  chart: ChartSpec;
+  data: ChartPoint[];
+  featured?: boolean;
+}) {
+  const { teal, grid, axisTick } = useChartPalette();
+  const height = featured ? FEATURED_CHART_HEIGHT : CHART_HEIGHT;
+  const strokeWidth = featured ? 2.8 : 2.2;
+  const dotRadius = featured ? 4 : 3;
+  return (
+    <ResponsiveContainer width="100%" height={height}>
+      <AreaChart data={data}>
+        <defs>
+          <linearGradient id={`eq-${chart.id}`} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor={teal} stopOpacity={featured ? 0.42 : 0.35} />
+            <stop offset="100%" stopColor={teal} stopOpacity={0.02} />
+          </linearGradient>
+        </defs>
+        <CartesianGrid stroke={grid} vertical={false} />
+        {/*
+          Prefer sequential `x` so same-day trades never share a category
+          key (duplicate date labels used to collapse points in Recharts).
+        */}
+        <XAxis
+          dataKey={data.every((d) => d.id != null && d.id !== "") ? "id" : "label"}
+          type="category"
+          allowDuplicatedCategory
+          tick={axisTick}
+          axisLine={false}
+          tickLine={false}
+          tickFormatter={(_value, index) => data[index]?.label ?? String(_value ?? "")}
+          interval="preserveStartEnd"
+        />
+        <YAxis
+          tick={axisTick}
+          axisLine={false}
+          tickLine={false}
+          width={52}
+          tickFormatter={(v) => formatChartValue(v, chart.valueUnit)}
+        />
+        <Tooltip
+          {...chartTooltipProps}
+          labelFormatter={(_label, payload) => {
+            const point = payload?.[0]?.payload as ChartPoint | undefined;
+            return point?.label ?? "";
+          }}
+          formatter={(value, _name, item) => {
+            const point = item?.payload as ChartPoint | undefined;
+            const formatted = formatChartValue(value, chart.valueUnit);
+            const suffix = point?.estimated ? " (est.)" : "";
+            return [`${formatted}${suffix}`, chart.yLabel ?? "Value"];
+          }}
+        />
+        <Area
+          type="linear"
+          dataKey="value"
+          stroke={teal}
+          strokeWidth={strokeWidth}
+          fill={`url(#eq-${chart.id})`}
+          isAnimationActive={false}
+          dot={{ r: dotRadius, fill: teal, strokeWidth: 0 }}
+          activeDot={{ r: featured ? 6 : 5 }}
+        />
+      </AreaChart>
+    </ResponsiveContainer>
+  );
+}
+
+export function ChartRenderer({
+  chart,
+  featured = false,
+}: {
+  chart: ChartSpec;
+  featured?: boolean;
+}) {
+  const { teal, coral, muted } = useChartPalette();
   const data = chart.data ?? [];
 
   return (
-    <div className="chart-panel">
+    <div className={featured ? "chart-panel chart-panel--featured" : "chart-panel"}>
       <div className="chart-panel__head">
         <h3>{chart.title}</h3>
         {chart.description ? <p>{chart.description}</p> : null}
@@ -416,7 +497,7 @@ export function ChartRenderer({ chart }: { chart: ChartSpec }) {
         {data.length === 0 ? (
           <p className="empty-note">No data yet.</p>
         ) : chart.type === "winLoss" ? (
-          <ResponsiveContainer width="100%" height={220}>
+          <ResponsiveContainer width="100%" height={CHART_HEIGHT}>
             <PieChart>
               <Pie
                 data={data}
@@ -448,61 +529,7 @@ export function ChartRenderer({ chart }: { chart: ChartSpec }) {
           chart.type === "line" ? (
             <LineBody chart={chart} data={data} />
           ) : (
-            <ResponsiveContainer width="100%" height={220}>
-              <AreaChart data={data}>
-                <defs>
-                  <linearGradient id={`eq-${chart.id}`} x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor={teal} stopOpacity={0.35} />
-                    <stop offset="100%" stopColor={teal} stopOpacity={0.02} />
-                  </linearGradient>
-                </defs>
-                <CartesianGrid stroke={grid} vertical={false} />
-                {/*
-                  Prefer sequential `x` so same-day trades never share a category
-                  key (duplicate date labels used to collapse points in Recharts).
-                */}
-                <XAxis
-                  dataKey={data.every((d) => d.id != null && d.id !== "") ? "id" : "label"}
-                  type="category"
-                  allowDuplicatedCategory
-                  tick={axisTick}
-                  axisLine={false}
-                  tickLine={false}
-                  tickFormatter={(_value, index) => data[index]?.label ?? String(_value ?? "")}
-                  interval="preserveStartEnd"
-                />
-                <YAxis
-                  tick={axisTick}
-                  axisLine={false}
-                  tickLine={false}
-                  width={52}
-                  tickFormatter={(v) => formatChartValue(v, chart.valueUnit)}
-                />
-                <Tooltip
-                  {...chartTooltipProps}
-                  labelFormatter={(_label, payload) => {
-                    const point = payload?.[0]?.payload as ChartPoint | undefined;
-                    return point?.label ?? "";
-                  }}
-                  formatter={(value, _name, item) => {
-                    const point = item?.payload as ChartPoint | undefined;
-                    const formatted = formatChartValue(value, chart.valueUnit);
-                    const suffix = point?.estimated ? " (est.)" : "";
-                    return [`${formatted}${suffix}`, chart.yLabel ?? "Value"];
-                  }}
-                />
-                <Area
-                  type="linear"
-                  dataKey="value"
-                  stroke={teal}
-                  strokeWidth={2.2}
-                  fill={`url(#eq-${chart.id})`}
-                  isAnimationActive={false}
-                  dot={{ r: 3, fill: teal, strokeWidth: 0 }}
-                  activeDot={{ r: 5 }}
-                />
-              </AreaChart>
-            </ResponsiveContainer>
+            <EquityBody chart={chart} data={data} featured={featured} />
           )
         ) : chart.type === "scatter" ? (
           <ScatterBody chart={chart} data={data} />

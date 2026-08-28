@@ -107,9 +107,13 @@ export default function DashboardPage() {
         </div>
       </section>
 
-      <section className="grid-2">
-        <ChartRenderer chart={equity} />
+      <section>
+        <ChartRenderer chart={equity} featured />
+      </section>
+
+      <section className="grid-2" style={{ marginTop: "1rem" }}>
         <ChartRenderer chart={winLoss} />
+        <ChartRenderer chart={bySymbol} />
       </section>
 
       <section className="grid-2" style={{ marginTop: "1rem" }}>
@@ -119,10 +123,6 @@ export default function DashboardPage() {
 
       <section style={{ marginTop: "1rem" }}>
         <ChartRenderer chart={equityFan} />
-      </section>
-
-      <section style={{ marginTop: "1rem" }}>
-        <ChartRenderer chart={bySymbol} />
       </section>
 
       <section style={{ marginTop: "1rem" }}>
