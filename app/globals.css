@@ -748,7 +748,7 @@ textarea {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 1.5rem;
+  padding: 1.5rem 3.75rem;
   animation: fade-backdrop 0.2s ease both;
 }
 
@@ -789,6 +789,16 @@ textarea {
   text-transform: uppercase;
   letter-spacing: 0.08em;
   color: var(--teal-deep);
+  display: flex;
+  align-items: baseline;
+  gap: 0.65rem;
+}
+
+.trade-detail__nav-label {
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
 }
 
 .trade-detail__header h2 {
@@ -941,6 +951,47 @@ textarea {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+}
+
+.trade-detail__nav {
+  position: absolute;
+  top: 50%;
+  z-index: 90;
+  width: 2.85rem;
+  height: 2.85rem;
+  border: none;
+  border-radius: 999px;
+  background: var(--ink);
+  color: var(--paper);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transform: translateY(-50%);
+  box-shadow: var(--float-shadow);
+}
+
+.trade-detail__nav--prev {
+  left: 0.7rem;
+}
+
+.trade-detail__nav--next {
+  right: 0.7rem;
+}
+
+.trade-detail__nav:hover:not(:disabled) {
+  background: var(--btn-hover);
+  color: var(--paper);
+}
+
+.trade-detail__nav:focus-visible {
+  outline: 2px solid var(--teal);
+  outline-offset: 2px;
+}
+
+.trade-detail__nav:disabled {
+  opacity: 0.35;
+  cursor: default;
 }
 
 .trade-detail__notes {
@@ -1163,7 +1214,7 @@ textarea {
   }
 
   .trade-detail-backdrop {
-    padding: 0.75rem;
+    padding: 0.75rem 2.85rem;
     align-items: center;
   }
 

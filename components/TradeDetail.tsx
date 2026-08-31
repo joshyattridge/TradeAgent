@@ -1,8 +1,17 @@
 "use client";
 
-import { useEffect, useState, type ChangeEvent } from "react";
+import { useEffect, useRef, useState, type ChangeEvent } from "react";
 import { createPortal } from "react-dom";
-import { Check, Eye, EyeOff, MessageSquare, Trash2, X } from "lucide-react";
+import {
+  Check,
+  ChevronLeft,
+  ChevronRight,
+  Eye,
+  EyeOff,
+  MessageSquare,
+  Trash2,
+  X,
+} from "lucide-react";
 import { checklistDisplayRows } from "@/lib/checklist";
 import { useTradingStore } from "@/lib/store";
 import type { Trade, TradeResult, TradeSide } from "@/lib/types";
@@ -52,12 +61,54 @@ function numberInputValue(value: number | undefined): string {
   return value == null || !Number.isFinite(value) ? "" : String(value);
 }
 
+function isEditableTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  const tag = target.tagName;
+  return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT";
+}
+
+function TradeNavButton({
+  direction,
+  disabled,
+  onClick,
+}: {
+  direction: "prev" | "next";
+  disabled: boolean;
+  onClick: () => void;
+}) {
+  const Icon = direction === "prev" ? ChevronLeft : ChevronRight;
+  return (
+    <button
+      type="button"
+      className={`trade-detail__nav trade-detail__nav--${direction}`}
+      onClick={(e) => {
+        e.stopPropagation();
+        onClick();
+      }}
+      disabled={disabled}
+      aria-label={direction === "prev" ? "Previous trade" : "Next trade"}
+    >
+      <Icon size={22} />
+    </button>
+  );
+}
+
 export function TradeDetail({
   trade: tradeProp,
   onClose,
+  onPrev,
+  onNext,
+  hasPrev = false,
+  hasNext = false,
+  navLabel,
 }: {
   trade: Trade;
   onClose: () => void;
+  onPrev?: () => void;
+  onNext?: () => void;
+  hasPrev?: boolean;
+  hasNext?: boolean;
+  navLabel?: string;
 }) {
   const deleteTrade = useTradingStore((s) => s.deleteTrade);
   const updateTrade = useTradingStore((s) => s.updateTrade);
@@ -73,9 +124,16 @@ export function TradeDetail({
   );
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [mounted, setMounted] = useState(false);
-  const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
+  const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   const [tagDraft, setTagDraft] = useState((trade.tags ?? []).join(", "));
   const [notesDraft, setNotesDraft] = useState(trade.notes ?? "");
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const canNavigate = Boolean(onPrev || onNext);
+  const screenshots = trade.screenshots ?? [];
+  const lightboxSrc =
+    lightboxIndex != null && screenshots[lightboxIndex]
+      ? screenshots[lightboxIndex]
+      : null;
 
   useEffect(() => {
     setMounted(true);
@@ -83,12 +141,26 @@ export function TradeDetail({
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      if (e.key !== "Escape") return;
-      if (lightboxSrc) {
-        setLightboxSrc(null);
+      if (e.key === "Escape") {
+        if (lightboxSrc) {
+          setLightboxIndex(null);
+          return;
+        }
+        onClose();
         return;
       }
-      onClose();
+      if (!canNavigate || isEditableTarget(e.target) || e.metaKey || e.ctrlKey || e.altKey) {
+        return;
+      }
+      if (e.key === "ArrowLeft" && hasPrev && onPrev) {
+        e.preventDefault();
+        onPrev();
+        return;
+      }
+      if (e.key === "ArrowRight" && hasNext && onNext) {
+        e.preventDefault();
+        onNext();
+      }
     }
     window.addEventListener("keydown", onKey);
     const prev = document.body.style.overflow;
@@ -97,13 +169,17 @@ export function TradeDetail({
       window.removeEventListener("keydown", onKey);
       document.body.style.overflow = prev;
     };
-  }, [onClose, lightboxSrc]);
+  }, [onClose, lightboxSrc, canNavigate, hasPrev, hasNext, onPrev, onNext]);
 
   useEffect(() => {
     setConfirmDelete(false);
-    setLightboxSrc(null);
     setTagDraft((trade.tags ?? []).join(", "));
     setNotesDraft(trade.notes ?? "");
+    bodyRef.current?.scrollTo(0, 0);
+    setLightboxIndex((idx) => {
+      if (idx == null) return null;
+      return (trade.screenshots ?? []).length ? 0 : null;
+    });
   }, [trade.id]);
 
   useEffect(() => {
@@ -210,7 +286,12 @@ export function TradeDetail({
       >
         <header className="trade-detail__header">
           <div>
-            <p className="trade-detail__eyebrow">Trade detail</p>
+            <p className="trade-detail__eyebrow">
+              Trade detail
+              {navLabel ? (
+                <span className="trade-detail__nav-label">{navLabel}</span>
+              ) : null}
+            </p>
             <h2 className="trade-detail__title-edit">
               <input
                 className="trade-detail__input trade-detail__input--title"
@@ -242,7 +323,7 @@ export function TradeDetail({
           </button>
         </header>
 
-        <div className="trade-detail__body">
+        <div className="trade-detail__body" ref={bodyRef}>
           <div className="trade-detail__status">
             <select
               className={`trade-detail__input trade-detail__input--select ${badgeClass(trade.result)}`}
@@ -482,7 +563,7 @@ export function TradeDetail({
                     type="button"
                     className="trade-detail__shot-btn"
                     key={`${trade.id}-shot-${i}`}
-                    onClick={() => setLightboxSrc(src)}
+                    onClick={() => setLightboxIndex(i)}
                     aria-label={`View trade chart ${i + 1} full screen`}
                   >
                     {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -571,7 +652,7 @@ export function TradeDetail({
           aria-label="Screenshot"
           onClick={(e) => {
             e.stopPropagation();
-            setLightboxSrc(null);
+            setLightboxIndex(null);
           }}
         >
           <button
@@ -580,7 +661,7 @@ export function TradeDetail({
             aria-label="Close screenshot"
             onClick={(e) => {
               e.stopPropagation();
-              setLightboxSrc(null);
+              setLightboxIndex(null);
             }}
           >
             <X size={18} />
@@ -592,6 +673,20 @@ export function TradeDetail({
             onClick={(e) => e.stopPropagation()}
           />
         </div>
+      ) : null}
+      {canNavigate ? (
+        <>
+          <TradeNavButton
+            direction="prev"
+            disabled={!hasPrev}
+            onClick={() => onPrev?.()}
+          />
+          <TradeNavButton
+            direction="next"
+            disabled={!hasNext}
+            onClick={() => onNext?.()}
+          />
+        </>
       ) : null}
     </div>,
     document.body,

@@ -288,7 +288,19 @@ export function TradeTable({ trades }: { trades: Trade[] }) {
     });
   }, [trades, sortColumn, sortDir]);
 
-  const selected = sortedTrades.find((t) => t.id === selectedId) ?? null;
+  const selectedIndex = selectedId
+    ? sortedTrades.findIndex((t) => t.id === selectedId)
+    : -1;
+  const selected = sortedTrades[selectedIndex] ?? null;
+  const canNavigate = sortedTrades.length > 1;
+
+  function onSelectOffset(offset: number) {
+    const nextIndex = Math.max(
+      0,
+      Math.min(sortedTrades.length - 1, selectedIndex + offset),
+    );
+    setSelectedId(sortedTrades[nextIndex].id);
+  }
 
   function onReferenceTrade(id: string) {
     addChatReferencedTradeId(id);
@@ -441,7 +453,15 @@ export function TradeTable({ trades }: { trades: Trade[] }) {
       </div>
 
       {selected ? (
-        <TradeDetail trade={selected} onClose={() => setSelectedId(null)} />
+        <TradeDetail
+          trade={selected}
+          onClose={() => setSelectedId(null)}
+          onPrev={canNavigate ? () => onSelectOffset(-1) : undefined}
+          onNext={canNavigate ? () => onSelectOffset(1) : undefined}
+          hasPrev={selectedIndex > 0}
+          hasNext={selectedIndex >= 0 && selectedIndex < sortedTrades.length - 1}
+          navLabel={`${selectedIndex + 1} of ${sortedTrades.length}`}
+        />
       ) : null}
     </div>
   );

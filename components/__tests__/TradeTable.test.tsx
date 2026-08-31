@@ -1,5 +1,5 @@
 /** @vitest-environment jsdom */
-import { cleanup, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { TradeTable, compareSortValues } from "@/components/TradeTable";
@@ -27,12 +27,39 @@ vi.mock("@/lib/store", () => ({
 }));
 
 vi.mock("@/components/TradeDetail", () => ({
-  TradeDetail: ({ trade, onClose }: { trade: Trade; onClose: () => void }) => (
+  TradeDetail: ({
+    trade,
+    onClose,
+    onPrev,
+    onNext,
+    hasPrev,
+    hasNext,
+    navLabel,
+  }: {
+    trade: Trade;
+    onClose: () => void;
+    onPrev?: () => void;
+    onNext?: () => void;
+    hasPrev?: boolean;
+    hasNext?: boolean;
+    navLabel?: string;
+  }) => (
     <div data-testid="trade-detail">
       <span>{trade.symbol}</span>
+      {navLabel ? <span>{navLabel}</span> : null}
       <button type="button" onClick={onClose}>
         Close detail
       </button>
+      {onPrev ? (
+        <button type="button" onClick={onPrev} disabled={!hasPrev}>
+          Previous trade
+        </button>
+      ) : null}
+      {onNext ? (
+        <button type="button" onClick={onNext} disabled={!hasNext}>
+          Next trade
+        </button>
+      ) : null}
     </div>
   ),
 }));
@@ -227,6 +254,55 @@ describe("TradeTable", () => {
     firstRow.focus();
     await user.keyboard("{Tab}");
     expect(screen.queryByTestId("trade-detail")).not.toBeInTheDocument();
+  });
+
+  it("steps through sorted trades from the open detail without closing", async () => {
+    const user = userEvent.setup();
+    render(<TradeTable trades={trades} />);
+
+    const firstRow = screen.getByText("MISS").closest("tr")!;
+    await user.click(firstRow);
+    expect(screen.getByTestId("trade-detail")).toHaveTextContent("MISS");
+    expect(screen.getByTestId("trade-detail")).toHaveTextContent("1 of 5");
+    expect(screen.getByRole("button", { name: "Previous trade" })).toBeDisabled();
+
+    await user.click(screen.getByRole("button", { name: "Next trade" }));
+    expect(screen.getByTestId("trade-detail")).toHaveTextContent("MID");
+    expect(screen.getByTestId("trade-detail")).toHaveTextContent("2 of 5");
+
+    await user.click(screen.getByRole("button", { name: "Previous trade" }));
+    expect(screen.getByTestId("trade-detail")).toHaveTextContent("MISS");
+
+    const lastRow = screen.getByText("OPEN").closest("tr")!;
+    await user.click(lastRow);
+    expect(screen.getByTestId("trade-detail")).toHaveTextContent("OPEN");
+    expect(screen.getByRole("button", { name: "Next trade" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Previous trade" })).not.toBeDisabled();
+  });
+
+  it("omits trade nav when only one trade is in the table", async () => {
+    const user = userEvent.setup();
+    render(<TradeTable trades={[trades[0]]} />);
+    await user.click(screen.getByText("AAA").closest("tr")!);
+    expect(screen.getByTestId("trade-detail")).toHaveTextContent("AAA");
+    expect(screen.getByTestId("trade-detail")).toHaveTextContent("1 of 1");
+    expect(screen.queryByRole("button", { name: "Previous trade" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Next trade" })).not.toBeInTheDocument();
+  });
+
+  it("ignores prev/next when already at the ends of the list", async () => {
+    const user = userEvent.setup();
+    render(<TradeTable trades={trades} />);
+
+    await user.click(screen.getByText("MISS").closest("tr")!);
+    fireEvent.click(screen.getByRole("button", { name: "Previous trade" }));
+    expect(screen.getByTestId("trade-detail")).toHaveTextContent("MISS");
+    expect(screen.getByTestId("trade-detail")).toHaveTextContent("1 of 5");
+
+    await user.click(screen.getByText("OPEN").closest("tr")!);
+    fireEvent.click(screen.getByRole("button", { name: "Next trade" }));
+    expect(screen.getByTestId("trade-detail")).toHaveTextContent("OPEN");
+    expect(screen.getByTestId("trade-detail")).toHaveTextContent("5 of 5");
   });
 
   it("references a trade in chat from the row bubble and can hide/unhide", async () => {

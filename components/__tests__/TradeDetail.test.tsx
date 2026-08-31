@@ -350,6 +350,153 @@ describe("TradeDetail", () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
+  it("hides trade nav arrows when prev/next handlers are omitted", async () => {
+    render(<TradeDetail trade={sampleTrade()} onClose={vi.fn()} />);
+    await screen.findByRole("dialog", { name: /trade details/i });
+    expect(screen.queryByRole("button", { name: "Previous trade" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Next trade" })).not.toBeInTheDocument();
+  });
+
+  it("steps to adjacent trades with arrows and keyboard, but not while typing", async () => {
+    const user = userEvent.setup();
+    const onPrev = vi.fn();
+    const onNext = vi.fn();
+    const onClose = vi.fn();
+    render(
+      <TradeDetail
+        trade={sampleTrade()}
+        onClose={onClose}
+        onPrev={onPrev}
+        onNext={onNext}
+        hasPrev
+        hasNext
+        navLabel="2 of 4"
+      />,
+    );
+    await screen.findByRole("dialog", { name: /trade details/i });
+    expect(screen.getByText("2 of 4")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Next trade" }));
+    expect(onNext).toHaveBeenCalledTimes(1);
+    expect(onClose).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole("button", { name: "Previous trade" }));
+    expect(onPrev).toHaveBeenCalledTimes(1);
+
+    fireEvent.keyDown(window, { key: "ArrowRight" });
+    expect(onNext).toHaveBeenCalledTimes(2);
+    fireEvent.keyDown(window, { key: "ArrowLeft" });
+    expect(onPrev).toHaveBeenCalledTimes(2);
+
+    screen.getByLabelText("Symbol").focus();
+    fireEvent.keyDown(screen.getByLabelText("Symbol"), { key: "ArrowRight" });
+    fireEvent.keyDown(screen.getByLabelText("Notes"), { key: "ArrowLeft" });
+    fireEvent.keyDown(screen.getByLabelText("Result"), { key: "ArrowRight" });
+    expect(onNext).toHaveBeenCalledTimes(2);
+    expect(onPrev).toHaveBeenCalledTimes(2);
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it("disables nav arrows at the ends of the list", async () => {
+    const onPrev = vi.fn();
+    const onNext = vi.fn();
+    const { rerender } = render(
+      <TradeDetail
+        trade={sampleTrade()}
+        onClose={vi.fn()}
+        onPrev={onPrev}
+        onNext={onNext}
+        hasPrev={false}
+        hasNext
+      />,
+    );
+    await screen.findByRole("dialog", { name: /trade details/i });
+    expect(screen.getByRole("button", { name: "Previous trade" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Next trade" })).not.toBeDisabled();
+
+    fireEvent.keyDown(window, { key: "ArrowLeft" });
+    expect(onPrev).not.toHaveBeenCalled();
+    fireEvent.keyDown(window, { key: "ArrowRight" });
+    expect(onNext).toHaveBeenCalledTimes(1);
+
+    rerender(
+      <TradeDetail
+        trade={sampleTrade()}
+        onClose={vi.fn()}
+        onPrev={onPrev}
+        onNext={onNext}
+        hasPrev
+        hasNext={false}
+      />,
+    );
+    expect(screen.getByRole("button", { name: "Previous trade" })).not.toBeDisabled();
+    expect(screen.getByRole("button", { name: "Next trade" })).toBeDisabled();
+
+    onNext.mockClear();
+    fireEvent.keyDown(window, { key: "ArrowRight" });
+    expect(onNext).not.toHaveBeenCalled();
+  });
+
+  it("keeps the screenshot lightbox open when the next trade has a chart", async () => {
+    const user = userEvent.setup();
+    const onNext = vi.fn();
+    const { rerender } = render(
+      <TradeDetail
+        trade={sampleTrade({ screenshots: ["https://example.com/a.png"] })}
+        onClose={vi.fn()}
+        onPrev={vi.fn()}
+        onNext={onNext}
+        hasPrev={false}
+        hasNext
+      />,
+    );
+    await screen.findByRole("dialog", { name: /trade details/i });
+    await user.click(screen.getByRole("button", { name: /full screen/i }));
+    expect(screen.getByAltText("Trade screenshot")).toHaveAttribute(
+      "src",
+      "https://example.com/a.png",
+    );
+
+    await user.click(screen.getByRole("button", { name: "Next trade" }));
+    expect(onNext).toHaveBeenCalledTimes(1);
+
+    rerender(
+      <TradeDetail
+        trade={sampleTrade({
+          id: "t2",
+          symbol: "GBPUSD",
+          screenshots: ["https://example.com/b.png"],
+        })}
+        onClose={vi.fn()}
+        onPrev={vi.fn()}
+        onNext={onNext}
+        hasPrev
+        hasNext={false}
+      />,
+    );
+    expect(screen.getByRole("dialog", { name: "Screenshot" })).toBeInTheDocument();
+    expect(screen.getByAltText("Trade screenshot")).toHaveAttribute(
+      "src",
+      "https://example.com/b.png",
+    );
+
+    rerender(
+      <TradeDetail
+        trade={sampleTrade({
+          id: "t3",
+          symbol: "USDJPY",
+          screenshots: undefined,
+        })}
+        onClose={vi.fn()}
+        onPrev={vi.fn()}
+        onNext={onNext}
+        hasPrev
+        hasNext={false}
+      />,
+    );
+    expect(screen.queryByRole("dialog", { name: "Screenshot" })).not.toBeInTheDocument();
+  });
+
   it("edits remaining trade fields, tags, notes, and chat reference", async () => {
     const user = userEvent.setup();
     const onClose = vi.fn();
