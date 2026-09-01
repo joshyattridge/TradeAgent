@@ -53,6 +53,7 @@ describe("Nav", () => {
 
     expectActive("Dashboard");
     expectInactive("Trading Logs");
+    expectInactive("Gallery");
     expectInactive("Strategy");
     expectInactive("Calculator");
     expectInactive("Settings");
@@ -64,6 +65,19 @@ describe("Nav", () => {
 
     expectInactive("Dashboard");
     expectActive("Trading Logs");
+    expectInactive("Gallery");
+    expectInactive("Strategy");
+    expectInactive("Calculator");
+    expectInactive("Settings");
+  });
+
+  it("marks Gallery active on /gallery", () => {
+    mockUsePathname.mockReturnValue("/gallery");
+    render(<Nav />);
+
+    expectInactive("Dashboard");
+    expectInactive("Trading Logs");
+    expectActive("Gallery");
     expectInactive("Strategy");
     expectInactive("Calculator");
     expectInactive("Settings");
@@ -75,6 +89,7 @@ describe("Nav", () => {
 
     expectInactive("Dashboard");
     expectInactive("Trading Logs");
+    expectInactive("Gallery");
     expectActive("Strategy");
     expectInactive("Calculator");
     expectInactive("Settings");
@@ -86,6 +101,7 @@ describe("Nav", () => {
 
     expectInactive("Dashboard");
     expectInactive("Trading Logs");
+    expectInactive("Gallery");
     expectInactive("Strategy");
     expectActive("Calculator");
     expectInactive("Settings");
@@ -97,6 +113,7 @@ describe("Nav", () => {
 
     expectInactive("Dashboard");
     expectInactive("Trading Logs");
+    expectInactive("Gallery");
     expectInactive("Strategy");
     expectInactive("Calculator");
     expectActive("Settings");
@@ -108,6 +125,19 @@ describe("Nav", () => {
 
     expectInactive("Dashboard");
     expectActive("Trading Logs");
+    expectInactive("Gallery");
+    expectInactive("Strategy");
+    expectInactive("Calculator");
+    expectInactive("Settings");
+  });
+
+  it("marks Gallery active for nested /gallery/foo paths", () => {
+    mockUsePathname.mockReturnValue("/gallery/foo");
+    render(<Nav />);
+
+    expectInactive("Dashboard");
+    expectInactive("Trading Logs");
+    expectActive("Gallery");
     expectInactive("Strategy");
     expectInactive("Calculator");
     expectInactive("Settings");
@@ -118,6 +148,7 @@ describe("Nav", () => {
     render(<Nav />);
 
     expectInactive("Dashboard");
+    expectInactive("Gallery");
     expectActive("Settings");
   });
 
